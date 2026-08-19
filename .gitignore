@@ -1,0 +1,18 @@
+# Secrets and local configuration
+.env
+.env.*
+!*.example
+*.token
+*.tokens
+*secret*
+*credential*
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Local test output
+coverage/
+node_modules/
