@@ -5,7 +5,7 @@
  */
 const MSC = {
   api: 'https://api.moysklad.ru/api/remap/1.2', pageSize: 1000, everyMinutes: 15,
-  sheets: ['телефоны', 'макбуки', 'айпады', 'часы', 'наушники', 'пс', 'дайсон', 'аймаки'],
+  sheets: ['телефоны', 'аксессуары', 'макбуки', 'айпады', 'часы', 'наушники', 'пс', 'дайсон', 'аймаки'],
   props: { project: 'MSC_PROJECT', token: 'MSC_TOKEN', last: 'MSC_LAST', status: 'MSC_STATUS' }
 };
 
@@ -85,9 +85,12 @@ function mscItem_(item) {
 }
 function mscJoinParts_(parts) {
   const seen = {}, out = [];
-  parts.forEach(function(part) { const value = String(part || '').trim(), key = mscNorm_(value); if (value && !seen[key]) { seen[key] = true; out.push(value); } });
+  parts.forEach(function(part) { const value = mscCleanName_(part), key = mscNorm_(value); if (value && !seen[key]) { seen[key] = true; out.push(value); } });
   return out.join(' ');
 }
+// Решётка в начале — служебная пометка в номенклатуре, а не часть названия
+// товара; в каталог её не выводим.
+function mscCleanName_(value) { return String(value || '').replace(/^\s*#+\s*/, '').trim(); }
 function mscCharacteristicsText_(item) {
   const values = [];
   (item.characteristics || []).forEach(function(characteristic) {
@@ -104,8 +107,22 @@ function mscCharacteristicsText_(item) {
 }
 function mscPrice_(prices) { const value = prices && prices.length ? Number(prices[0].value || 0) : 0; return value ? value / 100 : ''; }
 function mscPlausiblePrice_(category, price) { return Number(price) >= (category === 'телефоны' ? 1000 : 1); }
-function mscIsAccessory_(value) { return /чехол|case\b|cover\b|стекло|пленк|кабель|зарядк|адаптер|держател|ремеш|клавиатур|мышь|защитн|access\b|type\s*-?\s*c|magsafe|пауэрбанк|power\s*bank|переходник|хаб\b/.test(mscNorm_(value)); }
-function mscCategory_(value) { const v = mscNorm_(value); if (/airpods|earpods|наушник|headphone|гарнитур|колонк/.test(v)) return 'наушники'; if (mscIsAccessory_(v)) return 'телефоны'; if (/iphone|galaxy|pixel|xiaomi|samsung|honor|huawei|oneplus|realme/.test(v)) return 'телефоны'; if (/macbook/.test(v)) return 'макбуки'; if (/ipad/.test(v)) return 'айпады'; if (/watch/.test(v)) return 'часы'; if (/playstation|\bps[345]\b|xbox/.test(v)) return 'пс'; if (/dyson/.test(v)) return 'дайсон'; if (/imac/.test(v)) return 'аймаки'; return 'прочее'; }
+function mscIsAccessory_(value) { return /чехол|кейс|бампер|накладк|футляр|case\b|cover\b|стекло|пленк|глазур|кабель|cable|зарядн|charger|сзу|блок\s*питан|адаптер|держател|ремеш|клавиатур|мышь|защитн|access\b|type\s*-?\s*c|magsafe|пауэрбанк|power\s*bank|переходник|хаб\b|док-станц|dock|контроллер|геймпад|джойстик|руль|игровой\s+аксессуар/.test(mscNorm_(value)); }
+function mscHasMemory_(value) { return /(?:\d{1,2}\s*\/\s*)?\d{2,4}\s*(?:гб|gb|тб|tb)\b/i.test(String(value || '')); }
+function mscCategory_(value) {
+  const v = mscNorm_(value);
+  // Проверяем аксессуар раньше названия совместимого устройства: «чехол для
+  // AirPods» — не наушники.
+  if (mscIsAccessory_(v)) return 'аксессуары';
+  if (/airpods|earpods|galaxy\s+(?:buds|ring)\b|наушник|headphone|гарнитур|колонк/.test(v)) return 'наушники';
+  if (/\bwatch\b|часы/.test(v)) return 'часы';
+  // В прайсе Samsung позиции без объёма памяти — это носимые устройства, а
+  // не телефоны; Watch уже направлен выше, остальные идут в «наушники».
+  if (/\b(?:galaxy|samsung)\b/.test(v) && !mscHasMemory_(v)) return 'наушники';
+  if (/iphone|galaxy|pixel|xiaomi|samsung|honor|huawei|oneplus|realme/.test(v)) return 'телефоны';
+  if (/macbook/.test(v)) return 'макбуки'; if (/ipad/.test(v)) return 'айпады';
+  if (/playstation|\bps[345]\b|xbox/.test(v)) return 'пс'; if (/dyson/.test(v)) return 'дайсон'; if (/imac/.test(v)) return 'аймаки'; return 'прочее';
+}
 function mscNorm_(value) { return String(value || '').trim().toLocaleLowerCase('ru-RU'); }
 
 function mscWrite_(sheet, products) {
@@ -124,7 +141,7 @@ function mscWrite_(sheet, products) {
     // dropdown validations must not reject a new model, country or memory.
     target.clearDataValidations();
     target.clearContent();
-    if (data.length) { sheet.getRange(2, layout.start + 1, data.length, width).setValues(data); sheet.getRange(2, layout.price + 1, data.length, 1).setNumberFormat('#,##0'); written += data.length; }
+    if (data.length) { sheet.getRange(2, layout.start + 1, data.length, width).setValues(data); sheet.getRange(2, layout.price + 1, data.length, 1).setNumberFormat('0'); written += data.length; }
   });
   return written;
 }
@@ -159,17 +176,23 @@ function mscLayout_(layouts, product) {
 }
 function mscIsIphoneHandset_(value) {
   const title = String(value || '').trim();
-  return !mscIsAccessory_(title) && /^(?:(?:\(?asis\)?|новый|новое|б\/у)\s+)?iphone\s+(?:air\b|\d{1,2}e?(?:\s+(?:mini|plus|air|pro(?:\s+max)?))?\b)/i.test(title);
+  // В МоемСкладе состояние нередко добавляется перед моделью: «(Active)
+  // iPhone 17». Это всё равно телефон Apple, не аксессуар.
+  return !mscIsAccessory_(title) && /^(?:(?:\([^)]*\)|asis|новый|новое|б\/у)\s+)*iphone\s+(?:air\b|\d{1,2}e?(?:\s+(?:mini|plus|air|pro(?:\s+max)?))?\b)/i.test(title);
 }
 function mscRow_(layout, product) {
   const row = Array(layout.price - layout.start + 1).fill(''), info = mscPhone_(product.name), at = function(column, value) { if (column >= layout.start && column <= layout.price) row[column - layout.start] = value; };
   // An accessory title may mention the compatible iPhone model. Keep its full
   // title visible instead of turning "Чехол для iPhone 17" into "iPhone 17".
   const shortIphoneMention = /^iphone\s/i.test(String(info.model || '')) && !mscIsIphoneHandset_(product.name);
-  if (layout.title >= 0) at(layout.title, product.name); if (layout.model >= 0) at(layout.model, shortIphoneMention ? product.name : (info.model || product.name)); if (layout.memory >= 0) at(layout.memory, info.memory); if (layout.ram >= 0) at(layout.ram, info.ram); if (layout.color >= 0) at(layout.color, info.color); if (layout.sim >= 0) at(layout.sim, info.sim); if (layout.country >= 0) at(layout.country, info.country); at(layout.price, product.price); return row;
+  if (layout.title >= 0) at(layout.title, product.name); if (layout.model >= 0) at(layout.model, shortIphoneMention ? product.name : mscDisplayModel_(product.name, info.model)); if (layout.memory >= 0) at(layout.memory, info.memory); if (layout.ram >= 0) at(layout.ram, info.ram); if (layout.color >= 0) at(layout.color, info.color); if (layout.sim >= 0) at(layout.sim, info.sim); if (layout.country >= 0) at(layout.country, info.country); at(layout.price, product.price); return row;
+}
+function mscDisplayModel_(name, parsedModel) {
+  const prefix = /^\s*(\([^)]*\))\s*/.exec(String(name || ''));
+  return prefix && parsedModel ? prefix[1] + ' ' + parsedModel : (parsedModel || name);
 }
 function mscPhone_(value) {
-  const text = String(value || ''), model = /(iphone\s+(?:air|\d+(?:e|\s+(?:air|pro\s*max|pro|plus|mini))?)|galaxy\s+(?:s|a|z|m)\d+(?:\+|\s+(?:ultra|fe|plus))?|pixel\s+\d+(?:[a-z])?(?:\s+(?:pro|xl))?|honor\s+[\w-]+)/i.exec(text), specs = /(\d{1,2})\s*\/\s*(\d{2,4})\s*(гб|gb|тб|tb)/i.exec(text), memory = specs ? null : /(?:^|\s)(\d{1,4})\s?(гб|gb|тб|tb)(?=\s|$)/i.exec(text), sim = /sim\s*\+\s*e\s*-?sim/i.test(text) ? 'SIM + eSIM' : /e\s*-?sim/i.test(text) ? 'eSIM' : /\bsim\b/i.test(text) ? 'SIM' : '';
+  const text = String(value || ''), model = /(iphone\s+(?:air|\d+(?:e|\s+(?:air|pro\s*max|pro|plus|mini))?)|galaxy\s+(?:s|a|z|m)\d+(?:\+|\s+(?:ultra|fe|plus))?|pixel\s+\d+(?:[a-z])?(?:\s+(?:pro|xl))?|honor\s+[\w-]+)/i.exec(text), specs = /(\d{1,2})\s*\/\s*(\d{2,4})\s*(гб|gb|тб|tb)/i.exec(text), memory = specs ? null : /(?:^|[\s(,])(\d{1,4})\s?(гб|gb|тб|tb)(?=\s|$|[,;)])/i.exec(text), sim = /sim\s*\+\s*e\s*-?sim/i.test(text) ? 'SIM + eSIM' : /e\s*-?sim/i.test(text) ? 'eSIM' : /\bsim\b/i.test(text) ? 'SIM' : '';
   const unit = function(amount, suffix) { return amount + ' ' + suffix.toUpperCase().replace('GB','ГБ').replace('TB','ТБ'); };
   return { model: model && model[1] || '', memory: specs ? unit(specs[2], specs[3]) : memory ? unit(memory[1], memory[2]) : '', ram: specs ? unit(specs[1], 'GB') : '', color: mscColor_(text), sim: sim, country: mscCountry_(text) };
 }
@@ -196,7 +219,17 @@ function mscColor_(value) {
   ];
   const padded = ' ' + v + ' ';
   const hit = pairs.find(function(pair) { return padded.indexOf(' ' + pair[0] + ' ') >= 0; });
-  return hit ? hit[1] : '';
+  return hit ? mscAvitoColor_(v, hit[1]) : '';
+}
+// Значения Color сверяются с эталонной автозагрузкой Avito. Фирменное имя
+// сохраняется в названии товара, а в отдельную колонку попадает только цвет
+// из списка Avito; для синего учитывается конкретная модель.
+function mscAvitoColor_(source, detected) {
+  const v = mscColorKey_(source);
+  if (/iphone\s+(?:14(?:\s+plus)?|15(?!\s+pro\b)(?:\s+plus)?|16(?!\s+pro\b)(?:\s+plus)?|air|17(?!\s+pro\b))/i.test(v) && /\b(?:blue|ultramarine|teal|sky blue|bay)\b/i.test(v)) return 'голубой';
+  const pairs = [['натуральный','серый'],['серый космос','серый'],['графитовый','черный'],['угольный','черный'],['обсидиан','черный'],['титан','серый'],['пустынный','золотистый'],['кремовый','бежевый'],['ореховый','бежевый'],['фарфоровый','белый'],['сияющая звезда','белый'],['темно фиолетовый','фиолетовый'],['лавандовый','фиолетовый'],['ультрамарин','голубой'],['бирюзовый','голубой'],['индиго','синий'],['полночный','черный'],['темно зеленый','зеленый'],['зимний зеленый','зеленый'],['шалфейный','зеленый'],['мятный','зеленый'],['алоэ','зеленый'],['розовое золото','розовый'],['коралловый','розовый'],['пионовый','розовый'],['лимонный','желтый']];
+  const hit = pairs.find(function(pair) { return mscColorKey_(detected) === pair[0]; });
+  return hit ? hit[1] : mscColorKey_(detected);
 }
 function mscProductSort_(left, right) { const a = mscPhone_(left.name), b = mscPhone_(right.name), ar = mscIphoneRank_(a.model), br = mscIphoneRank_(b.model); if (ar && br) { for (let i = 0; i < ar.length; i++) if (ar[i] !== br[i]) return ar[i] - br[i]; } else if (ar) return -1; else if (br) return 1; else { const models = String(a.model || left.name).localeCompare(String(b.model || right.name), 'ru', {numeric:true,sensitivity:'base'}); if (models) return models; } return Number(left.price || 0) - Number(right.price || 0); }
 function mscIphoneRank_(model) { const match = /^iphone\s+(\d+)(e?)(?:\s+(.*))?$/i.exec(String(model || '')); if (!match) return null; const version = mscNorm_(match[3]), variant = match[2] ? 0 : version === '' ? 1 : version === 'mini' ? 2 : version === 'plus' ? 3 : version === 'air' ? 4 : version === 'pro' ? 5 : version === 'pro max' ? 6 : 7; return [Number(match[1]), variant]; }

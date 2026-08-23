@@ -6,10 +6,10 @@
 const TC = {
   sheets: ['телефоны', 'макбуки', 'айпады', 'часы', 'наушники', 'пс', 'дайсон', 'аймаки'],
   everyMinutes: 15,
-  // Публичный файл клиента с правилами наценки. Суммы не хранятся в коде:
-  // при каждом обновлении читается его актуальная версия.
-  markupSheetId: '1DOuNTe2yJcU6h-TK3-xpWqe6zWpNl0NAQfVVYvZ0IpA',
-  props: { project: 'TC_PROJECT', channel: 'TC_CHANNEL', mirrorTwoSim: 'TC_MIRROR_TWO_SIM', last: 'TC_LAST', status: 'TC_STATUS' }
+  // @astoredirect is the supplier's showcase. Its linked price feed publishes
+  // the actual parsable text catalogue, so this is the default source.
+  defaultChannel: 'astoredirectprice',
+  props: { project: 'ES_TC_PROJECT', channel: 'ES_TC_CHANNEL', last: 'ES_TC_LAST', status: 'ES_TC_STATUS' }
 };
 
 function onOpen() {
@@ -26,8 +26,7 @@ function showTelegramCatalogSidebar() {
 function getTelegramCatalogSetup() {
   const p = PropertiesService.getScriptProperties();
   return {
-    project: p.getProperty(TC.props.project) || '', channel: p.getProperty(TC.props.channel) || '',
-    mirrorTwoSim: p.getProperty(TC.props.mirrorTwoSim) === 'true',
+    project: p.getProperty(TC.props.project) || '', channel: p.getProperty(TC.props.channel) || TC.defaultChannel,
     connected: Boolean(p.getProperty(TC.props.channel)), lastSync: p.getProperty(TC.props.last) || '',
     status: p.getProperty(TC.props.status) || 'Не подключено'
   };
@@ -44,7 +43,6 @@ function saveTelegramCatalogSetup(form) {
   }
   const p = PropertiesService.getScriptProperties();
   p.setProperty(TC.props.project, project); p.setProperty(TC.props.channel, channel);
-  p.setProperty(TC.props.mirrorTwoSim, String(Boolean(form && form.mirrorTwoSim)));
   tcEnsureTrigger_();
   const result = syncTelegramCatalog_();
   return Object.assign(getTelegramCatalogSetup(), { message: tcSummary_(result) });
@@ -75,11 +73,9 @@ function syncTelegramCatalog_() {
     const p = PropertiesService.getScriptProperties(), channel = p.getProperty(TC.props.channel);
     if (!channel) throw new Error('Сначала подключите публичный Telegram-канал.');
     const sourceRows = tcFetchRows_(channel);
-    const mirror = tcAddTwoSimMirror_(sourceRows, p.getProperty(TC.props.mirrorTwoSim) === 'true');
-    // Одна и та же конфигурация может быть у поставщика из нескольких стран.
-    // Для Ульяновска берём только вариант с минимальной закупочной ценой.
-    const cheapest = tcChooseCheapestCountry_(mirror.rows);
-    const markup = tcApplyUlyanovskMarkup_(cheapest.rows, tcLoadUlyanovskMarkup_());
+    // Электросталь: сохраняем все позиции поставщика. Выбор самого дешёвого
+    // варианта по странам — локальное правило Ульяновска и здесь не применяется.
+    const markup = tcApplyElektrostalMarkup_(sourceRows);
     const rows = markup.rows, book = SpreadsheetApp.getActiveSpreadsheet();
     const byCategory = {};
     rows.forEach(function(row) { (byCategory[row.category] = byCategory[row.category] || []).push(row); });
@@ -95,8 +91,8 @@ function syncTelegramCatalog_() {
     const now = new Date(); p.setProperty(TC.props.last, String(now.getTime()));
     p.setProperty(TC.props.status, 'Каталог обновлён: ' + written + ' позиций.');
     return {
-      rows: rows.length, written: written, mirrored: mirror.mirrored,
-      cheapest: cheapest.removed, markedUp: markup.applied, withoutMarkup: markup.withoutRule,
+      rows: rows.length, written: written,
+      cheapest: 0, markedUp: markup.applied, withoutMarkup: markup.withoutRule,
       skippedSheets: skippedSheets
     };
   } finally { lock.releaseLock(); }
@@ -130,7 +126,7 @@ function tcWriteSheet_(sheet, products) {
     target.clearContent();
     if (data.length) {
       sheet.getRange(2, layout.start + 1, data.length, width).setValues(data);
-      sheet.getRange(2, layout.priceColumn + 1, data.length, 1).setNumberFormat('#,##0');
+      sheet.getRange(2, layout.priceColumn + 1, data.length, 1).setNumberFormat('0');
       written += data.length;
     }
   });
@@ -242,129 +238,41 @@ function tcTextCompare_(left, right) {
 
 function tcChannel_(value) { const v = String(value || '').trim().replace(/^https?:\/\/(?:t\.me|telegram\.me)\/(?:s\/)?/i, '').replace(/^@/, ''); return /^[A-Za-z][A-Za-z0-9_]{4,}$/.test(v) ? v.toLowerCase() : ''; }
 function tcSummary_(result) {
-  const mirror = Number(result.mirrored || 0);
-  const cheapest = Number(result.cheapest || 0);
   const markedUp = Number(result.markedUp || 0);
   const withoutMarkup = Number(result.withoutMarkup || 0);
   return 'Каталог получен: ' + result.rows + ' позиций. Записано в листы: ' + result.written +
-    (mirror ? '. Добавлено вариантов «2 SIM»: ' + mirror : '') +
-    (cheapest ? '. Оставлено самых дешёвых вариантов: ' + cheapest : '') +
-    '. Наценка из файла применена к ' + markedUp + ' позициям' +
+    '. Наценка Электростали применена к ' + markedUp + ' позициям' +
     (withoutMarkup ? '. Без правила наценки: ' + withoutMarkup : '') +
     '. Далее обновляется автоматически каждые 15 минут.';
 }
 function tcNorm_(value) { return String(value || '').trim().toLocaleLowerCase('ru-RU'); }
 function tcDisplay_(product) { return [product.name, product.variant].filter(Boolean).join(' ').trim(); }
 
-/**
- * Client-specific publishing rule. Some Avito catalogues need a third
- * configuration "2 SIM", while the supplier publishes its price only for
- * "SIM + eSIM". We create an explicit copy with the same price. An actual
- * supplier 2 SIM row always wins and prevents a generated duplicate.
- */
-function tcAddTwoSimMirror_(sourceRows, enabled) {
-  const rows = Array.isArray(sourceRows) ? sourceRows.slice() : [];
-  if (!enabled) return { rows: rows, mirrored: 0 };
-  const existingTwoSim = {};
-  rows.forEach(function(row) {
-    const phone = tcPhone_(tcDisplay_(row));
-    if (phone.config === '2 SIM') existingTwoSim[tcTwoSimKey_(phone)] = true;
-  });
-  const additions = [];
-  rows.forEach(function(row) {
-    const phone = tcPhone_(tcDisplay_(row));
-    if (phone.config !== 'SIM + eSIM') return;
-    const replacement = tcReplaceTwoSim_(row);
-    const key = tcTwoSimKey_(tcPhone_(tcDisplay_(replacement)));
-    if (!key || existingTwoSim[key]) return;
-    existingTwoSim[key] = true;
-    additions.push(replacement);
-  });
-  return { rows: rows.concat(additions), mirrored: additions.length };
-}
-
-function tcReplaceTwoSim_(row) {
-  const replace = function(value) { return String(value || '').replace(/sim\s*\+\s*e\s*-?sim/ig, '2 SIM'); };
-  return Object.assign({}, row, { name: replace(row.name), variant: replace(row.variant), generatedTwoSim: true });
-}
-
-function tcTwoSimKey_(phone) {
-  return [phone.model, phone.memory, phone.ram, phone.color, phone.country]
-    .map(tcNorm_).join('|').replace(/^\|+|\|+$/g, '');
-}
-
-// Для одинаковой конфигурации (модель, SIM, память, RAM и цвет) оставляем
-// страну с самой низкой закупочной ценой. При равной цене порядок стабилен.
-function tcChooseCheapestCountry_(rows) {
-  const selected = {};
-  rows.forEach(function(row) {
-    const phone = tcPhone_(tcDisplay_(row));
-    const fallback = tcNorm_(tcDisplay_(row))
-      .replace(/[\u{1F1E6}-\u{1F1FF}]/gu, '').replace(/\s+/g, ' ').trim();
-    const key = [row.category, phone.model || fallback, phone.config, phone.memory, phone.ram, phone.color]
-      .map(tcNorm_).join('|');
-    const current = selected[key];
-    const currentPhone = current && tcPhone_(tcDisplay_(current));
-    if (!current || Number(row.price) < Number(current.price) ||
-      (Number(row.price) === Number(current.price) && tcTextCompare_(phone.country, currentPhone.country) < 0)) {
-      selected[key] = row;
-    }
-  });
-  const kept = Object.keys(selected).map(function(key) { return selected[key]; });
-  return { rows: kept, removed: Math.max(0, rows.length - kept.length) };
-}
-
-function tcLoadUlyanovskMarkup_() {
-  const url = 'https://docs.google.com/spreadsheets/d/' + TC.markupSheetId + '/export?format=csv&gid=0';
-  const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
-  if (response.getResponseCode() !== 200) {
-    throw new Error('Не удалось прочитать файл наценок Ульяновска. Проверьте доступ к нему.');
-  }
-  const rules = tcParseMarkupCsv_(response.getContentText());
-  if (!rules.length) throw new Error('В файле наценок Ульяновска не найдены правила.');
-  return rules;
-}
-
-function tcParseMarkupCsv_(csv) {
-  const table = Utilities.parseCsv(String(csv || ''));
-  return table.slice(1).map(function(row) {
-    const label = String(row[0] || '').trim();
-    const amount = Number(String(row[1] || '').replace(/[^\d.,-]/g, '').replace(',', '.'));
-    return label && Number.isFinite(amount) ? { label: label, amount: amount } : null;
-  }).filter(Boolean);
-}
-
-function tcApplyUlyanovskMarkup_(rows, rules) {
+function tcApplyElektrostalMarkup_(rows) {
   let applied = 0, withoutRule = 0;
   const priced = rows.map(function(row) {
-    const amount = tcMarkupAmount_(row, rules);
+    const amount = tcElektrostalMarkupAmount_(row);
     if (amount === null) { withoutRule++; return Object.assign({}, row); }
     applied++;
-    return Object.assign({}, row, { supplierPrice: row.price, markup: amount, price: Number(row.price) + amount });
+    const price = Math.ceil((Number(row.price) + amount) / 500) * 500;
+    return Object.assign({}, row, { supplierPrice: row.price, markup: amount, price: price });
   });
   return { rows: priced, applied: applied, withoutRule: withoutRule };
 }
 
-function tcMarkupAmount_(row, rules) {
-  const name = tcNorm_(tcDisplay_(row)), phone = tcPhone_(tcDisplay_(row));
-  const find = function(pattern) {
-    const hit = rules.find(function(rule) { return pattern.test(tcNorm_(rule.label)); });
-    return hit ? hit.amount : null;
-  };
-  if (/airpods/.test(name)) return find(/наушники\s+airpods/);
-  if (/\bwatch\b/.test(name)) return find(/^часы$/);
-  if (/macbook/.test(name)) return find(/^macbook/);
-  if (/\b(imac|mini)\b/.test(name)) return find(/imac\/mini/);
-  if (/ipad/.test(name)) return find(/\bpro\b/.test(name) ? /^ipad\s+pro$/ : /ipad.*кроме\s+про/);
-  if (!/^iphone\b/.test(name)) return null;
-
-  const memoryGb = Number(String(phone.memory || '').replace(/[^\d]/g, ''));
-  const premium = /^iphone\s+17\s+(?:pro|max|pro\s+max)\b/.test(name) && memoryGb >= 512;
-  if (premium) {
-    const amount = find(/iphone\s+17\s+pro.*512.*17\s+pro\s+max.*512/);
-    if (amount !== null) return amount;
-  }
-  return find(/iphone\s+13.*17\s+pro\s+max.*256/);
+function tcElektrostalMarkupAmount_(row) {
+  if (!row) return null;
+  const price = Number(row.price || 0), name = tcNorm_(tcDisplay_(row));
+  if (price < 5000) return null;
+  // Электросталь: Apple получает отдельную шкалу. Samsung и Android получают
+  // Android-шкалу; та же Android-шкала обязательна для всех остальных
+  // категорий (Dyson, приставки, аксессуары и т.д.).
+  const apple = /\b(?:iphone|ipad|macbook|imac|apple\s+watch|airpods|apple\s+tv|apple\s+pencil)\b/.test(name);
+  const android = /\b(?:samsung|galaxy|pixel|xiaomi|redmi|honor|huawei|oneplus|realme|oppo|vivo)\b/.test(name);
+  if (price > 225999) return 15000;
+  const bands = apple ? [[15999,3000],[35999,4000],[69999,5000],[89999,6000],[110999,7500],[150999,9000],[225999,13000]] : [[15999,3000],[35999,5000],[69999,7000],[89999,8000],[110999,8500],[150999,10000],[225999,15000]];
+  const band = bands.find(function(rule) { return price <= rule[0]; });
+  return band ? band[1] : null;
 }
 
 function tcFetchRows_(channel) {
@@ -395,6 +303,11 @@ function tcHtml_(value) { return String(value || '').replace(/<br\s*\/?>/gi, '\n
 function tcParsePost_(text, channel, post) {
   const lines = String(text || '').split('\n').map(function(line) { return line.trim(); }).filter(Boolean);
   if (!lines.length || /товары\s+не\s+найдены/i.test(text)) return [];
+  // @astoredirectprice publishes whole catalogues as three lines per item:
+  // title, configuration, then "1 шт <price> ₽ · 3+ ...". This must be
+  // parsed separately from the older one-line "name — price" template.
+  // Электросталь использует основную стоимость за одну единицу.
+  if (/цена\s+за\s+объём/i.test(text) && lines.some(function(line) { return /^1\s*шт\s+/i.test(line); })) return tcParseVolumePost_(lines, channel, post);
   const header = lines[0].replace(/^📦\s*/, '').replace(/\s*\(часть\s*\d+\/\d+\)\s*$/i, '');
   // Supplier sections may be named just "Google" or "Honor". The models in
   // their rows still identify the correct destination sheet.
@@ -402,18 +315,94 @@ function tcParsePost_(text, channel, post) {
     .filter(function(row) { return row && TC.sheets.indexOf(row.category) >= 0; });
 }
 
+function tcParseVolumePost_(lines, channel, post) {
+  const rows = [], header = String(lines[0] || '').replace(/^[^\p{L}\d]*/u, '').trim();
+  let previous = '', brand = '';
+  lines.forEach(function(raw) {
+    const line = String(raw).replace(/^[\[\]•·▪◦.\s]+/, '').replace(/\s+/g, ' ').trim();
+    if (!line || /^(?:цена\s+за\s+объём|\d+\s*шт\s*[—-]\s*основная|нашли\s+дешевле|актуальные\s+позиции)/i.test(line)) return;
+    const price = /^1\s*шт\s+([\d\s.]+)\s*₽/i.exec(line);
+    if (price) {
+      const name = tcVolumeName_(brand, previous);
+      const amount = Number(price[1].replace(/[.\s]/g, ''));
+      if (name && amount > 0) rows.push({ category: tcCategory_(name), name: name, variant: '', price: amount, post: post, url: 'https://t.me/' + channel + '/' + post });
+      return;
+    }
+    previous = line;
+    // A title with an explicit Apple brand is a context only; the following
+    // configuration line is the actual SKU.
+    if (/^Apple\s*[·.]\s*iPhone\s+\d/i.test(line)) { brand = 'iPhone'; previous = ''; }
+    else if (/^Apple\s*[·.]\s*iPad\b/i.test(line)) { brand = 'iPad'; previous = ''; }
+    else if (/^Apple\s*[·.]\s*MacBook\b/i.test(line)) { brand = 'MacBook'; previous = ''; }
+    else if (/^Apple\s*[·.]\s*Apple\s+Watch\b/i.test(line)) { brand = 'Apple Watch'; previous = ''; }
+    else if (/^iPhone\s+\d/i.test(line)) brand = 'iPhone';
+    else if (/^iPad\b/i.test(line)) brand = 'iPad';
+    else if (/^MacBook\b/i.test(line)) brand = 'MacBook';
+    else if (/^Apple\s+Watch\b/i.test(line)) brand = 'Apple Watch';
+    // A new non-Apple product begins a new context. Without this reset a
+    // later Dyson/Garmin line in one Telegram post inherited "MacBook".
+    else if (/^(?:Dyson|Garmin|PlayStation|PS[345]\b|Xbox|Samsung|Galaxy|Pixel|Xiaomi|Redmi|Honor|Huawei|OnePlus|Realme|Oppo|Vivo)\b/i.test(line)) brand = '';
+  });
+  return rows.filter(function(row) { return TC.sheets.indexOf(row.category) >= 0; });
+}
+
+function tcVolumeName_(brand, value) {
+  const parsed = tcStatus_(String(value || '').replace(/^[\[\]•·▪◦.\s]+/, '').replace(/\s+/g, ' ').trim()), item = parsed.text;
+  if (!item) return '';
+  if (brand === 'iPhone' && /^\d/.test(item)) return tcWithStatus_(parsed.marks, 'iPhone ' + item);
+  // iPad/MacBook/Watch rows already contain their own model family. Do not
+  // prepend a stale previous heading to an unrelated line.
+  return tcWithStatus_(parsed.marks, item);
+}
+
 function tcLine_(header, line, channel, post) {
-  const match = /^(.*?)\s*(?:-|—|–)\s*([\d\s]{3,})\s*(?:₽|руб\.?|rub)?\s*$/i.exec(line);
+  const match = /^(.*?)\s*(?:-|—|–)\s*([\d\s.]{3,})\s*(?:₽|руб\.?|rub)?\s*$/i.exec(line);
   if (!match) return null;
-  let core = match[1].replace(/\s+/g, ' ').trim(), variant = '';
+  let core = match[1].replace(/^[•·▪◦]\s*/, '').replace(/\s+/g, ' ').trim(), variant = '';
   const suffix = /(\([^)]*\))\s*$/u.exec(core); if (suffix) { variant = suffix[1]; core = core.slice(0, suffix.index).trim(); }
   const flag = /([\u{1F1E6}-\u{1F1FF}]{2})\s*$/u.exec(core); if (flag) { variant = (flag[1] + (variant ? ' ' + variant : '')).trim(); core = core.slice(0, flag.index).trim(); }
-  const name = tcExpand_(header, core), price = Number(match[2].replace(/\s/g, ''));
+  const name = tcExpand_(header, core), price = Number(match[2].replace(/[.\s]/g, ''));
   return name && price > 0 ? { category: tcCategory_(header + ' ' + name), name: name, variant: variant, price: price, post: post, url: 'https://t.me/' + channel + '/' + post } : null;
 }
 
-function tcExpand_(header, item) { const h = String(header).replace(/\\/g, ' ').trim(), i = String(item); if (/^iphone\s/i.test(h) && !/^iphone\s/i.test(i)) return h + ' ' + i; if (/^macbook\b/i.test(h) && !/^macbook\b/i.test(i)) return h + ' ' + i; if (/^dyson\b/i.test(h) && !/^dyson\b/i.test(i)) return h + ' ' + i; if (/^airpods\b/i.test(h) && !/^airpods\b/i.test(i)) return h + ' ' + i; if (/^imac\b/i.test(h) && !/^imac\b/i.test(i)) return h + ' ' + i; if (/^watch\b/i.test(h) && /^watch\b/i.test(i)) return 'Apple ' + i; return i; }
-function tcCategory_(value) { const v = tcNorm_(value); if (/iphone|galaxy|pixel|xiaomi|samsung|honor|huawei|oneplus|realme/.test(v)) return 'телефоны'; if (/macbook/.test(v)) return 'макбуки'; if (/ipad/.test(v)) return 'айпады'; if (/watch/.test(v)) return 'часы'; if (/airpods|наушники|колонки/.test(v)) return 'наушники'; if (/playstation|\bps[345]\b|xbox/.test(v)) return 'пс'; if (/dyson/.test(v)) return 'дайсон'; if (/imac/.test(v)) return 'аймаки'; return 'прочее'; }
+function tcStatus_(value) {
+  const source = String(value || ''), marks = [];
+  const text = source.replace(/\((active|актив|уценка)\)|(^|\s)(active|актив|уценка)(?=\s|$)/gi, function(_, wrapped, prefix, bare) {
+    const key = String(wrapped || bare).toLowerCase();
+    marks.push(/active|актив/.test(key) ? '(Актив)' : '(Уценка)');
+    return ' ';
+  }).replace(/\s+/g, ' ').trim();
+  return { marks: marks.join(' '), text: text };
+}
+function tcWithStatus_(status, text) { return [String(status || '').trim(), String(text || '').trim()].filter(Boolean).join(' ').trim(); }
+function tcExpand_(header, item) {
+  const hs = tcStatus_(String(header).replace(/\\/g, ' ').trim()), is = tcStatus_(item), h = hs.text, i = is.text, mark = is.marks || hs.marks;
+  let expanded = i;
+  if (/^iphone\s/i.test(h) && !/^iphone\s/i.test(i)) {
+    const model = h.replace(/^iphone\s+/i, '').trim(), repeated = new RegExp('^' + model.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?:\\s|$)', 'i');
+    expanded = h + ' ' + (repeated.test(i) ? i.slice(model.length).trim() : i);
+  }
+  else if (/^macbook\b/i.test(h) && !/^macbook\b/i.test(i)) expanded = h + ' ' + i;
+  else if (/^dyson\b/i.test(h) && !/^dyson\b/i.test(i)) expanded = h + ' ' + i;
+  else if (/^airpods\b/i.test(h) && !/^airpods\b/i.test(i)) expanded = h + ' ' + i;
+  else if (/^imac\b/i.test(h) && !/^imac\b/i.test(i)) expanded = h + ' ' + i;
+  else if (/^watch\b/i.test(h) && /^watch\b/i.test(i)) expanded = 'Apple ' + i;
+  return tcWithStatus_(mark, expanded);
+}
+function tcCategory_(value) {
+  const v = tcNorm_(value);
+  // Check accessory families before the generic Galaxy/Samsung phone rule.
+  // Otherwise Galaxy Buds, Watch and Tab were incorrectly written to phones.
+  if (/airpods|galaxy\s*buds|buds\b|наушники|headphones?|гарнитур|колонки/.test(v)) return 'наушники';
+  if (/apple\s*watch|galaxy\s*(?:watch|fit|ring)|\bwatch\b|\bfit\b|\bring\b/.test(v)) return 'часы';
+  if (/ipad|galaxy\s*tab|(?:xiaomi|redmi|huawei|honor)\s*pad|\btablet\b/.test(v)) return 'айпады';
+  if (/macbook/.test(v)) return 'макбуки';
+  if (/playstation|\bps[345]\b|xbox/.test(v)) return 'пс';
+  if (/dyson/.test(v)) return 'дайсон';
+  if (/imac/.test(v)) return 'аймаки';
+  if (/iphone|galaxy|pixel|xiaomi|samsung|honor|huawei|oneplus|realme|redmi/.test(v)) return 'телефоны';
+  return 'прочее';
+}
 function tcPhone_(value) {
   const text = String(value || ''), specs = /(\d{1,2})\s*\/\s*(\d{2,4})\s*(гб|gb|тб|tb)/i.exec(text);
   const memory = specs ? null : /(?:^|\s)(\d{1,4})\s?(гб|gb|тб|tb)(?=\s|$)/i.exec(text);

@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const source = fs.readFileSync(new URL('./TelegramCatalog.gs', import.meta.url), 'utf8') + `
-globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcColor_,tcLayouts_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcAddTwoSimMirror_,tcChooseCheapestCountry_,tcParseMarkupCsv_,tcApplyUlyanovskMarkup_,tcMarkupAmount_};`;
+globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcColor_,tcLayouts_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcApplyElektrostalMarkup_,tcElektrostalMarkupAmount_,tcExpand_};`;
 const parseCsv = (value) => String(value).trim().split(/\r?\n/).map((line) => {
   const cells = []; let current = ''; let quoted = false;
   for (let index = 0; index < line.length; index++) {
@@ -23,14 +23,13 @@ test('uses the original two-button sidebar interaction with one setup object', (
   const html = fs.readFileSync(new URL('./TelegramCatalogSidebar.html', import.meta.url), 'utf8');
   assert.match(html, /<form id="setup">/);
   assert.match(html, /byId\('setup'\)\.addEventListener\('submit'/);
-  assert.match(html, /id="mirrorTwoSim"/);
-  assert.match(html, /Добавлять вариант <b>2 SIM<\/b> по цене <b>SIM \+ eSIM<\/b>/);
-  assert.match(html, /\.saveTelegramCatalogSetup\(\{project:byId\('project'\)\.value,channel:byId\('channel'\)\.value,mirrorTwoSim:byId\('mirrorTwoSim'\)\.checked\}\)/);
+  assert.doesNotMatch(html, /2 SIM/);
+  assert.match(html, /\.saveTelegramCatalogSetup\(\{project:byId\('project'\)\.value,channel:byId\('channel'\)\.value\}\)/);
   assert.match(html, /syncButton\.addEventListener\('click'/);
   assert.match(source, /function saveTelegramCatalogSetup\(form\)/);
 });
 
-test('accepts public channel handles and t.me URLs', () => {
+test('accepts the public supplier price channel handle and t.me URLs', () => {
   assert.equal(api.tcChannel_('@opt_uniseil'), 'opt_uniseil');
   assert.equal(api.tcChannel_('https://t.me/opt_uniseil'), 'opt_uniseil');
   assert.equal(api.tcChannel_('https://t.me/s/opt_uniseil'), 'opt_uniseil');
@@ -41,9 +40,13 @@ test('routes all standard source product families to client tabs', () => {
   assert.equal(api.tcCategory_('iPhone 17 Pro'), 'телефоны');
   assert.equal(api.tcCategory_('Samsung Galaxy S24'), 'телефоны');
   assert.equal(api.tcCategory_('Apple iPad 11'), 'айпады');
+  assert.equal(api.tcCategory_('Samsung Galaxy Tab A11'), 'айпады');
   assert.equal(api.tcCategory_('MacBook Air M4'), 'макбуки');
   assert.equal(api.tcCategory_('Apple Watch Ultra'), 'часы');
+  assert.equal(api.tcCategory_('Galaxy Fit 3'), 'часы');
+  assert.equal(api.tcCategory_('Galaxy Ring 7'), 'часы');
   assert.equal(api.tcCategory_('AirPods Pro'), 'наушники');
+  assert.equal(api.tcCategory_('Galaxy Buds 4'), 'наушники');
   assert.equal(api.tcCategory_('PlayStation 5 Slim'), 'пс');
   assert.equal(api.tcCategory_('Dyson HD16'), 'дайсон');
   assert.equal(api.tcCategory_('iMac M4'), 'аймаки');
@@ -61,6 +64,23 @@ test('reads a supplier price and splits SIM and country into separate fields', (
   assert.equal(phone.country, 'Индия 🇮🇳');
 });
 
+test('keeps Active and Уценка as bracketed title marks even before iPhone', () => {
+  const active = api.tcParsePost_('(Active) iPhone 17\n17 256GB Black — 73 500 ₽', 'astoredirectprice', 'active');
+  const markdown = api.tcParsePost_('iPhone 16\n(Уценка) 16 128GB White — 64 990 ₽', 'astoredirectprice', 'markdown');
+  assert.equal(active[0].name, '(Актив) iPhone 17 256GB Black');
+  assert.equal(markdown[0].name, '(Уценка) iPhone 16 128GB White');
+  assert.equal(api.tcPhone_(active[0].name).model, 'iPhone 17');
+});
+
+test('reads the current price-channel Active/Уценка section and puts its status first', () => {
+  const active = api.tcParsePost_('♻️ Уценка / Актив\nЦена за объём\nApple · iPhone 17\n17 256 ГБ White (1Sim+eSim) Актив\n1 шт 70 300 ₽ · 3+ 70 200 ₽', 'astoredirectprice', '6646');
+  const markdown = api.tcParsePost_('♻️ Уценка / Актив\nЦена за объём\nApple · iPad Pro 13\niPad Pro 13 256 ГБ Wi-Fi Space Black Уценка\n1 шт 108 000 ₽ · 3+ 107 900 ₽', 'astoredirectprice', '6646');
+  assert.equal(active[0].name, '(Актив) iPhone 17 256 ГБ White (1Sim+eSim)');
+  assert.equal(active[0].category, 'телефоны');
+  assert.equal(markdown[0].name, '(Уценка) iPad Pro 13 256 ГБ Wi-Fi Space Black');
+  assert.equal(markdown[0].category, 'айпады');
+});
+
 test('recognises colours in any part of a Telegram item without inventing a missing one', () => {
   assert.equal(api.tcColor_('iPhone 17 Pro — чёрный 256GB 🇯🇵'), 'черный');
   assert.equal(api.tcColor_('iPhone 16 Pro (Desert Titanium), eSIM'), 'золотистый');
@@ -70,48 +90,59 @@ test('recognises colours in any part of a Telegram item without inventing a miss
   assert.equal(api.tcColor_('iPhone 17 Pro 256GB eSIM 🇯🇵'), '');
 });
 
-test('adds exactly one 2 SIM variant at the SIM + eSIM price when the Ulyanovsk rule is enabled', () => {
-  const sourceRows = [
-    { category: 'телефоны', name: 'iPhone 17 Pro 256GB SIM + eSIM Blue', variant: '🇮🇳', price: 102990 },
-    { category: 'телефоны', name: 'iPhone 17 Pro 256GB eSIM Blue', variant: '🇮🇳', price: 98500 }
-  ];
-  const mirrored = api.tcAddTwoSimMirror_(sourceRows, true);
-  assert.equal(mirrored.mirrored, 1);
-  assert.equal(mirrored.rows.length, 3);
-  const twoSim = mirrored.rows.find((row) => api.tcPhone_(row.name + ' ' + row.variant).config === '2 SIM');
-  assert.ok(twoSim);
-  assert.equal(twoSim.price, 102990);
-  assert.equal(api.tcPhone_(twoSim.name).model, 'iPhone 17 Pro');
-  assert.equal(api.tcAddTwoSimMirror_(mirrored.rows, true).mirrored, 0);
-  assert.equal(api.tcAddTwoSimMirror_(sourceRows, false).rows.length, 2);
-});
-
-test('keeps one cheapest country per full phone configuration', () => {
-  const rows = [
-    { category: 'телефоны', name: 'iPhone 17 Pro 256GB SIM + eSIM Blue', variant: '🇯🇵', price: 103000 },
-    { category: 'телефоны', name: 'iPhone 17 Pro 256GB SIM + eSIM Blue', variant: '🇮🇳', price: 101000 },
-    { category: 'телефоны', name: 'iPhone 17 Pro 256GB eSIM Blue', variant: '🇯🇵', price: 98000 },
-    { category: 'телефоны', name: 'iPhone 17 Pro 512GB SIM + eSIM Blue', variant: '🇯🇵', price: 120000 }
-  ];
-  const selected = api.tcChooseCheapestCountry_(rows);
-  assert.equal(selected.rows.length, 3);
-  assert.equal(selected.removed, 1);
-  assert.equal(selected.rows.find((row) => row.price === 101000).variant, '🇮🇳');
-  assert.ok(selected.rows.some((row) => api.tcPhone_(row.name).config === 'eSIM'));
-});
-
-test('applies Ulyanovsk markup directly from the markup-file rules', () => {
-  const rules = api.tcParseMarkupCsv_('Модель,Наценка\niPhone 13 - 17 Pro max 256,3000\niPhone 17 Pro 512/1тб  - 17 Pro Max 512/1тб,4000\nНаушники AirPods,2000\nЧасы,2500\n"iPad все, кроме Про",3000\niPad Pro,4000\nMacBook,3500\nimac/mini,3000');
-  const priced = api.tcApplyUlyanovskMarkup_([
-    { category: 'телефоны', name: 'iPhone 17 Pro 256GB eSIM Blue', variant: '🇯🇵', price: 98500 },
-    { category: 'телефоны', name: 'iPhone 17 Pro 512GB eSIM Blue', variant: '🇯🇵', price: 119800 },
+test('applies Elektrоstal Apple and Android markup to all eligible categories, then rounds up to 500 rubles', () => {
+  const priced = api.tcApplyElektrostalMarkup_([
+    { category: 'телефоны', name: 'iPhone 17 128GB', price: 15700 },
+    { category: 'телефоны', name: 'Samsung Galaxy S25 256GB', price: 35700 },
+    { category: 'телефоны', name: 'Pixel 10 Pro 256GB', price: 111100 },
+    { category: 'телефоны', name: 'iPhone 17 Pro 512GB', price: 151100 },
+    { category: 'айпады', name: 'iPad 11 A16 128GB Wi-Fi Blue', price: 37100 },
+    { category: 'макбуки', name: 'MacBook Air M5 16/1TB Midnight', price: 127400 },
+    { category: 'часы', name: 'Apple Watch Series 11 42mm', price: 28600 },
     { category: 'наушники', name: 'AirPods Pro 3', price: 20000 },
-    { category: 'айпады', name: 'iPad Pro 13 256GB', price: 70000 },
-    { category: 'телефоны', name: 'Pixel 10 256GB', price: 50000 }
-  ], rules);
-  assert.deepEqual(priced.rows.map((row) => row.price), [101500, 123800, 22000, 74000, 50000]);
-  assert.equal(priced.applied, 4);
+    { category: 'дайсон', name: 'Dyson HD17', price: 32600 },
+    { category: 'пс', name: 'PlayStation 5 Slim', price: 70100 },
+    { category: 'аксессуары', name: 'USB-C cable', price: 380 },
+    { category: 'макбуки', name: 'MacBook Pro 14 M5 Max 36/2 ТБ', price: 304000 }
+  ]);
+  assert.deepEqual(priced.rows.map((row) => row.price), [19000,41000,121500,164500,42500,136500,33000,24000,38000,78500,380,319000]);
+  assert.deepEqual(priced.rows.slice(0, 10).map((row) => row.markup), [3000,5000,10000,13000,5000,9000,4000,4000,5000,8000]);
+  assert.equal(priced.rows[11].markup, 15000);
+  assert.equal(priced.applied, 11);
   assert.equal(priced.withoutRule, 1);
+});
+
+test('parses the supplier price-channel bullet format and keeps a country flag', () => {
+  const rows = api.tcParsePost_('📱 iPhone\n💼 Цена за объём\n• iPhone 17 Pro 256GB Blue 🇯🇵 — 102.990 ₽', 'astoredirectprice', '6331');
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].category, 'телефоны');
+  assert.equal(rows[0].price, 102990);
+  assert.equal(api.tcPhone_(rows[0].name + ' ' + rows[0].variant).country, 'Япония 🇯🇵');
+});
+
+test('parses the supplier 1-unit price from the volume-price format without choosing cheapest country', () => {
+  const rows = api.tcParsePost_('📱 iPhone\n💼 Цена за объём\n1 шт — основная · 3+ и 5+ — цена за штуку\niPhone 17 Pro\n17 Pro 256 ГБ Silver (eSim)\n1 шт 97 400 ₽ · 3+ 97 300 ₽ · 5+ 97 200 ₽\n17 Pro 256 ГБ Deep Blue (1Sim+eSim)\n1 шт 100 000 ₽ · 3+ 99 900 ₽ · 5+ 99 800 ₽', 'astoredirectprice', '6336');
+  assert.equal(rows.length, 2);
+  assert.deepEqual([...rows.map((row) => row.name)], ['iPhone 17 Pro 256 ГБ Silver (eSim)', 'iPhone 17 Pro 256 ГБ Deep Blue (1Sim+eSim)']);
+  assert.deepEqual([...rows.map((row) => row.price)], [97400, 100000]);
+});
+
+test('does not carry a MacBook heading over to Dyson or Garmin lines in one Telegram post', () => {
+  const rows = api.tcParsePost_('MacBook\nЦена за объём\n1 шт — основная · 3+ — цена за штуку\nMacBook Air 13 M5 16/1 ТБ Midnight\n1 шт 118 400 ₽ · 3+ 117 900 ₽\nDyson HS 09 Amber Silk Уценка\n1 шт 47 500 ₽ · 3+ 47 000 ₽\nGarmin Instinct Crossover Black Уценка\n1 шт 33 600 ₽ · 3+ 33 100 ₽', 'astoredirectprice', '6337');
+  assert.deepEqual([...rows.map((row) => row.name)], ['MacBook Air 13 M5 16/1 ТБ Midnight', '(Уценка) Dyson HS 09 Amber Silk']);
+  assert.deepEqual([...rows.map((row) => row.category)], ['макбуки', 'дайсон']);
+});
+
+test('removes an accidental opening bracket from a supplier product name', () => {
+  const rows = api.tcParsePost_('Dyson\nЦена за объём\n1 шт — основная\n[ Dyson HD17 Supersonic R Pro Jasper Plum\n1 шт 32 600 ₽ · 3+ 32 100 ₽', 'astoredirectprice', '6417');
+  assert.equal(rows[0].name, 'Dyson HD17 Supersonic R Pro Jasper Plum');
+  assert.equal(rows[0].category, 'дайсон');
+});
+
+test('does not retain a Telegram bullet in model names and routes Galaxy families correctly', () => {
+  const rows = api.tcParsePost_('Аксессуары\n• Galaxy Buds 4 Black — 6.900 ₽\n• Galaxy Watch 8 Silver — 19.900 ₽\n• Galaxy Tab A11 8/128GB Silver — 24.900 ₽', 'astoredirectprice', '7000');
+  assert.deepEqual([...rows.map((row) => row.name)], ['Galaxy Buds 4 Black', 'Galaxy Watch 8 Silver', 'Galaxy Tab A11 8/128GB Silver']);
+  assert.deepEqual([...rows.map((row) => row.category)], ['наушники', 'часы', 'айпады']);
 });
 
 test('parses a complete public-channel product post', () => {
@@ -181,9 +212,9 @@ test('supports a title/price template and reports concise outcome', () => {
   const layout = api.tcLayouts_(headers)[0];
   const row = api.tcTargetRow_(headers, layout, { name: 'Dyson HD16 Ceramic Pink', variant: '🇯🇵', price: 27890 });
   assert.deepEqual([...row], ['Dyson HD16 Ceramic Pink 🇯🇵', 27890]);
-  const summary = api.tcSummary_({ rows: 120, written: 120, cheapest: 10, markedUp: 100, withoutMarkup: 20 });
+  const summary = api.tcSummary_({ rows: 120, written: 120, markedUp: 100, withoutMarkup: 20 });
   assert.match(summary, /120 позиций/);
-  assert.match(summary, /самых дешёвых вариантов: 10/);
-  assert.match(summary, /Наценка из файла применена к 100/);
+  assert.doesNotMatch(summary, /самых дешёвых вариантов/);
+  assert.match(summary, /Наценка Электростали применена к 100/);
   assert.match(summary, /Без правила наценки: 20/);
 });

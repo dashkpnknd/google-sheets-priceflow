@@ -1,0 +1,5 @@
+.env
+telegram-login-qr.png
+telegram-login-status.txt
+telegram-code-login.json
+*.session

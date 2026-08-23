@@ -1,0 +1,11 @@
+{$APP_DOMAIN} {
+  encode zstd gzip
+
+  handle /krasnodar/snapshot {
+    reverse_proxy krasnodar-snapshot:8090
+  }
+
+  handle {
+    reverse_proxy price-master:3000
+  }
+}
