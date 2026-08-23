@@ -69,8 +69,13 @@ function rmgName_(item) {
   // а строка варианта начинается только с «A57». Восстанавливаем полное
   // название до записи в таблицу.
   if (/^samsung$/i.test(String(item.brand || '')) && /^galaxy\b/i.test(subcategory)) return rmgExpandName_(subcategory, name);
-  if (/^(iphone|ipad|macbook|apple watch|watch|airpods|dyson|playstation|ps\d|xbox)$/i.test(category)) return category.replace(/^watch$/i, 'Apple Watch') + ' ' + name;
+  if (/^(iphone|ipad|macbook|imac|apple watch|watch|airpods|dyson|playstation|ps\d|xbox)$/i.test(category)) return rmgPrefixCategory_(category.replace(/^watch$/i, 'Apple Watch'), name);
   return name;
+}
+function rmgPrefixCategory_(category, name) {
+  const value = String(name || '').trim(), status = /^(\([^)]*\))\s*/.exec(value);
+  if (!status) return category + ' ' + value;
+  return status[1] + ' ' + category + ' ' + value.slice(status[0].length).trim();
 }
 function rmgExpandName_(label, name) {
   const full = String(label || '').trim(), value = String(name || '').trim();
@@ -90,7 +95,7 @@ function rmgWrite_(sheet, products) {
 }
 function rmgEnsureCountry_(sheet) { const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0], prices = []; headers.forEach(function(v, i) { if (/^(price|цена|цена продажи|актуальная цена)$/i.test(String(v || '').trim())) prices.push(i); }); for (let i = prices.length - 1; i >= 0; i--) { const price = prices[i], start = i ? prices[i - 1] + 1 : 0, hasCountry = headers.slice(start, price + 1).some(function(v) { return /^(country|страна)$/i.test(String(v || '').trim()); }); if (!hasCountry) { sheet.insertColumnBefore(price + 1); sheet.getRange(1, price + 1).setValue('Country'); } } }
 function rmgLayouts_(headers) { const prices = []; headers.forEach(function(v, i) { if (/^(price|цена|цена продажи|актуальная цена)$/i.test(String(v || '').trim())) prices.push(i); }); return prices.map(function(price, i) { const start = i ? prices[i - 1] + 1 : 0, block = headers.slice(start, price + 1).map(rmgNorm_), find = function(names) { const found = names.map(function(n) { return block.indexOf(n); }).find(function(x) { return x >= 0; }); return found === undefined ? -1 : start + found; }; return { start:start, price:price, title:find(['title','товар','наименование']), model:find(['model','модель']), memory:find(['memorysize','memory size','память']), ram:find(['ramsize','ram size','ram','озу']), color:find(['color','цвет']), sim:find(['simconfig','sim config','sim','сим конфигурация']), country:find(['country','страна']) }; }); }
-function rmgLayout_(layouts, p) { return layouts.length > 1 && p.category === 'телефоны' && !/^iphone\b/i.test(p.name) ? layouts.length - 1 : 0; }
+function rmgLayout_(layouts, p) { return layouts.length > 1 && p.category === 'телефоны' && !/^(?:\([^)]*\)\s*)?iphone\b/i.test(p.name) ? layouts.length - 1 : 0; }
 function rmgRow_(layout, p) { const row = Array(layout.price - layout.start + 1).fill(''), info = rmgInfo_(p.name), put = function(col, value) { if (col >= layout.start && col <= layout.price) row[col - layout.start] = value; }; put(layout.title, p.name); put(layout.model, info.model || p.name); put(layout.memory, info.memory); put(layout.ram, info.ram); put(layout.color, info.color); put(layout.sim, info.sim); put(layout.country, p.country); put(layout.price, p.price); return row; }
 function rmgEscape_(value) { return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 function rmgNorm_(value) { return String(value || '').toLocaleLowerCase('ru-RU').replace(/ё/g, 'е').trim(); }
