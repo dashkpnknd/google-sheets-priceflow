@@ -46,7 +46,16 @@ function rmgFetch_(token) {
   if (code < 200 || code >= 300) throw new Error('RM Group API ' + code + '. Проверьте токен и регистрацию приложения.');
   let data; try { data = JSON.parse(text); } catch (e) { throw new Error('RM Group вернул не JSON.'); }
   if (!data || data.method !== 'pricelist.get' || !Array.isArray(data.result)) throw new Error('RM Group вернул неожиданный формат прайс-листа.');
-  return data.result.reduce(function(all, batch) { return all.concat(Array.isArray(batch && batch.items) ? batch.items : []); }, []);
+  return rmgItems_(data.result);
+}
+// API RM Group возвращал прайс блоками {items:[...]}, а сейчас возвращает
+// прямой массив товаров. Поддерживаем оба формата, чтобы не получать ложные
+// «0 позиций» при действующем токене.
+function rmgItems_(result) {
+  return result.reduce(function(all, entry) {
+    if (Array.isArray(entry && entry.items)) return all.concat(entry.items);
+    return entry && typeof entry === 'object' ? all.concat(entry) : all;
+  }, []);
 }
 function rmgItem_(item) {
   if (!item || !item.name || !Number.isFinite(Number(item.cost)) || Number(item.cost) <= 0) return null;
