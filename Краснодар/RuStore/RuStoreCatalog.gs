@@ -70,7 +70,7 @@ function rusFetchSnapshot_() {
   return { rows: rows, categories: categories };
 }
 function rusWriteSheet_(sheet, products) {
-  rusEnsureCountryColumns_(sheet);
+  rusRemoveCountryColumns_(sheet);
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0], layouts = rusLayouts_(headers);
   if (!layouts.length) throw new Error('На листе «' + sheet.getName() + '» не найдена колонка Price/Цена.');
   const buckets = layouts.map(function() { return []; });
@@ -85,19 +85,20 @@ function rusWriteSheet_(sheet, products) {
   });
   return written;
 }
-function rusEnsureCountryColumns_(sheet) {
-  let headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0], prices = [];
-  headers.forEach(function(v, i) { if (/^(price|цена|цена продажи|актуальная цена)$/i.test(String(v || '').trim())) prices.push(i); });
-  for (let i = prices.length - 1; i >= 0; i--) { const price = prices[i], start = i ? prices[i - 1] + 1 : 0, hasCountry = headers.slice(start, price + 1).some(function(h) { return /^(country|страна)$/i.test(String(h).trim()); }); if (!hasCountry) { sheet.insertColumnBefore(price + 1); sheet.getRange(1, price + 1).setValue('Country'); } }
+function rusRemoveCountryColumns_(sheet) {
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  for (let column = headers.length - 1; column >= 0; column--) {
+    if (/^(country|страна)$/i.test(String(headers[column] || '').trim())) sheet.deleteColumn(column + 1);
+  }
 }
 function rusLayouts_(headers) {
   const prices = []; headers.forEach(function(v, i) { if (/^(price|цена|цена продажи|актуальная цена)$/i.test(String(v || '').trim())) prices.push(i); });
-  return prices.map(function(price, i) { const start = i ? prices[i - 1] + 1 : 0, block = headers.slice(start, price + 1).map(rusNorm_), col = function(names) { const hit = names.map(function(n) { return block.indexOf(n); }).find(function(x) { return x >= 0; }); return hit === undefined ? -1 : start + hit; }; return { start: start, price: price, title: col(['title','товар','наименование']), model: col(['model','модель']), memory: col(['memorysize','memory size','память']), ram: col(['ramsize','ram size','ram','озу']), color: col(['color','цвет']), sim: col(['simconfig','sim config','sim','сим конфигурация']), country: col(['country','страна']) }; });
+  return prices.map(function(price, i) { const start = i ? prices[i - 1] + 1 : 0, block = headers.slice(start, price + 1).map(rusNorm_), col = function(names) { const hit = names.map(function(n) { return block.indexOf(n); }).find(function(x) { return x >= 0; }); return hit === undefined ? -1 : start + hit; }; return { start: start, price: price, title: col(['title','товар','наименование']), model: col(['model','модель']), memory: col(['memorysize','memory size','память']), ram: col(['ramsize','ram size','ram','озу']), color: col(['color','цвет']), sim: col(['simconfig','sim config','sim','сим конфигурация']) }; });
 }
 function rusLayoutFor_(layouts, product) { return layouts.length === 1 ? 0 : product.category === 'телефоны' && /^iphone\b/i.test(product.name) ? 0 : layouts.length - 1; }
 function rusTargetRow_(layout, product) {
   const row = Array(layout.price - layout.start + 1).fill(''), phone = rusPhone_(rusDisplay_(product)), put = function(col, value) { if (col >= layout.start && col <= layout.price) row[col - layout.start] = value; };
-  put(layout.title, rusDisplay_(product)); put(layout.model, phone.model || product.name); put(layout.memory, phone.memory); put(layout.ram, phone.ram); put(layout.color, phone.color); put(layout.sim, phone.sim); put(layout.country, phone.country); put(layout.price, product.price); return row;
+  put(layout.title, rusDisplay_(product)); put(layout.model, phone.model || product.name); put(layout.memory, phone.memory); put(layout.ram, phone.ram); put(layout.color, phone.color); put(layout.sim, phone.sim); put(layout.price, product.price); return row;
 }
 function rusParsePost_(text, postId) {
   const lines = String(text || '').replace(/\r/g, '').split('\n').map(function(x) { return x.trim(); }).filter(Boolean), rows = [], skipped = [], categories = {}; let context = '';

@@ -41,20 +41,20 @@ test('creates rows for a standard phone header', () => {
   const row = api.mscRow_(layout,{name:'iPhone 17 Pro 256GB Blue SIM + eSIM',price:102990});
   assert.deepEqual([...row], ['iPhone 17 Pro','SIM + eSIM','256 ГБ','синий',102990]);
 });
-test('splits Android RAM and memory and keeps country in its own column', () => {
+test('splits Android RAM and memory without writing a country column', () => {
   const phone = api.mscPhone_('Pixel 7 8/128GB Lemongrass 🇺🇸');
   assert.deepEqual({...phone}, {model:'Pixel 7',memory:'128 ГБ',ram:'8 ГБ',color:'желтый',sim:'',country:'США 🇺🇸'});
-  const layout = api.mscLayouts_(['Model','SimConfig','Country','MemorySize','Color','RamSize','Price'])[0];
-  assert.deepEqual([...api.mscRow_(layout,{name:'Pixel 7 8/128GB Lemongrass 🇺🇸',price:23500})], ['Pixel 7','','США 🇺🇸','128 ГБ','желтый','8 ГБ',23500]);
+  const layout = api.mscLayouts_(['Model','SimConfig','MemorySize','Color','RamSize','Price'])[0];
+  assert.deepEqual([...api.mscRow_(layout,{name:'Pixel 7 8/128GB Lemongrass 🇺🇸',price:23500})], ['Pixel 7','','128 ГБ','желтый','8 ГБ',23500]);
 });
 test('sorts iPhones by generation rather than an old row order', () => {
   const products = [{name:'iPhone 17 Pro 256GB',price:100000},{name:'iPhone 13 128GB',price:40000},{name:'iPhone 16e 256GB',price:60000},{name:'iPhone 14 128GB',price:50000}];
   products.sort(api.mscProductSort_);
   assert.deepEqual(products.map(p=>api.mscPhone_(p.name).model),['iPhone 13','iPhone 14','iPhone 16e','iPhone 17 Pro']);
 });
-test('clears restrictive dropdowns and creates a Country column before writing', () => {
+test('clears restrictive dropdowns and removes old country columns before writing', () => {
   assert.match(source, /target\.clearDataValidations\(\)/);
-  assert.match(source, /function mscEnsureCountryColumns_\(sheet\)/);
+  assert.match(source, /function mscRemoveCountryColumns_\(sheet\)/);
 });
 test('routes accessories to their own tab and headphones to theirs', () => {
   assert.equal(api.mscCategory_('Чехол для iPhone 17 Pro Max'), 'аксессуары');

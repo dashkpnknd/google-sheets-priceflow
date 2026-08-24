@@ -126,7 +126,7 @@ function mscCategory_(value) {
 function mscNorm_(value) { return String(value || '').trim().toLocaleLowerCase('ru-RU'); }
 
 function mscWrite_(sheet, products) {
-  mscEnsureCountryColumns_(sheet);
+  mscRemoveCountryColumns_(sheet);
   const columns = sheet.getLastColumn(), oldRows = Math.max(sheet.getLastRow(), 1), headers = sheet.getRange(1, 1, 1, columns).getValues()[0], layouts = mscLayouts_(headers);
   if (!layouts.length) throw new Error('На листе «' + sheet.getName() + '» не найдена колонка Price/Цена.');
   const buckets = layouts.map(function() { return []; }); products.forEach(function(product) { buckets[mscLayout_(layouts, product)].push(product); });
@@ -145,24 +145,17 @@ function mscWrite_(sheet, products) {
   });
   return written;
 }
-function mscEnsureCountryColumns_(sheet) {
-  const width = sheet.getLastColumn(); let headers = sheet.getRange(1, 1, 1, width).getValues()[0], prices = [];
-  headers.forEach(function(value, index) { if (/^(price|цена|цена продажи|актуальная цена)$/i.test(String(value || '').trim())) prices.push(index); });
-  for (let i = prices.length - 1; i >= 0; i--) {
-    const price = prices[i], start = i ? prices[i - 1] + 1 : 0; let sim = -1, country = -1;
-    for (let column = start; column <= price; column++) { const key = mscNorm_(headers[column]); if (['simconfig','sim config','sim','сим конфигурация'].indexOf(key) >= 0) sim = column; if (['country','страна'].indexOf(key) >= 0) country = column; }
-    if (country >= 0) continue;
-    const insertAt = sim >= 0 ? sim + 2 : price + 1;
-    sheet.insertColumnBefore(insertAt);
-    sheet.getRange(1, Math.max(1, insertAt - 1)).copyTo(sheet.getRange(1, insertAt), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
-    sheet.getRange(1, insertAt).setValue('Country');
+function mscRemoveCountryColumns_(sheet) {
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  for (let column = headers.length - 1; column >= 0; column--) {
+    if (/^(country|страна)$/i.test(String(headers[column] || '').trim())) sheet.deleteColumn(column + 1);
   }
 }
 function mscLayouts_(headers) {
   const prices = []; headers.forEach(function(h, i) { if (/^(price|цена|цена продажи|актуальная цена)$/i.test(String(h || '').trim())) prices.push(i); });
   return prices.map(function(price, index) {
     const start = index ? prices[index - 1] + 1 : 0, block = headers.slice(start, price + 1).map(mscNorm_), find = function(names) { const hit = names.map(function(n) { return block.indexOf(n); }).find(function(i) { return i >= 0; }); return hit === undefined ? -1 : start + hit; };
-    return { start: start, price: price, title: find(['title','товар','наименование']), model: find(['model','модель']), memory: find(['memorysize','memory size','память']), ram: find(['ramsize','ram size','ram','озу']), color: find(['color','цвет']), sim: find(['simconfig','sim config','sim','сим конфигурация']), country: find(['country','страна']) };
+    return { start: start, price: price, title: find(['title','товар','наименование']), model: find(['model','модель']), memory: find(['memorysize','memory size','память']), ram: find(['ramsize','ram size','ram','озу']), color: find(['color','цвет']), sim: find(['simconfig','sim config','sim','сим конфигурация']) };
   });
 }
 function mscLayout_(layouts, product) {
@@ -185,7 +178,7 @@ function mscRow_(layout, product) {
   // An accessory title may mention the compatible iPhone model. Keep its full
   // title visible instead of turning "Чехол для iPhone 17" into "iPhone 17".
   const shortIphoneMention = /^iphone\s/i.test(String(info.model || '')) && !mscIsIphoneHandset_(product.name);
-  if (layout.title >= 0) at(layout.title, product.name); if (layout.model >= 0) at(layout.model, shortIphoneMention ? product.name : mscDisplayModel_(product.name, info.model)); if (layout.memory >= 0) at(layout.memory, info.memory); if (layout.ram >= 0) at(layout.ram, info.ram); if (layout.color >= 0) at(layout.color, info.color); if (layout.sim >= 0) at(layout.sim, info.sim); if (layout.country >= 0) at(layout.country, info.country); at(layout.price, product.price); return row;
+  if (layout.title >= 0) at(layout.title, product.name); if (layout.model >= 0) at(layout.model, shortIphoneMention ? product.name : mscDisplayModel_(product.name, info.model)); if (layout.memory >= 0) at(layout.memory, info.memory); if (layout.ram >= 0) at(layout.ram, info.ram); if (layout.color >= 0) at(layout.color, info.color); if (layout.sim >= 0) at(layout.sim, info.sim); at(layout.price, product.price); return row;
 }
 function mscDisplayModel_(name, parsedModel) {
   const prefix = /^\s*(\([^)]*\))\s*/.exec(String(name || ''));

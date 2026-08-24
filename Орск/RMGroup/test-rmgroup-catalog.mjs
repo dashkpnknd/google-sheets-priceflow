@@ -16,9 +16,9 @@ test('restores the Samsung model prefix and parses 1/2 TB memory', () => {
   assert.equal(api.rmgInfo_('iPhone 17 Pro Max 2TB Blue').memory, '2 ТБ');
   assert.equal(api.rmgInfo_('iPhone 17 Pro 1TB Silver').memory, '1 ТБ');
 });
-test('writes an iMac to the simple Title/Country/Price header', () => {
-  const layout = api.rmgLayouts_(['Title','Country','Price'])[0];
-  assert.deepEqual([...api.rmgRow_(layout, {name:'iMac M4 16/512 Blue',country:'США 🇺🇸',price:120000})], ['iMac M4 16/512 Blue','США 🇺🇸',120000]);
+test('writes an iMac to the simple Title/Price header', () => {
+  const layout = api.rmgLayouts_(['Title','Price'])[0];
+  assert.deepEqual([...api.rmgRow_(layout, {name:'iMac M4 16/512 Blue',country:'США 🇺🇸',price:120000})], ['iMac M4 16/512 Blue',120000]);
 });
 test('keeps a status iPhone in the Apple block and prefixes iMac titles', () => {
   assert.equal(api.rmgName_({category:'iPhone',name:'(Active) 17 256 Black'}), '(Active) iPhone 17 256 Black');

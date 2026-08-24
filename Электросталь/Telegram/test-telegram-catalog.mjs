@@ -164,17 +164,17 @@ test('does not drop Google and Honor brand sections with Android positions', () 
 });
 
 test('fills a standard phone block without relying on an old catalogue row', () => {
-  const headers = ['Model', 'SimConfig', 'Country', 'MemorySize', 'Color', 'Price'];
+  const headers = ['Model', 'SimConfig', 'MemorySize', 'Color', 'Price'];
   const layout = api.tcLayouts_(headers)[0];
   const row = api.tcTargetRow_(headers, layout, { name: 'iPhone 17 Pro 256GB SIM + eSIM Blue', variant: '🇮🇳', price: 102990 });
-  assert.deepEqual([...row], ['iPhone 17 Pro', 'SIM + eSIM', 'Индия 🇮🇳', '256 ГБ', 'синий', 102990]);
+  assert.deepEqual([...row], ['iPhone 17 Pro', 'SIM + eSIM', '256 ГБ', 'синий', 102990]);
 });
 
 test('fills Android RAM separately in the standard right-hand phone block', () => {
-  const headers = ['Model', 'SimConfig', 'Country', 'MemorySize', 'Color', 'RamSize', 'Price'];
+  const headers = ['Model', 'SimConfig', 'MemorySize', 'Color', 'RamSize', 'Price'];
   const layout = api.tcLayouts_(headers)[0];
   const row = api.tcTargetRow_(headers, layout, { name: 'Pixel 7 8/128GB Lemongrass', variant: '🇺🇸', price: 23500 });
-  assert.deepEqual([...row], ['Pixel 7', '', 'США 🇺🇸', '128 ГБ', 'желтый', '8 ГБ', 23500]);
+  assert.deepEqual([...row], ['Pixel 7', '', '128 ГБ', 'желтый', '8 ГБ', 23500]);
 });
 
 test('removes supplier service markers and duplicate specs from the model field', () => {
@@ -202,9 +202,9 @@ test('sorts iPhones by generation before the order of Telegram posts', () => {
   ]);
 });
 
-test('removes restrictive dropdown validation from every imported catalogue field', () => {
+test('removes restrictive dropdown validation and old country columns', () => {
   assert.match(source, /target\.clearDataValidations\(\)/);
-  assert.match(source, /function tcEnsureCountryColumns_\(sheet\)/);
+  assert.match(source, /function tcRemoveCountryColumns_\(sheet\)/);
 });
 
 test('supports a title/price template and reports concise outcome', () => {

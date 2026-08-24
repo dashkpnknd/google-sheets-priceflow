@@ -103,7 +103,7 @@ function syncTelegramCatalog_() {
 }
 
 function tcWriteSheet_(sheet, products) {
-  tcEnsureCountryColumns_(sheet);
+  tcRemoveCountryColumns_(sheet);
   const lastColumn = sheet.getLastColumn(), lastRow = Math.max(sheet.getLastRow(), 1);
   const headers = sheet.getRange(1, 1, 1, lastColumn).getValues()[0], layouts = tcLayouts_(headers);
   if (!layouts.length) throw new Error('На листе «' + sheet.getName() + '» не найдена колонка Price/Цена.');
@@ -137,27 +137,10 @@ function tcWriteSheet_(sheet, products) {
   return written;
 }
 
-function tcEnsureCountryColumns_(sheet) {
-  const width = sheet.getLastColumn();
-  let headers = sheet.getRange(1, 1, 1, width).getValues()[0];
-  const prices = [];
-  headers.forEach(function(value, index) { if (/^(price|цена|цена продажи|актуальная цена)$/i.test(String(value || '').trim())) prices.push(index); });
-  // Work right-to-left so an inserted country column never changes the
-  // coordinates of a block that is still to be processed.
-  for (let i = prices.length - 1; i >= 0; i--) {
-    const price = prices[i], start = i ? prices[i - 1] + 1 : 0;
-    let sim = -1, country = -1;
-    for (let column = start; column <= price; column++) {
-      const key = tcNorm_(headers[column]);
-      if (['simconfig', 'sim config', 'sim', 'сим конфигурация'].indexOf(key) >= 0) sim = column;
-      if (['country', 'страна'].indexOf(key) >= 0) country = column;
-    }
-    if (country >= 0) continue;
-    const insertAt = sim >= 0 ? sim + 2 : price + 1; // one-based sheet column
-    sheet.insertColumnBefore(insertAt);
-    const formatSource = Math.max(1, insertAt - 1);
-    sheet.getRange(1, formatSource).copyTo(sheet.getRange(1, insertAt), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
-    sheet.getRange(1, insertAt).setValue('Country');
+function tcRemoveCountryColumns_(sheet) {
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  for (let column = headers.length - 1; column >= 0; column--) {
+    if (/^(country|страна)$/i.test(String(headers[column] || '').trim())) sheet.deleteColumn(column + 1);
   }
 }
 
@@ -168,7 +151,7 @@ function tcLayouts_(headers) {
     const start = index ? prices[index - 1] + 1 : 0;
     const block = headers.slice(start, priceColumn + 1).map(tcNorm_);
     const column = function(names) { const found = names.map(function(name) { return block.indexOf(name); }).find(function(i) { return i >= 0; }); return found === undefined ? -1 : start + found; };
-    return { start: start, priceColumn: priceColumn, title: column(['title', 'товар', 'наименование']), model: column(['model', 'модель']), memory: column(['memorysize', 'memory size', 'память']), ram: column(['ramsize', 'ram size', 'ram', 'озу']), color: column(['color', 'цвет']), sim: column(['simconfig', 'sim config', 'sim', 'сим конфигурация']), country: column(['country', 'страна']) };
+    return { start: start, priceColumn: priceColumn, title: column(['title', 'товар', 'наименование']), model: column(['model', 'модель']), memory: column(['memorysize', 'memory size', 'память']), ram: column(['ramsize', 'ram size', 'ram', 'озу']), color: column(['color', 'цвет']), sim: column(['simconfig', 'sim config', 'sim', 'сим конфигурация']) };
   });
 }
 
@@ -190,7 +173,6 @@ function tcTargetRow_(headers, layout, product) {
   if (layout.ram >= 0) at(layout.ram, phone.ram);
   if (layout.color >= 0) at(layout.color, phone.color);
   if (layout.sim >= 0) at(layout.sim, phone.config);
-  if (layout.country >= 0) at(layout.country, phone.country);
   at(layout.priceColumn, product.price);
   return row;
 }
