@@ -132,7 +132,7 @@ function tcWriteSheet_(sheet, products) {
     target.clearContent();
     if (data.length) {
       sheet.getRange(2, layout.start + 1, data.length, width).setValues(data);
-      sheet.getRange(2, layout.priceColumn + 1, data.length, 1).setNumberFormat('#,##0');
+      sheet.getRange(2, layout.priceColumn + 1, data.length, 1).setNumberFormat('0');
       written += data.length;
     }
   });
