@@ -386,7 +386,7 @@ function tcCategory_(value) {
   if (/airpods|galaxy\s*buds|buds\b|наушники|headphones?|гарнитур|колонки/.test(v)) return 'наушники';
   if (/apple\s*watch|galaxy\s*(?:watch|fit|ring)|\bwatch\b|\bfit\b|\bring\b/.test(v)) return 'часы';
   if (/ipad|galaxy\s*tab|(?:xiaomi|redmi|huawei|honor)\s*pad|\btablet\b/.test(v)) return 'айпады';
-  if (/macbook/.test(v)) return 'макбуки';
+  if (/galaxy\s+book\b|macbook/.test(v)) return 'макбуки';
   if (/playstation|\bps[345]\b|xbox/.test(v)) return 'пс';
   if (/dyson/.test(v)) return 'дайсон';
   if (/imac/.test(v)) return 'аймаки';

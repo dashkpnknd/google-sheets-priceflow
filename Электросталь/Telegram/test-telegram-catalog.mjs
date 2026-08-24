@@ -39,6 +39,7 @@ test('accepts the public supplier price channel handle and t.me URLs', () => {
 test('routes all standard source product families to client tabs', () => {
   assert.equal(api.tcCategory_('iPhone 17 Pro'), 'телефоны');
   assert.equal(api.tcCategory_('Samsung Galaxy S24'), 'телефоны');
+  assert.equal(api.tcCategory_('Galaxy Book 4 Edge NP940XMA-KB1HK'), 'макбуки');
   assert.equal(api.tcCategory_('Apple iPad 11'), 'айпады');
   assert.equal(api.tcCategory_('Samsung Galaxy Tab A11'), 'айпады');
   assert.equal(api.tcCategory_('MacBook Air M4'), 'макбуки');
