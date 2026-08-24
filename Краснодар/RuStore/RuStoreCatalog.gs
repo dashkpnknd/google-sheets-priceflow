@@ -4,7 +4,7 @@
  * fetches that snapshot and rebuilds the client catalogue every 15 minutes.
  */
 const RUS = {
-  sheets: ['телефоны', 'аксессуары', 'макбуки', 'аймаки', 'айпады', 'часы', 'наушники', 'пс', 'дайсон'],
+  sheets: ['телефоны', 'макбуки', 'аймаки', 'айпады', 'часы', 'наушники', 'пс', 'дайсон'],
   everyMinutes: 15,
   project: 'ru:Store | Краснонедар',
   endpoint: 'https://api.pricemasterapp.ru/krasnodar/snapshot',
@@ -162,7 +162,7 @@ function rusExpand_(context, item) {
   return core + suffix;
 }
 function rusLooksLikeProduct_(line) { return /\d/.test(line) && !/^(?:\d+\s*шт|\d+\+|\d{1,2}:\d{2})/i.test(line); }
-function rusCategory_(value) { const v = rusNorm_(value); if (/airpods|galaxy\s*buds|\bbuds\b|наушник|headphones?/.test(v)) return 'наушники'; if (/apple\s*watch|galaxy\s*(watch|fit|ring)|\bwatch\b/.test(v)) return 'часы'; if (/ipad|galaxy\s*tab|\btablet\b/.test(v)) return 'айпады'; if (/macbook/.test(v)) return 'макбуки'; if (/\bimac\b/.test(v)) return 'аймаки'; if (/dyson/.test(v)) return 'дайсон'; if (/playstation|\bps[345]\b|xbox/.test(v)) return /gamepad|controller|геймпад|док|подставк|дисковод/.test(v) ? 'аксессуары' : 'пс'; if (/чехол|стекло|кабель|заряд|адаптер|держател|ремеш|powerbank|пауэрбанк/.test(v)) return 'аксессуары'; if (/iphone|samsung|galaxy|pixel|xiaomi|redmi|honor|huawei|oneplus|realme|oppo|vivo/.test(v)) return 'телефоны'; return 'прочее'; }
+function rusCategory_(value) { const v = rusNorm_(value); if (/чехол|стекло|кабель|заряд|адаптер|держател|ремеш|powerbank|пауэрбанк/.test(v)) return 'прочее'; if (/airpods|galaxy\s*buds|\bbuds\b|наушник|headphones?/.test(v)) return 'наушники'; if (/apple\s*watch|galaxy\s*(watch|fit|ring)|\bwatch\b/.test(v)) return 'часы'; if (/ipad|galaxy\s*tab|\btablet\b/.test(v)) return 'айпады'; if (/macbook/.test(v)) return 'макбуки'; if (/\bimac\b/.test(v)) return 'аймаки'; if (/dyson/.test(v)) return 'дайсон'; if (/playstation|\bps[345]\b|xbox/.test(v)) return /gamepad|controller|геймпад|док|подставк|дисковод/.test(v) ? 'прочее' : 'пс'; if (/iphone|samsung|galaxy|pixel|xiaomi|redmi|honor|huawei|oneplus|realme|oppo|vivo/.test(v)) return 'телефоны'; return 'прочее'; }
 const RUS_COUNTRIES = {AE:'ОАЭ',AR:'Аргентина',AT:'Австрия',AU:'Австралия',AZ:'Азербайджан',BE:'Бельгия',BH:'Бахрейн',BR:'Бразилия',BY:'Беларусь',CA:'Канада',CH:'Швейцария',CL:'Чили',CN:'Китай',CO:'Колумбия',CZ:'Чехия',DE:'Германия',DK:'Дания',EE:'Эстония',EG:'Египет',ES:'Испания',EU:'Европа',FI:'Финляндия',FR:'Франция',GB:'Великобритания',GE:'Грузия',GR:'Греция',HK:'Гонконг',HU:'Венгрия',ID:'Индонезия',IE:'Ирландия',IL:'Израиль',IN:'Индия',IS:'Исландия',IT:'Италия',JP:'Япония',KR:'Южная Корея',KW:'Кувейт',KZ:'Казахстан',LT:'Литва',LU:'Люксембург',LV:'Латвия',MA:'Марокко',MX:'Мексика',MY:'Малайзия',NL:'Нидерланды',NO:'Норвегия',NZ:'Новая Зеландия',OM:'Оман',PH:'Филиппины',PL:'Польша',PT:'Португалия',QA:'Катар',RO:'Румыния',RS:'Сербия',RU:'Россия',SA:'Саудовская Аравия',SE:'Швеция',SG:'Сингапур',TH:'Таиланд',TR:'Турция',TW:'Тайвань',UA:'Украина',US:'США',VN:'Вьетнам',ZA:'ЮАР'};
 function rusFlagCode_(flag) { const chars = Array.from(String(flag || '')); return chars.length === 2 ? chars.map(function(c) { return String.fromCharCode(c.codePointAt(0) - 0x1F1E6 + 65); }).join('') : ''; }
 function rusCountry_(value) { const flag = (String(value || '').match(/[\u{1F1E6}-\u{1F1FF}]{2}/gu) || [])[0]; if (!flag) return ''; const code = rusFlagCode_(flag); return (RUS_COUNTRIES[code] || code || 'Неизвестная страна') + ' ' + flag; }

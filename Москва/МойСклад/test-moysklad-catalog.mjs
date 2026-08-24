@@ -56,12 +56,12 @@ test('clears restrictive dropdowns and removes old country columns before writin
   assert.match(source, /target\.clearDataValidations\(\)/);
   assert.match(source, /function mscRemoveCountryColumns_\(sheet\)/);
 });
-test('routes accessories to their own tab and headphones to theirs', () => {
-  assert.equal(api.mscCategory_('Чехол для iPhone 17 Pro Max'), 'аксессуары');
-  assert.equal(api.mscCategory_('Защитное стекло Galaxy S24'), 'аксессуары');
-  assert.equal(api.mscCategory_('Глазурь iPhone Новое голубая глазурь, матовая глазурь, box версия'), 'аксессуары');
+test('skips accessories and keeps supported headphones', () => {
+  assert.equal(api.mscCategory_('Чехол для iPhone 17 Pro Max'), 'прочее');
+  assert.equal(api.mscCategory_('Защитное стекло Galaxy S24'), 'прочее');
+  assert.equal(api.mscCategory_('Глазурь iPhone Новое голубая глазурь, матовая глазурь, box версия'), 'прочее');
   assert.equal(api.mscCategory_('Проводные наушники Apple EarPods (Lightning)'), 'наушники');
-  assert.equal(api.mscCategory_('Power Bank Baseus 10000mAh для iPhone'), 'аксессуары');
+  assert.equal(api.mscCategory_('Power Bank Baseus 10000mAh для iPhone'), 'прочее');
   assert.equal(api.mscPlausiblePrice_('телефоны', 21), false);
   assert.equal(api.mscPlausiblePrice_('телефоны', 21000), true);
   assert.equal(api.mscPlausiblePrice_('аксессуары', 21), true);
@@ -74,9 +74,9 @@ test('routes accessories to their own tab and headphones to theirs', () => {
   const accessoryRow = api.mscRow_(api.mscLayouts_(['Model','Price'])[0], {name:'Чехол для iPhone 17 Pro Max Black',price:1743});
   assert.deepEqual([...accessoryRow], ['Чехол для iPhone 17 Pro Max Black',1743]);
 });
-test('routes Samsung wearables and AirPods cases out of the Android phone block', () => {
-  assert.equal(api.mscCategory_('Чехол для AirPods Pro 2'), 'аксессуары');
-  assert.equal(api.mscCategory_('Чехол Case для Galaxy Buds 4'), 'аксессуары');
+test('skips accessory cases and keeps Samsung wearables out of the Android phone block', () => {
+  assert.equal(api.mscCategory_('Чехол для AirPods Pro 2'), 'прочее');
+  assert.equal(api.mscCategory_('Чехол Case для Galaxy Buds 4'), 'прочее');
   assert.equal(api.mscCategory_('Портативная беспроводная колонка Samsung'), 'наушники');
   assert.equal(api.mscCategory_('Galaxy Buds 4'), 'наушники');
   assert.equal(api.mscCategory_('Galaxy Ring'), 'наушники');

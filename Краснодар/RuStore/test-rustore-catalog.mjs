@@ -22,7 +22,7 @@ test('does not create zero-price rows from ordinary-price placeholders', () => {
   const r = api.rusParsePost_('iPhone 16 Pro\n🇨🇳16 Pro 128 Natural —\nУказано по обычной цене', '3'); assert.equal(r.rows.length, 0); assert.deepEqual(Array.from(r.categories), ['телефоны']);
 });
 test('routes all required catalogues safely', () => {
-  assert.equal(api.rusCategory_('iPhone 17 Pro'), 'телефоны'); assert.equal(api.rusCategory_('Galaxy Tab A11'), 'айпады'); assert.equal(api.rusCategory_('AirPods Max'), 'наушники'); assert.equal(api.rusCategory_('PS5 Slim Disk'), 'пс'); assert.equal(api.rusCategory_('GamePad PS5 Black'), 'аксессуары'); assert.equal(api.rusCategory_('Dyson HD16'), 'дайсон');
+  assert.equal(api.rusCategory_('iPhone 17 Pro'), 'телефоны'); assert.equal(api.rusCategory_('Galaxy Tab A11'), 'айпады'); assert.equal(api.rusCategory_('AirPods Max'), 'наушники'); assert.equal(api.rusCategory_('PS5 Slim Disk'), 'пс'); assert.equal(api.rusCategory_('GamePad PS5 Black'), 'прочее'); assert.equal(api.rusCategory_('Dyson HD16'), 'дайсон');
 });
 test('sends every supported Android phone family to the right phone block', () => {
   const layouts = [{}, {}];
