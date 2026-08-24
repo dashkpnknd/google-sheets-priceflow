@@ -107,7 +107,21 @@ test('plans direct Krasnodar Avito price updates without changing product fields
     ['Samsung', 'Galaxy S26', '256 ГБ', 'черный', 'SIM + eSIM', '12 ГБ', '']
   ];
   const plan = api.rusAvitoPricePlan_(products, layout, rows);
-  assert.equal(JSON.stringify(plan.updates), JSON.stringify([{ row: 0, price: 55490 }]));
-  assert.equal(plan.matched, 1);
-  assert.deepEqual(Array.from(plan.missing), ['Galaxy S26 | 256 ГБ | черный | SIM + eSIM | 12 ГБ']);
+  assert.equal(JSON.stringify(plan.updates), JSON.stringify([{ row: 0, price: 55490 }, { row: 1, price: 63990 }]));
+  assert.equal(plan.matched, 2);
+  assert.deepEqual(Array.from(plan.missing), []);
+});
+test('accepts the known Krasnodar listing display variants', () => {
+  const layout = api.rusAvitoLayout_(['Vendor', 'Model', 'MemorySize', 'Color', 'SimConfig', 'RamSize', 'Price']);
+  const products = [
+    { category: 'телефоны', name: 'iPhone 17 Pro 1TB Blue (eSIM)', price: 100001 },
+    { category: 'телефоны', name: 'SAMSUNG S26 Plus 12/256 Blue', price: 100002 }
+  ];
+  const rows = [
+    ['Apple', 'iPhone 17 Pro', '1024 ГБ', 'голубой', 'Только eSIM', '12 ГБ', ''],
+    ['Samsung', 'Galaxy S26+', '256 ГБ', 'голубой', 'SIM + eSIM', '12 ГБ', '']
+  ];
+  const plan = api.rusAvitoPricePlan_(products, layout, rows);
+  assert.equal(JSON.stringify(plan.updates), JSON.stringify([{ row: 0, price: 100001 }, { row: 1, price: 100002 }]));
+  assert.equal(plan.matched, 2);
 });

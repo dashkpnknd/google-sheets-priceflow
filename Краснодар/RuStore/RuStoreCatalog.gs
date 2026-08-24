@@ -86,10 +86,25 @@ function rusAvitoSourceIndex_(products) {
 }
 function rusAvitoTargetKey_(row, layout) { return rusAvitoPhoneKey_({ model:row[layout.model], memory:row[layout.memory], color:row[layout.color], sim:row[layout.sim], ram:row[layout.ram] }); }
 function rusAvitoPhoneKey_(phone) {
-  const model = rusNorm_(phone.model), memory = rusNorm_(phone.memory), color = rusNorm_(phone.color), sim = rusNorm_(phone.sim || 'Не знаю'), ram = rusNorm_(phone.ram);
+  const model = rusAvitoModel_(phone.model), memory = rusAvitoMemory_(phone.memory), color = rusAvitoColorKey_(phone.color), sim = rusAvitoSim_(phone.sim, phone.model), ram = rusNorm_(phone.ram);
   if (!model || !memory || !color) return '';
   // ru:Store does not provide iPhone RAM; Android RAM remains part of the key.
   return [model, memory, color, sim, /^iphone\b/.test(model) ? '' : ram].join('|');
+}
+/** Known display variants in the Krasnodar listing sheet are one SKU. */
+function rusAvitoModel_(value) { return rusNorm_(value).replace(/^galaxy\s+(s\d+)\s+plus$/, 'galaxy $1+'); }
+function rusAvitoMemory_(value) {
+  const match = /^(\d+)\s*(гб|gb|тб|tb)$/i.exec(String(value || '').trim());
+  if (!match) return rusNorm_(value);
+  const size = Number(match[1]) * (/тб|tb/i.test(match[2]) ? 1024 : 1);
+  return size + ' гб';
+}
+function rusAvitoColorKey_(value) { return rusNorm_(value).replace(/голубой/g, 'синий'); }
+function rusAvitoSim_(value, model) {
+  const sim = rusNorm_(value || 'Не знаю').replace(/^только\s+/, '');
+  // The supplier omits SIM only for the current Galaxy S26 rows; all matching
+  // Krasnodar listings are explicitly SIM + eSIM.
+  return sim === 'не знаю' && /^galaxy\s+s26(?:\+|\s+ultra)?$/.test(rusAvitoModel_(model)) ? 'sim + esim' : sim || 'не знаю';
 }
 function rusAvitoLabel_(row, layout) { return [row[layout.model], row[layout.memory], row[layout.color], row[layout.sim], row[layout.ram]].map(String).join(' | '); }
 /** Endpoint contract: {posts:[{id:"123", text:"...", updatedAt:"ISO"}]}. */
