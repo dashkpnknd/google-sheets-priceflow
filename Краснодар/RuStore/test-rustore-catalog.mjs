@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
-const src = fs.readFileSync(new URL('./RuStoreCatalog.gs', import.meta.url), 'utf8') + '\nglobalThis.API={rusParsePost_,rusCategory_,rusPhone_,rusExpand_,rusCountry_,rusColor_,rusLayoutFor_};';
+const src = fs.readFileSync(new URL('./RuStoreCatalog.gs', import.meta.url), 'utf8') + '\nglobalThis.API={rusParsePost_,rusCategory_,rusPhone_,rusExpand_,rusCountry_,rusColor_,rusLayoutFor_,rusAvitoLayout_,rusAvitoPricePlan_};';
 const ctx = { console }; vm.createContext(ctx); vm.runInContext(src, ctx); const api = ctx.API;
 
 test('uses the channel price exactly as written, without markup', () => {
@@ -95,4 +95,19 @@ test('keeps iPhone Air and fills the remaining supplier colors', () => {
   assert.equal(api.rusColor_('GamePad PS5 Volcanic Red'), 'красный');
   assert.equal(api.rusColor_('iPhone 17 Lavender'), 'фиолетовый');
   assert.equal(api.rusColor_('iPhone 17 Sage'), 'зеленый');
+});
+test('plans direct Krasnodar Avito price updates without changing product fields', () => {
+  const layout = api.rusAvitoLayout_(['Vendor', 'Model', 'MemorySize', 'Color', 'SimConfig', 'RamSize', 'Price']);
+  const products = [
+    { category: 'телефоны', name: 'iPhone 15 128GB Black', price: 55490 },
+    { category: 'телефоны', name: 'SAMSUNG S26 12/256 Black', price: 63990 }
+  ];
+  const rows = [
+    ['Apple', 'iPhone 15', '128 ГБ', 'черный', 'Не знаю', '6 ГБ', ''],
+    ['Samsung', 'Galaxy S26', '256 ГБ', 'черный', 'SIM + eSIM', '12 ГБ', '']
+  ];
+  const plan = api.rusAvitoPricePlan_(products, layout, rows);
+  assert.equal(JSON.stringify(plan.updates), JSON.stringify([{ row: 0, price: 55490 }]));
+  assert.equal(plan.matched, 1);
+  assert.deepEqual(Array.from(plan.missing), ['Galaxy S26 | 256 ГБ | черный | SIM + eSIM | 12 ГБ']);
 });
