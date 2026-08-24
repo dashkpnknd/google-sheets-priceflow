@@ -90,7 +90,7 @@ function mscJoinParts_(parts) {
 }
 // Решётка в начале — служебная пометка в номенклатуре, а не часть названия
 // товара; в каталог её не выводим.
-function mscCleanName_(value) { return String(value || '').replace(/^\s*#+\s*/, '').trim(); }
+function mscCleanName_(value) { return String(value || '').replace(/^\s*#+\s*/, '').replace(/\b(?:true|false)\b/gi, '').replace(/[\u{1F1E6}-\u{1F1FF}]{2}/gu, '').replace(/\s+/g, ' ').trim(); }
 function mscCharacteristicsText_(item) {
   const values = [];
   (item.characteristics || []).forEach(function(characteristic) {
@@ -127,7 +127,9 @@ function mscNorm_(value) { return String(value || '').trim().toLocaleLowerCase('
 
 function mscWrite_(sheet, products) {
   mscRemoveCountryColumns_(sheet);
-  const columns = sheet.getLastColumn(), oldRows = Math.max(sheet.getLastRow(), 1), headers = sheet.getRange(1, 1, 1, columns).getValues()[0], layouts = mscLayouts_(headers);
+  const columns = sheet.getLastColumn(), oldRows = Math.max(sheet.getLastRow(), 1), headers = sheet.getRange(1, 1, 1, columns).getValues()[0];
+  mscValidateSchema_(sheet, headers);
+  const layouts = mscLayouts_(headers);
   if (!layouts.length) throw new Error('На листе «' + sheet.getName() + '» не найдена колонка Price/Цена.');
   const buckets = layouts.map(function() { return []; }); products.forEach(function(product) { buckets[mscLayout_(layouts, product)].push(product); });
   buckets.forEach(function(bucket) { bucket.sort(mscProductSort_); });
@@ -144,6 +146,11 @@ function mscWrite_(sheet, products) {
     if (data.length) { sheet.getRange(2, layout.start + 1, data.length, width).setValues(data); sheet.getRange(2, layout.price + 1, data.length, 1).setNumberFormat('0'); written += data.length; }
   });
   return written;
+}
+function mscValidateSchema_(sheet, headers) {
+  const expected = sheet.getName() === 'телефоны' ? ['model','simconfig','memorysize','color','price','','model','simconfig','memorysize','color','ramsize','price'] : ['title','price'];
+  const actual = headers.map(mscNorm_);
+  if (expected.some(function(value, index) { return actual[index] !== value; })) throw new Error('Неверная шапка листа «' + sheet.getName() + '». Ожидается формат внешней автозагрузки.');
 }
 function mscRemoveCountryColumns_(sheet) {
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
@@ -178,7 +185,7 @@ function mscRow_(layout, product) {
   // An accessory title may mention the compatible iPhone model. Keep its full
   // title visible instead of turning "Чехол для iPhone 17" into "iPhone 17".
   const shortIphoneMention = /^iphone\s/i.test(String(info.model || '')) && !mscIsIphoneHandset_(product.name);
-  if (layout.title >= 0) at(layout.title, product.name); if (layout.model >= 0) at(layout.model, shortIphoneMention ? product.name : mscDisplayModel_(product.name, info.model)); if (layout.memory >= 0) at(layout.memory, info.memory); if (layout.ram >= 0) at(layout.ram, info.ram); if (layout.color >= 0) at(layout.color, info.color); if (layout.sim >= 0) at(layout.sim, info.sim); at(layout.price, product.price); return row;
+  if (layout.title >= 0) at(layout.title, product.name); if (layout.model >= 0) at(layout.model, shortIphoneMention ? product.name : mscDisplayModel_(product.name, info.model)); if (layout.memory >= 0) at(layout.memory, info.memory); if (layout.ram >= 0) at(layout.ram, info.ram); if (layout.color >= 0) at(layout.color, info.color); if (layout.sim >= 0) at(layout.sim, info.sim || 'Не знаю'); at(layout.price, product.price); return row;
 }
 function mscDisplayModel_(name, parsedModel) {
   const prefix = /^\s*(\([^)]*\))\s*/.exec(String(name || ''));

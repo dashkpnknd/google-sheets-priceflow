@@ -45,7 +45,7 @@ test('splits Android RAM and memory without writing a country column', () => {
   const phone = api.mscPhone_('Pixel 7 8/128GB Lemongrass 🇺🇸');
   assert.deepEqual({...phone}, {model:'Pixel 7',memory:'128 ГБ',ram:'8 ГБ',color:'желтый',sim:'',country:'США 🇺🇸'});
   const layout = api.mscLayouts_(['Model','SimConfig','MemorySize','Color','RamSize','Price'])[0];
-  assert.deepEqual([...api.mscRow_(layout,{name:'Pixel 7 8/128GB Lemongrass 🇺🇸',price:23500})], ['Pixel 7','','128 ГБ','желтый','8 ГБ',23500]);
+  assert.deepEqual([...api.mscRow_(layout,{name:'Pixel 7 8/128GB Lemongrass 🇺🇸',price:23500})], ['Pixel 7','Не знаю','128 ГБ','желтый','8 ГБ',23500]);
 });
 test('sorts iPhones by generation rather than an old row order', () => {
   const products = [{name:'iPhone 17 Pro 256GB',price:100000},{name:'iPhone 13 128GB',price:40000},{name:'iPhone 16e 256GB',price:60000},{name:'iPhone 14 128GB',price:50000}];

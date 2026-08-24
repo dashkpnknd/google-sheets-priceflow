@@ -105,7 +105,9 @@ function syncTelegramCatalog_() {
 function tcWriteSheet_(sheet, products) {
   tcRemoveCountryColumns_(sheet);
   const lastColumn = sheet.getLastColumn(), lastRow = Math.max(sheet.getLastRow(), 1);
-  const headers = sheet.getRange(1, 1, 1, lastColumn).getValues()[0], layouts = tcLayouts_(headers);
+  const headers = sheet.getRange(1, 1, 1, lastColumn).getValues()[0];
+  tcValidateSchema_(sheet, headers);
+  const layouts = tcLayouts_(headers);
   if (!layouts.length) throw new Error('На листе «' + sheet.getName() + '» не найдена колонка Price/Цена.');
   const buckets = layouts.map(function() { return []; });
   products.forEach(function(product) { buckets[tcLayoutFor_(layouts, product)].push(product); });
@@ -135,6 +137,12 @@ function tcWriteSheet_(sheet, products) {
     }
   });
   return written;
+}
+
+function tcValidateSchema_(sheet, headers) {
+  const expected = sheet.getName() === 'телефоны' ? ['model','simconfig','memorysize','color','price','','model','simconfig','memorysize','color','ramsize','price'] : ['title','price'];
+  const actual = headers.map(tcNorm_);
+  if (expected.some(function(value, index) { return actual[index] !== value; })) throw new Error('Неверная шапка листа «' + sheet.getName() + '». Ожидается формат внешней автозагрузки.');
 }
 
 function tcRemoveCountryColumns_(sheet) {
@@ -172,7 +180,7 @@ function tcTargetRow_(headers, layout, product) {
   if (layout.memory >= 0) at(layout.memory, phone.memory);
   if (layout.ram >= 0) at(layout.ram, phone.ram);
   if (layout.color >= 0) at(layout.color, phone.color);
-  if (layout.sim >= 0) at(layout.sim, phone.config);
+  if (layout.sim >= 0) at(layout.sim, phone.config || 'Не знаю');
   at(layout.priceColumn, product.price);
   return row;
 }
@@ -236,7 +244,7 @@ function tcSummary_(result) {
     '. Далее обновляется автоматически каждые 15 минут.';
 }
 function tcNorm_(value) { return String(value || '').trim().toLocaleLowerCase('ru-RU'); }
-function tcDisplay_(product) { return [product.name, product.variant].filter(Boolean).join(' ').trim(); }
+function tcDisplay_(product) { return [product.name, product.variant].filter(Boolean).join(' ').replace(/[\u{1F1E6}-\u{1F1FF}]{2}/gu, '').replace(/\s+/g, ' ').trim(); }
 
 /**
  * Client-specific publishing rule. Some Avito catalogues need a third

@@ -71,7 +71,9 @@ function rusFetchSnapshot_() {
 }
 function rusWriteSheet_(sheet, products) {
   rusRemoveCountryColumns_(sheet);
-  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0], layouts = rusLayouts_(headers);
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  rusValidateSchema_(sheet, headers);
+  const layouts = rusLayouts_(headers);
   if (!layouts.length) throw new Error('На листе «' + sheet.getName() + '» не найдена колонка Price/Цена.');
   const buckets = layouts.map(function() { return []; });
   products.forEach(function(p) { buckets[rusLayoutFor_(layouts, p)].push(p); });
@@ -84,6 +86,11 @@ function rusWriteSheet_(sheet, products) {
     if (data.length) { sheet.getRange(2, layout.start + 1, data.length, width).setValues(data); sheet.getRange(2, layout.price + 1, data.length, 1).setNumberFormat('0'); written += data.length; }
   });
   return written;
+}
+function rusValidateSchema_(sheet, headers) {
+  const expected = sheet.getName() === 'телефоны' ? ['model','simconfig','memorysize','color','price','','model','simconfig','memorysize','color','ramsize','price'] : ['title','price'];
+  const actual = headers.map(rusNorm_);
+  if (expected.some(function(value, index) { return actual[index] !== value; })) throw new Error('Неверная шапка листа «' + sheet.getName() + '». Ожидается формат внешней автозагрузки.');
 }
 function rusRemoveCountryColumns_(sheet) {
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
@@ -98,7 +105,7 @@ function rusLayouts_(headers) {
 function rusLayoutFor_(layouts, product) { return layouts.length === 1 ? 0 : product.category === 'телефоны' && /^iphone\b/i.test(product.name) ? 0 : layouts.length - 1; }
 function rusTargetRow_(layout, product) {
   const row = Array(layout.price - layout.start + 1).fill(''), phone = rusPhone_(rusDisplay_(product)), put = function(col, value) { if (col >= layout.start && col <= layout.price) row[col - layout.start] = value; };
-  put(layout.title, rusDisplay_(product)); put(layout.model, phone.model || product.name); put(layout.memory, phone.memory); put(layout.ram, phone.ram); put(layout.color, phone.color); put(layout.sim, phone.sim); put(layout.price, product.price); return row;
+  put(layout.title, rusDisplay_(product)); put(layout.model, phone.model || product.name); put(layout.memory, phone.memory); put(layout.ram, phone.ram); put(layout.color, phone.color); put(layout.sim, phone.sim || 'Не знаю'); put(layout.price, product.price); return row;
 }
 function rusParsePost_(text, postId) {
   const lines = String(text || '').replace(/\r/g, '').split('\n').map(function(x) { return x.trim(); }).filter(Boolean), rows = [], skipped = [], categories = {}; let context = '';
@@ -166,10 +173,10 @@ function rusCategory_(value) { const v = rusNorm_(value); if (/чехол|сте
 const RUS_COUNTRIES = {AE:'ОАЭ',AR:'Аргентина',AT:'Австрия',AU:'Австралия',AZ:'Азербайджан',BE:'Бельгия',BH:'Бахрейн',BR:'Бразилия',BY:'Беларусь',CA:'Канада',CH:'Швейцария',CL:'Чили',CN:'Китай',CO:'Колумбия',CZ:'Чехия',DE:'Германия',DK:'Дания',EE:'Эстония',EG:'Египет',ES:'Испания',EU:'Европа',FI:'Финляндия',FR:'Франция',GB:'Великобритания',GE:'Грузия',GR:'Греция',HK:'Гонконг',HU:'Венгрия',ID:'Индонезия',IE:'Ирландия',IL:'Израиль',IN:'Индия',IS:'Исландия',IT:'Италия',JP:'Япония',KR:'Южная Корея',KW:'Кувейт',KZ:'Казахстан',LT:'Литва',LU:'Люксембург',LV:'Латвия',MA:'Марокко',MX:'Мексика',MY:'Малайзия',NL:'Нидерланды',NO:'Норвегия',NZ:'Новая Зеландия',OM:'Оман',PH:'Филиппины',PL:'Польша',PT:'Португалия',QA:'Катар',RO:'Румыния',RS:'Сербия',RU:'Россия',SA:'Саудовская Аравия',SE:'Швеция',SG:'Сингапур',TH:'Таиланд',TR:'Турция',TW:'Тайвань',UA:'Украина',US:'США',VN:'Вьетнам',ZA:'ЮАР'};
 function rusFlagCode_(flag) { const chars = Array.from(String(flag || '')); return chars.length === 2 ? chars.map(function(c) { return String.fromCharCode(c.codePointAt(0) - 0x1F1E6 + 65); }).join('') : ''; }
 function rusCountry_(value) { const flag = (String(value || '').match(/[\u{1F1E6}-\u{1F1FF}]{2}/gu) || [])[0]; if (!flag) return ''; const code = rusFlagCode_(flag); return (RUS_COUNTRIES[code] || code || 'Неизвестная страна') + ' ' + flag; }
-function rusPhone_(text) { const value = String(text), specs = /(\d{1,2})\s*\/\s*(\d{1,4})(?:\s*(гб|gb|тб|tb))?/i.exec(value), memory = specs ? null : /\b(\d{1,4})\s*(гб|gb|тб|tb)\b/i.exec(value), bareMemory = specs || memory ? null : /\b(64|128|256|512|1024|2048)\b/.exec(value), unit = function(n,u) { return n + ' ' + String(u || 'GB').toUpperCase().replace('GB','ГБ').replace('TB','ТБ'); }, model = /\b(iPhone\s+(?:\d+(?:e)?(?:\s+(?:Pro Max|Pro|Plus|Air|mini))?|Air)|iPad\s+[^\d]*\d+|MacBook\s+(?:(?:Air|Pro|Neo)\s+)?\d+|Apple Watch\s+(?:(?:SE\d*|S\d+|Ultra\s+\d+)\s+)?\d+mm|Galaxy\s+[A-Z]\d+|Pixel\s+\d+(?:\s+Pro)?)/i.exec(value); return { model: model ? model[1].replace(/\s+/g,' ') : '', memory: specs ? unit(specs[2],specs[3]) : memory ? unit(memory[1],memory[2]) : bareMemory ? unit(bareMemory[1],'GB') : '', ram: specs ? unit(specs[1],'GB') : '', sim: /(?:1\s*)?sim\s*\+\s*e\s*-?sim/i.test(value) ? 'SIM + eSIM' : /e\s*-?sim/i.test(value) ? 'eSIM' : '', country: rusCountry_(value), color: rusColor_(value) }; }
+function rusPhone_(text) { const value = String(text), specs = /(\d{1,2})\s*\/\s*(\d{1,4})(?:\s*(гб|gb|тб|tb))?/i.exec(value), memory = specs ? null : /\b(\d{1,4})\s*(гб|gb|тб|tb)\b/i.exec(value), bareMemory = specs || memory ? null : /\b(64|128|256|512|1024|2048)\b/.exec(value), unit = function(n,u) { return n + ' ' + String(u || 'GB').toUpperCase().replace('GB','ГБ').replace('TB','ТБ'); }, model = /\b(iPhone\s+(?:\d+(?:e)?(?:\s+(?:Pro Max|Pro|Plus|Air|mini))?|Air)|iPad\s+[^\d]*\d+|MacBook\s+(?:(?:Air|Pro|Neo)\s+)?\d+|Apple Watch\s+(?:(?:SE\d*|S\d+|Ultra\s+\d+)\s+)?\d+mm|Galaxy\s+[A-Z]\d+|Samsung\s+[SAZM]\d+(?:\s+(?:Ultra|FE|Plus))?|Pixel\s+\d+(?:\s+Pro)?)/i.exec(value); const rawModel = model ? model[1].replace(/\s+/g,' ') : ''; return { model: /^samsung\s+/i.test(rawModel) ? 'Galaxy ' + rawModel.replace(/^samsung\s+/i,'') : rawModel, memory: specs ? unit(specs[2],specs[3]) : memory ? unit(memory[1],memory[2]) : bareMemory ? unit(bareMemory[1],'GB') : '', ram: specs ? unit(specs[1],'GB') : '', sim: /(?:1\s*)?sim\s*\+\s*e\s*-?sim/i.test(value) ? 'SIM + eSIM' : /e\s*-?sim/i.test(value) ? 'eSIM' : '', country: rusCountry_(value), color: rusColor_(value) }; }
 function rusColor_(value) { const v = rusNorm_(value); const pairs = [['volcanic red','вулканический красный'],['rose gold','розовое золото'],['space gray','серый космос'],['natural','натуральный'],['desert','пустынный'],['ultramarine','ультрамарин'],['teal','бирюзовый'],['midnight','полуночный'],['starlight','сияющая звезда'],['lavender','лавандовый'],['camouflage','камуфляж'],['charcoal','угольный'],['citrus','цитрусовый'],['blush','румяный'],['indigo','индиго'],['orange','оранжевый'],['purple','фиолетовый'],['violet','фиолетовый'],['black','черный'],['white','белый'],['blue','синий'],['pink','розовый'],['green','зеленый'],['silver','серебристый'],['yellow','желтый'],['gold','золотой'],['sage','шалфейный'],['pearl','жемчужный'],['red','красный'],['gray','серый'],['серый','серый'],['черный','черный'],['белый','белый'],['синий','синий'],['розовый','розовый']]; const hit = pairs.find(function(p) { return new RegExp('\\b' + p[0] + '\\b','i').test(v); }); return hit ? rusAvitoColor_(v, hit[1]) : ''; }
 function rusAvitoColor_(source, detected) { const v = rusNorm_(source); if (/iphone\s+(?:14(?:\s+plus)?|15(?!\s+pro\b)(?:\s+plus)?|16(?!\s+pro\b)(?:\s+plus)?|air|17(?!\s+pro\b))/i.test(v) && /\b(?:blue|ultramarine|teal|sky blue|bay)\b/i.test(v)) return 'голубой'; const pairs = [['вулканический красный','красный'],['розовое золото','розовый'],['серый космос','серый'],['натуральный','серый'],['пустынный','золотистый'],['ультрамарин','голубой'],['бирюзовый','голубой'],['полуночный','черный'],['сияющая звезда','белый'],['лавандовый','фиолетовый'],['камуфляж','зеленый'],['угольный','черный'],['цитрусовый','желтый'],['румяный','розовый'],['индиго','синий'],['золотой','золотистый'],['шалфейный','зеленый'],['жемчужный','белый']], hit = pairs.find(function(pair) { return rusNorm_(detected) === pair[0]; }); return hit ? hit[1] : rusNorm_(detected); }
-function rusDisplay_(p) { return p.name; }
+function rusDisplay_(p) { return String(p.name || '').replace(/[\u{1F1E6}-\u{1F1FF}]{2}/gu, '').replace(/\s+/g, ' ').trim(); }
 function rusSort_(a,b) { return String(a.name).localeCompare(String(b.name), 'ru', { numeric: true, sensitivity: 'base' }) || a.price - b.price; }
 function rusNorm_(value) { return String(value || '').toLocaleLowerCase('ru-RU').replace(/ё/g,'е').trim(); }
 function rusSummary_(r) { return 'Каталог получен: ' + r.rows + ' позиций. Записано: ' + r.written + '. Цены переданы без наценки. Следующая проверка — через 15 минут.'; }

@@ -143,7 +143,7 @@ test('fills Android RAM separately in the standard right-hand phone block', () =
   const headers = ['Model', 'SimConfig', 'MemorySize', 'Color', 'RamSize', 'Price'];
   const layout = api.tcLayouts_(headers)[0];
   const row = api.tcTargetRow_(headers, layout, { name: 'Pixel 7 8/128GB Lemongrass', variant: '🇺🇸', price: 23500 });
-  assert.deepEqual([...row], ['Pixel 7', '', '128 ГБ', 'желтый', '8 ГБ', 23500]);
+  assert.deepEqual([...row], ['Pixel 7', 'Не знаю', '128 ГБ', 'желтый', '8 ГБ', 23500]);
 });
 
 test('removes supplier service markers and duplicate specs from the model field', () => {
@@ -180,7 +180,7 @@ test('supports a title/price template and reports concise outcome', () => {
   const headers = ['Title', 'Price'];
   const layout = api.tcLayouts_(headers)[0];
   const row = api.tcTargetRow_(headers, layout, { name: 'Dyson HD16 Ceramic Pink', variant: '🇯🇵', price: 27890 });
-  assert.deepEqual([...row], ['Dyson HD16 Ceramic Pink 🇯🇵', 27890]);
+  assert.deepEqual([...row], ['Dyson HD16 Ceramic Pink', 27890]);
   const summary = api.tcSummary_({ rows: 120, written: 120, cheapest: 10, markedUp: 100, withoutMarkup: 20 });
   assert.match(summary, /120 позиций/);
   assert.match(summary, /самых дешёвых вариантов: 10/);
