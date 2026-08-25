@@ -138,10 +138,12 @@ function tcAvitoLayout_(headers) {
 function tcAvitoPricePlan_(products, layout, rows) {
   const source = tcAvitoSourceIndex_(products), updates = [], missing = [], ambiguous = []; let matched = 0;
   rows.forEach(function(row, rowIndex) {
-    const key = tcAvitoPhoneKey_({ model:row[layout.model], memory:row[layout.memory], color:row[layout.color], sim:row[layout.sim], ram:row[layout.ram] });
+    const target = { model:row[layout.model], memory:row[layout.memory], color:row[layout.color], sim:row[layout.sim], ram:row[layout.ram] };
+    const key = tcAvitoPhoneKey_(target);
     if (!key) return;
     if (source.conflicts[key]) { ambiguous.push(tcAvitoLabel_(row, layout)); return; }
-    const price = source.prices[key];
+    const fallback = source.prices[key] ? null : tcAvitoSafePhoneFallback_(source.phones, target);
+    const price = source.prices[key] || (fallback && fallback.price);
     if (!price) { missing.push(tcAvitoLabel_(row, layout)); return; }
     matched++;
     if (Number(row[layout.price]) !== price) updates.push({ row:rowIndex, price:price });
@@ -149,13 +151,35 @@ function tcAvitoPricePlan_(products, layout, rows) {
   return { updates:updates, matched:matched, missing:missing, ambiguous:ambiguous };
 }
 function tcAvitoSourceIndex_(products) {
-  const prices = {}, conflicts = {};
+  const prices = {}, conflicts = {}, phones = [];
   products.filter(function(product) { return product.category === 'телефоны' && Number(product.price) > 0; }).forEach(function(product) {
     const phone = tcPhone_(tcDisplay_(product)), key = tcAvitoPhoneKey_(phone); if (!key) return;
+    phones.push({ model:phone.model, memory:phone.memory, color:phone.color, sim:phone.config || phone.sim || 'Не знаю', ram:phone.ram, price:Number(product.price) });
     if (prices[key] && prices[key] !== Number(product.price)) { conflicts[key] = true; return; }
     prices[key] = Number(product.price);
   });
-  return { prices:prices, conflicts:conflicts };
+  return { prices:prices, conflicts:conflicts, phones:phones };
+}
+/**
+ * A listing may use a technical SIM value or a catalogue colour that differs
+ * from the supplier wording. We may relax those fields only when every source
+ * row with the same model/memory (and Android RAM) has one identical price.
+ * Thus the fallback never chooses between competing supplier prices.
+ */
+function tcAvitoSafePhoneFallback_(phones, target) {
+  const model = tcNorm_(target.model), memory = tcNorm_(target.memory), color = tcNorm_(target.color), ram = tcNorm_(target.ram);
+  if (!model || !memory || !color) return null;
+  const base = phones.filter(function(phone) {
+    return tcNorm_(phone.model) === model && tcNorm_(phone.memory) === memory && (/^iphone\b/.test(model) || tcNorm_(phone.ram) === ram);
+  });
+  const onePrice = function(items) {
+    const prices = Array.from(new Set(items.map(function(item) { return Number(item.price); }).filter(Boolean)));
+    return prices.length === 1 ? prices[0] : 0;
+  };
+  const sameColor = onePrice(base.filter(function(phone) { return tcNorm_(phone.color) === color; }));
+  if (sameColor) return { price:sameColor, rule:'same-model-memory-color' };
+  const anyColor = onePrice(base);
+  return anyColor ? { price:anyColor, rule:'same-model-memory' } : null;
 }
 function tcAvitoPhoneKey_(phone) {
   const model = tcNorm_(phone.model), memory = tcNorm_(phone.memory), color = tcNorm_(phone.color), sim = tcNorm_(phone.config || phone.sim || 'Не знаю'), ram = tcNorm_(phone.ram);

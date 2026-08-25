@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const source = fs.readFileSync(new URL('./TelegramCatalog.gs', import.meta.url), 'utf8') + `
-globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcColor_,tcLayouts_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcAddTwoSimMirror_,tcChooseCheapestCountry_,tcParseMarkupCsv_,tcApplyUlyanovskMarkup_,tcMarkupAmount_,tcAvitoLayout_,tcAvitoPricePlan_,tcAvitoTitleLayout_,tcAvitoTitlePricePlan_};`;
+globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcColor_,tcLayouts_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcAddTwoSimMirror_,tcChooseCheapestCountry_,tcParseMarkupCsv_,tcApplyUlyanovskMarkup_,tcMarkupAmount_,tcAvitoLayout_,tcAvitoPricePlan_,tcAvitoTitleLayout_,tcAvitoTitlePricePlan_,tcAvitoSafePhoneFallback_};`;
 const parseCsv = (value) => String(value).trim().split(/\r?\n/).map((line) => {
   const cells = []; let current = ''; let quoted = false;
   for (let index = 0; index < line.length; index++) {
@@ -201,6 +201,20 @@ test('plans direct Ulyanovsk Avito price updates without changing any product fi
   const plan = api.tcAvitoPricePlan_(products, layout, rows);
   assert.equal(JSON.stringify(plan.updates), JSON.stringify([{ row: 0, price: 46800 }, { row: 1, price: 13000 }]));
   assert.equal(plan.matched, 2);
+});
+
+test('uses an unambiguous supplier price when only SIM or catalogue colour differs', () => {
+  const phones = [
+    { model: 'iPhone 13', memory: '128 ГБ', color: 'белый', sim: '2 SIM', ram: '', price: 52800 },
+    { model: 'iPhone 13', memory: '128 ГБ', color: 'белый', sim: 'SIM + eSIM', ram: '', price: 52800 },
+    { model: 'iPhone 13 Mini', memory: '512 ГБ', color: 'черный', sim: '2 SIM', ram: '', price: 48800 }
+  ];
+  assert.equal(api.tcAvitoSafePhoneFallback_(phones, { model: 'iPhone 13', memory: '128 ГБ', color: 'белый', sim: 'Не знаю', ram: '4 ГБ' }).price, 52800);
+  assert.equal(api.tcAvitoSafePhoneFallback_(phones, { model: 'iPhone 13 Mini', memory: '512 ГБ', color: 'розовый', sim: 'Не знаю', ram: '4 ГБ' }).price, 48800);
+  assert.equal(api.tcAvitoSafePhoneFallback_([
+    { model: 'iPhone 13', memory: '128 ГБ', color: 'черный', sim: '2 SIM', ram: '', price: 46800 },
+    { model: 'iPhone 13', memory: '128 ГБ', color: 'черный', sim: 'SIM + eSIM', ram: '', price: 40000 }
+  ], { model: 'iPhone 13', memory: '128 ГБ', color: 'черный', sim: 'Не знаю', ram: '4 ГБ' }), null);
 });
 
 test('plans direct Ulyanovsk Avito price updates for a title-based non-phone tab', () => {
