@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const source = fs.readFileSync(new URL('./TelegramCatalog.gs', import.meta.url), 'utf8') + `
-globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcColor_,tcLayouts_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcApplyElektrostalMarkup_,tcElektrostalMarkupAmount_,tcExpand_};`;
+globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcColor_,tcLayouts_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcApplyElektrostalMarkup_,tcElektrostalMarkupAmount_,tcExpand_,tcAvitoLayout_,tcAvitoPricePlan_,tcAvitoTitleLayout_,tcAvitoTitlePricePlan_};`;
 const parseCsv = (value) => String(value).trim().split(/\r?\n/).map((line) => {
   const cells = []; let current = ''; let quoted = false;
   for (let index = 0; index < line.length; index++) {
@@ -218,4 +218,13 @@ test('supports a title/price template and reports concise outcome', () => {
   assert.doesNotMatch(summary, /самых дешёвых вариантов/);
   assert.match(summary, /Наценка Электростали применена к 100/);
   assert.match(summary, /Без правила наценки: 20/);
+});
+
+test('plans direct Elektrostal Avito price updates for phones and title-based tabs', () => {
+  const phoneLayout = api.tcAvitoLayout_(['Vendor', 'Model', 'MemorySize', 'Color', 'SimConfig', 'RamSize', 'Price']);
+  const phonePlan = api.tcAvitoPricePlan_([{ category: 'телефоны', name: 'iPhone 13 128GB 2 SIM Black', price: 46800 }], phoneLayout, [['Apple', 'iPhone 13', '128 ГБ', 'черный', '2 SIM', '4 ГБ', '']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(phonePlan.updates)), [{ row: 0, price: 46800 }]);
+  const titleLayout = api.tcAvitoTitleLayout_(['id', 'Title', 'Price']);
+  const titlePlan = api.tcAvitoTitlePricePlan_([{ category: 'дайсон', name: '(Уценка) Dyson HS 09 Amber Silk', price: 53500 }], 'дайсон', titleLayout, [['1', '(Уценка) Dyson HS 09 Amber Silk', 50000]]);
+  assert.deepEqual(JSON.parse(JSON.stringify(titlePlan.updates)), [{ row: 0, price: 53500 }]);
 });

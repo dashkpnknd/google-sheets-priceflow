@@ -9,6 +9,13 @@ const TC = {
   // @astoredirect is the supplier's showcase. Its linked price feed publishes
   // the actual parsable text catalogue, so this is the default source.
   defaultChannel: 'astoredirectprice',
+  // Fixed Elektrostal Avito workbook. Only Price is changed in these existing tabs.
+  avito: { spreadsheetId: '19Kj6HeZphLA-AgfpSKrKzn3rT1GwWSLAhd0GxCfpCPs', headerRow: 2, firstDataRow: 3, sheets: {
+    'телефоны': { sheetId: 838348454, kind: 'phone' }, 'макбуки': { sheetId: 539164146, kind: 'title' },
+    'айпады': { sheetId: 1754463282, kind: 'title' }, 'часы': { sheetId: 1224239507, kind: 'title' },
+    'наушники': { sheetId: 1413308519, kind: 'title' }, 'пс': { sheetId: 391955201, kind: 'title' },
+    'дайсон': { sheetId: 714982435, kind: 'title' }
+  } },
   props: { project: 'ES_TC_PROJECT', channel: 'ES_TC_CHANNEL', last: 'ES_TC_LAST', status: 'ES_TC_STATUS' }
 };
 
@@ -88,15 +95,70 @@ function syncTelegramCatalog_() {
       if (!sheet) throw new Error('Нет листа «' + name + '» в стандартной таблице.');
       written += tcWriteSheet_(sheet, entries);
     });
+    const priceSync = tcSyncAvitoPrices_(rows);
     const now = new Date(); p.setProperty(TC.props.last, String(now.getTime()));
     p.setProperty(TC.props.status, 'Каталог обновлён: ' + written + ' позиций.');
     return {
       rows: rows.length, written: written,
       cheapest: 0, markedUp: markup.applied, withoutMarkup: markup.withoutRule,
-      skippedSheets: skippedSheets
+      skippedSheets: skippedSheets, priceSync: priceSync
     };
   } finally { lock.releaseLock(); }
 }
+
+/** Updates only Price in every existing Elektrostal Avito listing tab. */
+function tcSyncAvitoPrices_(products) {
+  const book = SpreadsheetApp.openById(TC.avito.spreadsheetId), report = { at: new Date().toISOString(), sourceRows: products.length, sheets: {} };
+  Object.keys(TC.avito.sheets).forEach(function(category) {
+    const target = TC.avito.sheets[category], sheet = book.getSheets().find(function(item) { return item.getSheetId() === target.sheetId; });
+    if (!sheet) throw new Error('Не найден лист объявлений Электростали для категории «' + category + '».');
+    const width = sheet.getLastColumn(), headers = sheet.getRange(TC.avito.headerRow, 1, 1, width).getValues()[0];
+    const layout = target.kind === 'phone' ? tcAvitoLayout_(headers) : tcAvitoTitleLayout_(headers);
+    if (!layout) throw new Error('Неверная шапка листа объявлений Электростали «' + sheet.getName() + '»: нужны ' + (target.kind === 'phone' ? 'Model, MemorySize, Color, SimConfig, RamSize и Price.' : 'Title и Price.'));
+    const height = Math.max(sheet.getLastRow() - TC.avito.headerRow, 0), values = height ? sheet.getRange(TC.avito.firstDataRow, 1, height, width).getValues() : [];
+    const plan = target.kind === 'phone' ? tcAvitoPricePlan_(products, layout, values) : tcAvitoTitlePricePlan_(products, category, layout, values);
+    tcWriteAvitoPrices_(sheet, layout.price, plan.updates);
+    report.sheets[category] = { matched:plan.matched, updated:plan.updates.length, missing:plan.missing.slice(0, 200), ambiguous:plan.ambiguous.slice(0, 200) };
+  });
+  PropertiesService.getScriptProperties().setProperty('ES_TC_LAST_PRICE_REPORT', JSON.stringify({ at:report.at, sourceRows:report.sourceRows, sheets:report.sheets }));
+  return report;
+}
+function tcAvitoLayout_(headers) {
+  const index = {}; headers.forEach(function(value, column) { index[tcNorm_(value)] = column; });
+  const required = ['model', 'memorysize', 'color', 'simconfig', 'ramsize', 'price'];
+  return required.every(function(name) { return index[name] >= 0; }) ? { model:index.model, memory:index.memorysize, color:index.color, sim:index.simconfig, ram:index.ramsize, price:index.price } : null;
+}
+function tcAvitoPricePlan_(products, layout, rows) {
+  const source = tcAvitoSourceIndex_(products), updates = [], missing = [], ambiguous = []; let matched = 0;
+  rows.forEach(function(row, rowIndex) {
+    const key = tcAvitoPhoneKey_({ model:row[layout.model], memory:row[layout.memory], color:row[layout.color], sim:row[layout.sim], ram:row[layout.ram] }); if (!key) return;
+    if (source.conflicts[key]) { ambiguous.push(tcAvitoLabel_(row, layout)); return; }
+    const price = source.prices[key]; if (!price) { missing.push(tcAvitoLabel_(row, layout)); return; }
+    matched++; if (Number(row[layout.price]) !== price) updates.push({ row:rowIndex, price:price });
+  });
+  return { updates:updates, matched:matched, missing:missing, ambiguous:ambiguous };
+}
+function tcAvitoSourceIndex_(products) {
+  const prices = {}, conflicts = {};
+  products.filter(function(product) { return product.category === 'телефоны' && Number(product.price) > 0; }).forEach(function(product) {
+    const key = tcAvitoPhoneKey_(tcPhone_(tcDisplay_(product))); if (!key) return;
+    if (prices[key] && prices[key] !== Number(product.price)) { conflicts[key] = true; return; } prices[key] = Number(product.price);
+  }); return { prices:prices, conflicts:conflicts };
+}
+function tcAvitoPhoneKey_(phone) {
+  const model = tcNorm_(phone.model), memory = tcNorm_(phone.memory), color = tcNorm_(phone.color), sim = tcNorm_(phone.config || phone.sim || 'Не знаю'), ram = tcNorm_(phone.ram);
+  if (!model || !memory || !color) return ''; return [model, memory, color, sim, /^iphone\b/.test(model) ? '' : ram].join('|');
+}
+function tcAvitoLabel_(row, layout) { return [row[layout.model], row[layout.memory], row[layout.color], row[layout.sim], row[layout.ram]].map(String).join(' | '); }
+function tcAvitoTitleLayout_(headers) { const index = {}; headers.forEach(function(value, column) { index[tcNorm_(value)] = column; }); return index.title >= 0 && index.price >= 0 ? { title:index.title, price:index.price } : null; }
+function tcAvitoTitlePricePlan_(products, category, layout, rows) {
+  const source = tcAvitoTitleSourceIndex_(products, category), updates = [], missing = [], ambiguous = []; let matched = 0;
+  rows.forEach(function(row, rowIndex) { const key = tcAvitoTitleKey_(row[layout.title]); if (!key) return; if (source.conflicts[key]) { ambiguous.push(String(row[layout.title])); return; } const price = source.prices[key]; if (!price) { missing.push(String(row[layout.title])); return; } matched++; if (Number(row[layout.price]) !== price) updates.push({ row:rowIndex, price:price }); });
+  return { updates:updates, matched:matched, missing:missing, ambiguous:ambiguous };
+}
+function tcAvitoTitleSourceIndex_(products, category) { const prices = {}, conflicts = {}; products.filter(function(product) { return product.category === category && Number(product.price) > 0; }).forEach(function(product) { const key = tcAvitoTitleKey_(tcDisplay_(product)); if (!key) return; if (prices[key] && prices[key] !== Number(product.price)) { conflicts[key] = true; return; } prices[key] = Number(product.price); }); return { prices:prices, conflicts:conflicts }; }
+function tcAvitoTitleKey_(value) { return String(value || '').replace(/[\u{1F1E6}-\u{1F1FF}]{2}/gu, '').replace(/[()\[\],.;:]+/g, ' ').replace(/\s+/g, ' ').trim().toLocaleLowerCase('ru-RU'); }
+function tcWriteAvitoPrices_(sheet, priceColumn, updates) { updates.sort(function(a, b) { return a.row - b.row; }); for (let start = 0; start < updates.length;) { let end = start + 1; while (end < updates.length && updates[end].row === updates[end - 1].row + 1) end++; sheet.getRange(TC.avito.firstDataRow + updates[start].row, priceColumn + 1, end - start, 1).setValues(updates.slice(start, end).map(function(item) { return [item.price]; })); start = end; } }
 
 function tcWriteSheet_(sheet, products) {
   tcRemoveCountryColumns_(sheet);

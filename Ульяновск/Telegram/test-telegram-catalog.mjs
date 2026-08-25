@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const source = fs.readFileSync(new URL('./TelegramCatalog.gs', import.meta.url), 'utf8') + `
-globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcColor_,tcLayouts_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcAddTwoSimMirror_,tcChooseCheapestCountry_,tcParseMarkupCsv_,tcApplyUlyanovskMarkup_,tcMarkupAmount_,tcAvitoLayout_,tcAvitoPricePlan_};`;
+globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcColor_,tcLayouts_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcAddTwoSimMirror_,tcChooseCheapestCountry_,tcParseMarkupCsv_,tcApplyUlyanovskMarkup_,tcMarkupAmount_,tcAvitoLayout_,tcAvitoPricePlan_,tcAvitoTitleLayout_,tcAvitoTitlePricePlan_};`;
 const parseCsv = (value) => String(value).trim().split(/\r?\n/).map((line) => {
   const cells = []; let current = ''; let quoted = false;
   for (let index = 0; index < line.length; index++) {
@@ -201,4 +201,18 @@ test('plans direct Ulyanovsk Avito price updates without changing any product fi
   const plan = api.tcAvitoPricePlan_(products, layout, rows);
   assert.equal(JSON.stringify(plan.updates), JSON.stringify([{ row: 0, price: 46800 }, { row: 1, price: 13000 }]));
   assert.equal(plan.matched, 2);
+});
+
+test('plans direct Ulyanovsk Avito price updates for a title-based non-phone tab', () => {
+  const layout = api.tcAvitoTitleLayout_(['id', 'Title', 'Description', 'Price']);
+  const products = [
+    { category: 'макбуки', name: 'MacBook Air 13 M4 Midnight', variant: '🇯🇵', price: 104000 },
+    { category: 'макбуки', name: 'MacBook Air 13 M4 Midnight', variant: '🇺🇸', price: 106000 }
+  ];
+  const rows = [['1', 'MacBook Air 13 M4 Midnight', '', 99000], ['2', 'MacBook Pro 14 M4', '', 123000]];
+  const plan = api.tcAvitoTitlePricePlan_(products.slice(0, 1), 'макбуки', layout, rows);
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row: 0, price: 104000 }]);
+  assert.equal(plan.matched, 1);
+  const conflicted = api.tcAvitoTitlePricePlan_(products, 'макбуки', layout, rows);
+  assert.equal(conflicted.ambiguous[0], 'MacBook Air 13 M4 Midnight');
 });

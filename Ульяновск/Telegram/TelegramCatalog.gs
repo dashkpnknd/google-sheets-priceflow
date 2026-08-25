@@ -9,8 +9,13 @@ const TC = {
   // Публичный файл клиента с правилами наценки. Суммы не хранятся в коде:
   // при каждом обновлении читается его актуальная версия.
   markupSheetId: '1DOuNTe2yJcU6h-TK3-xpWqe6zWpNl0NAQfVVYvZ0IpA',
-  // Fixed Ulyanovsk Avito phone workbook. Only the Price column is changed.
-  avito: { spreadsheetId: '19GKgYl_RYR5Ezl6_L_bjIGkHmM2_vsWp5X1ZTV4rAF0', sheetId: 739636152, headerRow: 2, firstDataRow: 3 },
+  // Fixed Ulyanovsk Avito workbook. Only Price is changed in these existing tabs.
+  avito: { spreadsheetId: '19GKgYl_RYR5Ezl6_L_bjIGkHmM2_vsWp5X1ZTV4rAF0', headerRow: 2, firstDataRow: 3, sheets: {
+    'телефоны': { sheetId: 739636152, kind: 'phone' }, 'макбуки': { sheetId: 328331373, kind: 'title' },
+    'айпады': { sheetId: 1704742480, kind: 'title' }, 'часы': { sheetId: 1537478299, kind: 'title' },
+    'наушники': { sheetId: 848792271, kind: 'title' }, 'пс': { sheetId: 59071582, kind: 'title' },
+    'дайсон': { sheetId: 1643349080, kind: 'title' }
+  } },
   props: { project: 'TC_PROJECT', channel: 'TC_CHANNEL', mirrorTwoSim: 'TC_MIRROR_TWO_SIM', last: 'TC_LAST', status: 'TC_STATUS' }
 };
 
@@ -105,23 +110,25 @@ function syncTelegramCatalog_() {
   } finally { lock.releaseLock(); }
 }
 
-/** Updates only prices in the Ulyanovsk Avito mobile-listing workbook. */
+/** Updates only Price in every existing Ulyanovsk Avito listing tab. */
 function tcSyncAvitoPrices_(products) {
   const book = SpreadsheetApp.openById(TC.avito.spreadsheetId);
-  const sheet = book.getSheets().find(function(item) { return item.getSheetId() === TC.avito.sheetId; });
-  if (!sheet) throw new Error('Не найден лист мобильных объявлений Ульяновска по сохранённому ID.');
-  const width = sheet.getLastColumn(), headers = sheet.getRange(TC.avito.headerRow, 1, 1, width).getValues()[0];
-  const layout = tcAvitoLayout_(headers);
-  if (!layout) throw new Error('Неверная шапка объявлений Ульяновска: нужны Model, MemorySize, Color, SimConfig, RamSize и Price.');
-  const height = Math.max(sheet.getLastRow() - TC.avito.headerRow, 0);
-  const values = height ? sheet.getRange(TC.avito.firstDataRow, 1, height, width).getValues() : [];
-  const plan = tcAvitoPricePlan_(products, layout, values);
-  plan.updates.forEach(function(update) { sheet.getRange(TC.avito.firstDataRow + update.row, layout.price + 1).setValue(update.price); });
+  const report = { at: new Date().toISOString(), sourceRows: products.length, sheets: {} };
+  Object.keys(TC.avito.sheets).forEach(function(category) {
+    const target = TC.avito.sheets[category], sheet = book.getSheets().find(function(item) { return item.getSheetId() === target.sheetId; });
+    if (!sheet) throw new Error('Не найден лист объявлений Ульяновска для категории «' + category + '».');
+    const width = sheet.getLastColumn(), headers = sheet.getRange(TC.avito.headerRow, 1, 1, width).getValues()[0];
+    const layout = target.kind === 'phone' ? tcAvitoLayout_(headers) : tcAvitoTitleLayout_(headers);
+    if (!layout) throw new Error('Неверная шапка листа объявлений Ульяновска «' + sheet.getName() + '»: нужны ' + (target.kind === 'phone' ? 'Model, MemorySize, Color, SimConfig, RamSize и Price.' : 'Title и Price.'));
+    const height = Math.max(sheet.getLastRow() - TC.avito.headerRow, 0), values = height ? sheet.getRange(TC.avito.firstDataRow, 1, height, width).getValues() : [];
+    const plan = target.kind === 'phone' ? tcAvitoPricePlan_(products, layout, values) : tcAvitoTitlePricePlan_(products, category, layout, values);
+    tcWriteAvitoPrices_(sheet, layout.price, plan.updates);
+    report.sheets[category] = { matched: plan.matched, updated: plan.updates.length, missing: plan.missing.slice(0, 200), ambiguous: plan.ambiguous.slice(0, 200) };
+  });
   PropertiesService.getScriptProperties().setProperty('TC_LAST_PRICE_REPORT', JSON.stringify({
-    at: new Date().toISOString(), sourceRows: products.length, matched: plan.matched,
-    updated: plan.updates.length, missing: plan.missing.slice(0, 200), ambiguous: plan.ambiguous.slice(0, 200)
+    at: report.at, sourceRows: report.sourceRows, sheets: report.sheets
   }));
-  return { matched: plan.matched, written: plan.updates.length, missing: plan.missing, ambiguous: plan.ambiguous };
+  return report;
 }
 function tcAvitoLayout_(headers) {
   const index = {}; headers.forEach(function(value, column) { index[tcNorm_(value)] = column; });
@@ -156,6 +163,39 @@ function tcAvitoPhoneKey_(phone) {
   return [model, memory, color, sim, /^iphone\b/.test(model) ? '' : ram].join('|');
 }
 function tcAvitoLabel_(row, layout) { return [row[layout.model], row[layout.memory], row[layout.color], row[layout.sim], row[layout.ram]].map(String).join(' | '); }
+function tcAvitoTitleLayout_(headers) {
+  const index = {}; headers.forEach(function(value, column) { index[tcNorm_(value)] = column; });
+  return index.title >= 0 && index.price >= 0 ? { title:index.title, price:index.price } : null;
+}
+function tcAvitoTitlePricePlan_(products, category, layout, rows) {
+  const source = tcAvitoTitleSourceIndex_(products, category), updates = [], missing = [], ambiguous = []; let matched = 0;
+  rows.forEach(function(row, rowIndex) {
+    const key = tcAvitoTitleKey_(row[layout.title]); if (!key) return;
+    if (source.conflicts[key]) { ambiguous.push(String(row[layout.title])); return; }
+    const price = source.prices[key];
+    if (!price) { missing.push(String(row[layout.title])); return; }
+    matched++; if (Number(row[layout.price]) !== price) updates.push({ row:rowIndex, price:price });
+  });
+  return { updates:updates, matched:matched, missing:missing, ambiguous:ambiguous };
+}
+function tcAvitoTitleSourceIndex_(products, category) {
+  const prices = {}, conflicts = {};
+  products.filter(function(product) { return product.category === category && Number(product.price) > 0; }).forEach(function(product) {
+    const key = tcAvitoTitleKey_(tcDisplay_(product)); if (!key) return;
+    if (prices[key] && prices[key] !== Number(product.price)) { conflicts[key] = true; return; }
+    prices[key] = Number(product.price);
+  });
+  return { prices:prices, conflicts:conflicts };
+}
+function tcAvitoTitleKey_(value) { return String(value || '').replace(/[\u{1F1E6}-\u{1F1FF}]{2}/gu, '').replace(/[()\[\],.;:]+/g, ' ').replace(/\s+/g, ' ').trim().toLocaleLowerCase('ru-RU'); }
+function tcWriteAvitoPrices_(sheet, priceColumn, updates) {
+  updates.sort(function(a, b) { return a.row - b.row; });
+  for (let start = 0; start < updates.length;) {
+    let end = start + 1; while (end < updates.length && updates[end].row === updates[end - 1].row + 1) end++;
+    sheet.getRange(TC.avito.firstDataRow + updates[start].row, priceColumn + 1, end - start, 1).setValues(updates.slice(start, end).map(function(item) { return [item.price]; }));
+    start = end;
+  }
+}
 
 function tcWriteSheet_(sheet, products) {
   tcRemoveCountryColumns_(sheet);
