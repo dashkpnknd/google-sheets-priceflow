@@ -196,22 +196,69 @@ function tcAvitoTitlePricePlan_(products, category, layout, rows) {
   rows.forEach(function(row, rowIndex) {
     const key = tcAvitoTitleKey_(row[layout.title]); if (!key) return;
     if (source.conflicts[key]) { ambiguous.push(String(row[layout.title])); return; }
-    const price = source.prices[key];
+    const fallback = source.prices[key] ? null : tcAvitoTitleFallback_(source.items, category, row[layout.title]);
+    if (fallback && fallback.ambiguous) { ambiguous.push(String(row[layout.title])); return; }
+    const price = source.prices[key] || (fallback && fallback.price);
     if (!price) { missing.push(String(row[layout.title])); return; }
     matched++; if (Number(row[layout.price]) !== price) updates.push({ row:rowIndex, price:price });
   });
   return { updates:updates, matched:matched, missing:missing, ambiguous:ambiguous };
 }
 function tcAvitoTitleSourceIndex_(products, category) {
-  const prices = {}, conflicts = {};
+  const prices = {}, conflicts = {}, items = [];
   products.filter(function(product) { return product.category === category && Number(product.price) > 0; }).forEach(function(product) {
-    const key = tcAvitoTitleKey_(tcDisplay_(product)); if (!key) return;
+    const title = tcDisplay_(product), key = tcAvitoTitleKey_(title); if (!key) return;
+    items.push({ title:title, price:Number(product.price) });
     if (prices[key] && prices[key] !== Number(product.price)) { conflicts[key] = true; return; }
     prices[key] = Number(product.price);
   });
-  return { prices:prices, conflicts:conflicts };
+  return { prices:prices, conflicts:conflicts, items:items };
 }
 function tcAvitoTitleKey_(value) { return String(value || '').replace(/[\u{1F1E6}-\u{1F1FF}]{2}/gu, '').replace(/[()\[\],.;:]+/g, ' ').replace(/\s+/g, ' ').trim().toLocaleLowerCase('ru-RU'); }
+/**
+ * Supplier and Avito titles are editorially different. Match their meaningful
+ * words, not their complete strings, but reject a pair as soon as it declares
+ * conflicting hardware (chip, Dyson series, RAM/SSD, watch size or PS family).
+ */
+function tcAvitoTitleFallback_(items, category, targetTitle) {
+  const threshold = { 'айпады':0.55, 'дайсон':0.55, 'часы':0.60, 'макбуки':0.65, 'наушники':0.65, 'пс':0.65 }[category] || 0.70;
+  const candidates = items.map(function(item) {
+    return { title:item.title, price:item.price, score:tcAvitoTitleScore_(category, targetTitle, item.title) };
+  }).filter(function(item) { return item.score >= threshold; });
+  if (!candidates.length) return null;
+  candidates.sort(function(left, right) { return right.score - left.score; });
+  const bestScore = candidates[0].score, best = candidates.filter(function(item) { return item.score === bestScore; });
+  const prices = Array.from(new Set(best.map(function(item) { return Number(item.price); })));
+  return prices.length === 1 ? { price:prices[0], score:bestScore } : { ambiguous:true };
+}
+function tcAvitoTitleScore_(category, left, right) {
+  const a = tcAvitoTitleWords_(left), b = tcAvitoTitleWords_(right);
+  if (!a.length || !b.length || tcAvitoHardwareConflict_(category, a, b)) return 0;
+  const set = {}; a.forEach(function(word) { set[word] = true; });
+  const shared = b.filter(function(word) { return set[word]; }).length;
+  return shared / Math.max(a.length, b.length);
+}
+function tcAvitoTitleWords_(value) {
+  const ignored = { apple:true, samsung:true, sony:true, стайлер:true, гарантия:true, рассрочка:true, active:true, актив:true, уценка:true, новый:true, оригинал:true, товар:true, sale:true, neo:true, loop:true, milanese:true };
+  const text = String(value || '').replace(/[\u{1F1E6}-\u{1F1FF}]{2}/gu, '').toLocaleLowerCase('ru-RU').replace(/ё/g, 'е')
+    .replace(/ipad\s+(\d+)\s+mini/g, 'ipad mini $1').replace(/apple\s+watch\s+series\s+(\d+)/g, 'watch s$1')
+    .replace(/playstation/g, 'ps').replace(/\bps\s+(\d)\b/g, 'ps$1').replace(/airpods/gi, 'airpods')
+    .replace(/(\d+)\s*\/\s*(\d+)\s*(?:gb|гб)\b/g, '$1x$2gb').replace(/(\d+)\s*(?:gb|гб)\b/g, '$1gb').replace(/(\d+)\s*(?:tb|тб)\b/g, '$1tb')
+    .replace(/(\d+)\s*mm\b/g, '$1mm').replace(/wi[\s-]*fi/g, 'wifi').replace(/[()\[\],.;:+/\\-]+/g, ' ').replace(/\s+/g, ' ').trim();
+  return Array.from(new Set(text.split(' ').filter(function(word) { return word.length > 1 && !ignored[word] && !/^\d{4}$/.test(word) && !/^[a-zа-я]{1,2}\d{3,}[a-zа-я0-9-]*$/i.test(word); })));
+}
+function tcAvitoHardwareConflict_(category, left, right) {
+  const pick = function(words, pattern) { return words.filter(function(word) { return pattern.test(word); }); };
+  const differs = function(pattern) {
+    const a = pick(left, pattern), b = pick(right, pattern);
+    return a.length && b.length && !a.some(function(word) { return b.indexOf(word) >= 0; });
+  };
+  if (category === 'макбуки' && (differs(/^m\d+$/) || differs(/^\d+x\d+(?:gb|tb)?$/))) return true;
+  if (category === 'дайсон' && differs(/^(?:hs|hd)\d+$/)) return true;
+  if (category === 'часы' && differs(/^\d+mm$/)) return true;
+  if (category === 'пс' && differs(/^ps\d+$/)) return true;
+  return false;
+}
 function tcWriteAvitoPrices_(sheet, priceColumn, updates) {
   updates.sort(function(a, b) { return a.row - b.row; });
   for (let start = 0; start < updates.length;) {

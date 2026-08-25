@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const source = fs.readFileSync(new URL('./TelegramCatalog.gs', import.meta.url), 'utf8') + `
-globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcColor_,tcLayouts_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcAddTwoSimMirror_,tcChooseCheapestCountry_,tcParseMarkupCsv_,tcApplyUlyanovskMarkup_,tcMarkupAmount_,tcAvitoLayout_,tcAvitoPricePlan_,tcAvitoTitleLayout_,tcAvitoTitlePricePlan_,tcAvitoSafePhoneFallback_};`;
+globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcColor_,tcLayouts_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcAddTwoSimMirror_,tcChooseCheapestCountry_,tcParseMarkupCsv_,tcApplyUlyanovskMarkup_,tcMarkupAmount_,tcAvitoLayout_,tcAvitoPricePlan_,tcAvitoTitleLayout_,tcAvitoTitlePricePlan_,tcAvitoSafePhoneFallback_,tcAvitoTitleFallback_,tcAvitoTitleScore_};`;
 const parseCsv = (value) => String(value).trim().split(/\r?\n/).map((line) => {
   const cells = []; let current = ''; let quoted = false;
   for (let index = 0; index < line.length; index++) {
@@ -229,4 +229,20 @@ test('plans direct Ulyanovsk Avito price updates for a title-based non-phone tab
   assert.equal(plan.matched, 1);
   const conflicted = api.tcAvitoTitlePricePlan_(products, 'макбуки', layout, rows);
   assert.equal(conflicted.ambiguous[0], 'MacBook Air 13 M4 Midnight');
+});
+
+test('matches iPad and Dyson titles by meaningful words but rejects conflicting hardware', () => {
+  assert.equal(api.tcAvitoTitleFallback_([
+    { title: 'iPad Mini 7 (A17) 2024 128GB Wi-Fi Blue', price: 42000 }
+  ], 'айпады', 'iPad 7 mini (2024), 128 ГБ Wi-Fi Blue').price, 42000);
+  assert.equal(api.tcAvitoTitleFallback_([
+    { title: 'Dyson HS08 Ceramic Pink/Rose Gold', price: 45000 }
+  ], 'дайсон', 'Стайлер Dyson HS08 Ceramic Pink/Rose Gold').price, 45000);
+  assert.equal(api.tcAvitoTitleFallback_([
+    { title: 'MacBook Air 13 M5 16/512GB Starlight', price: 150000 }
+  ], 'макбуки', 'MacBook Air 13 M4 16/256 Starlight'), null);
+  assert.equal(api.tcAvitoTitleFallback_([
+    { title: 'Apple Watch SE 2 40mm Silver (M/L)', price: 25000 },
+    { title: 'Apple Watch SE 2 40mm Silver (S/M)', price: 27000 }
+  ], 'часы', 'Apple Watch SE 2 40mm Silver').ambiguous, true);
 });
