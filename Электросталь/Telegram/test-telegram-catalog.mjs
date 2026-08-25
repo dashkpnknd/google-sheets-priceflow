@@ -239,4 +239,9 @@ test('plans direct Elektrostal Avito price updates for phones and title-based ta
     { category: 'телефоны', name: 'Galaxy S25 12/256GB Blue SIM + eSIM', price: 56500 }
   ], phoneLayout, [['Samsung', 'Galaxy S25', '256 ГБ', 'синий', 'SIM + eSIM', '12 ГБ', '']]);
   assert.deepEqual(JSON.parse(JSON.stringify(lowestPhone.updates)), [{ row: 0, price: 56500 }]);
+  const relaxedPhone = api.tcAvitoPricePlan_([
+    { category: 'телефоны', name: 'iPhone 15 128GB Black eSIM', price: 65000 },
+    { category: 'телефоны', name: 'iPhone 15 128GB Blue 2 SIM', price: 63000 }
+  ], phoneLayout, [['Apple', 'iPhone 15', '128 ГБ', 'белый', 'SIM + eSIM', '6 ГБ', '']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(relaxedPhone.updates)), [{ row: 0, price: 63000 }]);
 });
