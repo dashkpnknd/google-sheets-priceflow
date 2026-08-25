@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const source = fs.readFileSync(new URL('./TelegramCatalog.gs', import.meta.url), 'utf8') + `
-globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcColor_,tcLayouts_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcApplyElektrostalMarkup_,tcElektrostalMarkupAmount_,tcExpand_,tcAvitoLayout_,tcAvitoPricePlan_,tcAvitoTitleLayout_,tcAvitoTitlePricePlan_,tcAvitoDirectSource_,tcAvitoDirectPhonePlan_,tcAvitoDirectTitlePlan_};`;
+globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcColor_,tcLayouts_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcApplyElektrostalMarkup_,tcElektrostalMarkupAmount_,tcExpand_,tcAvitoLayout_,tcAvitoPricePlan_,tcAvitoTitleLayout_,tcAvitoTitlePricePlan_};`;
 const parseCsv = (value) => String(value).trim().split(/\r?\n/).map((line) => {
   const cells = []; let current = ''; let quoted = false;
   for (let index = 0; index < line.length; index++) {
@@ -227,25 +227,9 @@ test('plans direct Elektrostal Avito price updates for phones and title-based ta
   const titleLayout = api.tcAvitoTitleLayout_(['id', 'Title', 'Price']);
   const titlePlan = api.tcAvitoTitlePricePlan_([{ category: 'дайсон', name: '(Уценка) Dyson HS 09 Amber Silk', price: 53500 }], 'дайсон', titleLayout, [['1', '(Уценка) Dyson HS 09 Amber Silk', 50000]]);
   assert.deepEqual(JSON.parse(JSON.stringify(titlePlan.updates)), [{ row: 0, price: 53500 }]);
-});
-
-test('copies Elektrostal prices from its prepared catalogue, with only safe field fallbacks', () => {
-  const sourceHeaders = ['Model', 'SimConfig', 'MemorySize', 'Color', 'Price', '', 'Model', 'SimConfig', 'MemorySize', 'Color', 'RamSize', 'Price'];
-  const source = api.tcAvitoDirectSource_(sourceHeaders, [
-    ['iPhone 13', '2 SIM', '128 ГБ', 'черный', 46800, '', '', '', '', '', '', ''],
-    ['', '', '', '', '', '', 'Galaxy S25', 'SIM + eSIM', '256 ГБ', 'синий', '12 ГБ', 48800]
-  ]);
-  const layout = api.tcAvitoLayout_(['Model', 'MemorySize', 'Color', 'SimConfig', 'RamSize', 'Price']);
-  const plan = api.tcAvitoDirectPhonePlan_(source, layout, [
-    ['iPhone 13', '128 ГБ', 'черный', '2 SIM', '4 ГБ', ''],
-    ['Galaxy S25', '256 ГБ', 'синий', 'Не знаю', '12 ГБ', '']
-  ]);
-  assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row: 0, price: 46800 }, { row: 1, price: 48800 }]);
-  const titlePlan = api.tcAvitoDirectTitlePlan_([{ title: 'iPad 11 128GB Wi-Fi Pink', price: 40800 }], 'айпады', api.tcAvitoTitleLayout_(['Title', 'Price']), [['Apple iPad 11, 128 ГБ Wi-Fi Pink', '']]);
-  assert.deepEqual(JSON.parse(JSON.stringify(titlePlan.updates)), [{ row: 0, price: 40800 }]);
-  const cheapestPhonePlan = api.tcAvitoDirectPhonePlan_([
-    { model: 'Galaxy S25', memory: '256 ГБ', color: 'синий', sim: 'SIM + eSIM', ram: '12 ГБ', price: 57500 },
-    { model: 'Galaxy S25', memory: '256 ГБ', color: 'синий', sim: 'SIM + eSIM', ram: '12 ГБ', price: 56500 }
-  ], layout, [['Galaxy S25', '256 ГБ', 'синий', 'SIM + eSIM', '12 ГБ', '']]);
-  assert.deepEqual(JSON.parse(JSON.stringify(cheapestPhonePlan.updates)), [{ row: 0, price: 56500 }]);
+  const lowestPhone = api.tcAvitoPricePlan_([
+    { category: 'телефоны', name: 'Galaxy S25 12/256GB Blue SIM + eSIM', price: 57500 },
+    { category: 'телефоны', name: 'Galaxy S25 12/256GB Blue SIM + eSIM', price: 56500 }
+  ], phoneLayout, [['Samsung', 'Galaxy S25', '256 ГБ', 'синий', 'SIM + eSIM', '12 ГБ', '']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(lowestPhone.updates)), [{ row: 0, price: 56500 }]);
 });

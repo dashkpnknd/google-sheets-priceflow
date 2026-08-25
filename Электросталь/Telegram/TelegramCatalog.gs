@@ -95,10 +95,7 @@ function syncTelegramCatalog_() {
       if (!sheet) throw new Error('Нет листа «' + name + '» в стандартной таблице.');
       written += tcWriteSheet_(sheet, entries);
     });
-    // The prepared catalogue in this spreadsheet is authoritative for Avito:
-    // it already contains the Elektrostal markup and split characteristics.
-    SpreadsheetApp.flush();
-    const priceSync = tcSyncAvitoPrices_();
+    const priceSync = tcSyncAvitoPrices_(rows);
     const now = new Date(); p.setProperty(TC.props.last, String(now.getTime()));
     p.setProperty(TC.props.status, 'Каталог обновлён: ' + written + ' позиций.');
     return {
@@ -110,61 +107,21 @@ function syncTelegramCatalog_() {
 }
 
 /** Updates only Price in every existing Elektrostal Avito listing tab. */
-function tcSyncAvitoPrices_() {
-  const sourceBook = SpreadsheetApp.getActiveSpreadsheet(), book = SpreadsheetApp.openById(TC.avito.spreadsheetId), report = { at: new Date().toISOString(), sourceRows: 0, sheets: {} };
+function tcSyncAvitoPrices_(products) {
+  const book = SpreadsheetApp.openById(TC.avito.spreadsheetId), report = { at: new Date().toISOString(), sourceRows: products.length, sheets: {} };
   Object.keys(TC.avito.sheets).forEach(function(category) {
-    const target = TC.avito.sheets[category], sheet = book.getSheets().find(function(item) { return item.getSheetId() === target.sheetId; }), sourceSheet = sourceBook.getSheetByName(category);
+    const target = TC.avito.sheets[category], sheet = book.getSheets().find(function(item) { return item.getSheetId() === target.sheetId; });
     if (!sheet) throw new Error('Не найден лист объявлений Электростали для категории «' + category + '».');
-    if (!sourceSheet) throw new Error('Не найден лист исходного каталога Электростали «' + category + '».');
-    const sourceWidth = sourceSheet.getLastColumn(), sourceHeaders = sourceSheet.getRange(1, 1, 1, sourceWidth).getValues()[0];
-    const sourceHeight = Math.max(sourceSheet.getLastRow() - 1, 0), sourceValues = sourceHeight ? sourceSheet.getRange(2, 1, sourceHeight, sourceWidth).getValues() : [];
-    const source = tcAvitoDirectSource_(sourceHeaders, sourceValues); report.sourceRows += source.length;
     const width = sheet.getLastColumn(), headers = sheet.getRange(TC.avito.headerRow, 1, 1, width).getValues()[0];
     const layout = target.kind === 'phone' ? tcAvitoLayout_(headers) : tcAvitoTitleLayout_(headers);
     if (!layout) throw new Error('Неверная шапка листа объявлений Электростали «' + sheet.getName() + '»: нужны ' + (target.kind === 'phone' ? 'Model, MemorySize, Color, SimConfig, RamSize и Price.' : 'Title и Price.'));
     const height = Math.max(sheet.getLastRow() - TC.avito.headerRow, 0), values = height ? sheet.getRange(TC.avito.firstDataRow, 1, height, width).getValues() : [];
-    const plan = target.kind === 'phone' ? tcAvitoDirectPhonePlan_(source, layout, values) : tcAvitoDirectTitlePlan_(source, category, layout, values);
+    const plan = target.kind === 'phone' ? tcAvitoPricePlan_(products, layout, values) : tcAvitoTitlePricePlan_(products, category, layout, values);
     tcWriteAvitoPrices_(sheet, layout.price, plan.updates);
     report.sheets[category] = { matched:plan.matched, updated:plan.updates.length, missing:plan.missing.slice(0, 200), ambiguous:plan.ambiguous.slice(0, 200) };
   });
   PropertiesService.getScriptProperties().setProperty('ES_TC_LAST_PRICE_REPORT', JSON.stringify({ at:report.at, sourceRows:report.sourceRows, sheets:report.sheets }));
   return report;
-}
-/** Extracts finished source-catalogue rows, including both phone blocks. */
-function tcAvitoDirectSource_(headers, rows) {
-  const layouts = tcLayouts_(headers), items = [];
-  layouts.forEach(function(layout) {
-    rows.forEach(function(row) {
-      const price = Number(row[layout.priceColumn]), title = layout.title >= 0 ? row[layout.title] : '';
-      const model = layout.model >= 0 ? row[layout.model] : '';
-      if (!price || (!title && !model)) return;
-      items.push({ title:title, model:model, memory:layout.memory >= 0 ? row[layout.memory] : '', color:layout.color >= 0 ? row[layout.color] : '', sim:layout.sim >= 0 ? row[layout.sim] : '', ram:layout.ram >= 0 ? row[layout.ram] : '', price:price });
-    });
-  });
-  return items;
-}
-function tcAvitoDirectPhonePlan_(sourceRows, layout, rows) {
-  const prices = {}, conflicts = {}, updates = [], missing = [], ambiguous = []; let matched = 0;
-  sourceRows.forEach(function(row) { const key = tcAvitoPhoneKey_(row), price = Number(row.price); if (!key || !price) return; prices[key] = prices[key] ? Math.min(prices[key], price) : price; });
-  rows.forEach(function(row, rowIndex) {
-    const target = { model:row[layout.model], memory:row[layout.memory], color:row[layout.color], sim:row[layout.sim], ram:row[layout.ram] }, key = tcAvitoPhoneKey_(target);
-    if (!key) return;
-    const fallback = prices[key] ? null : tcAvitoCheapestPhoneFallback_(sourceRows, target), price = prices[key] || (fallback && fallback.price);
-    if (!price) { missing.push(tcAvitoLabel_(row, layout)); return; }
-    matched++; if (Number(row[layout.price]) !== price) updates.push({ row:rowIndex, price:price });
-  });
-  return { updates:updates, matched:matched, missing:missing, ambiguous:ambiguous };
-}
-function tcAvitoDirectTitlePlan_(sourceRows, category, layout, rows) {
-  const prices = {}, conflicts = {}, updates = [], missing = [], ambiguous = []; let matched = 0;
-  sourceRows.forEach(function(row) { const key = tcAvitoTitleKey_(row.title), price = Number(row.price); if (!key || !price) return; prices[key] = prices[key] ? Math.min(prices[key], price) : price; });
-  rows.forEach(function(row, rowIndex) {
-    const key = tcAvitoTitleKey_(row[layout.title]); if (!key) return;
-    const fallback = prices[key] ? null : tcAvitoCheapestTitleFallback_(sourceRows, category, row[layout.title]);
-    const price = prices[key] || (fallback && fallback.price); if (!price) { missing.push(String(row[layout.title])); return; }
-    matched++; if (Number(row[layout.price]) !== price) updates.push({ row:rowIndex, price:price });
-  });
-  return { updates:updates, matched:matched, missing:missing, ambiguous:ambiguous };
 }
 function tcAvitoLayout_(headers) {
   const index = {}; headers.forEach(function(value, column) { index[tcNorm_(value)] = column; });
@@ -175,7 +132,6 @@ function tcAvitoPricePlan_(products, layout, rows) {
   const source = tcAvitoSourceIndex_(products), updates = [], missing = [], ambiguous = []; let matched = 0;
   rows.forEach(function(row, rowIndex) {
     const key = tcAvitoPhoneKey_({ model:row[layout.model], memory:row[layout.memory], color:row[layout.color], sim:row[layout.sim], ram:row[layout.ram] }); if (!key) return;
-    if (source.conflicts[key]) { ambiguous.push(tcAvitoLabel_(row, layout)); return; }
     const price = source.prices[key]; if (!price) { missing.push(tcAvitoLabel_(row, layout)); return; }
     matched++; if (Number(row[layout.price]) !== price) updates.push({ row:rowIndex, price:price });
   });
@@ -185,78 +141,22 @@ function tcAvitoSourceIndex_(products) {
   const prices = {}, conflicts = {};
   products.filter(function(product) { return product.category === 'телефоны' && Number(product.price) > 0; }).forEach(function(product) {
     const key = tcAvitoPhoneKey_(tcPhone_(tcDisplay_(product))); if (!key) return;
-    if (prices[key] && prices[key] !== Number(product.price)) { conflicts[key] = true; return; } prices[key] = Number(product.price);
+    const price = Number(product.price); prices[key] = prices[key] ? Math.min(prices[key], price) : price;
   }); return { prices:prices, conflicts:conflicts };
 }
 function tcAvitoPhoneKey_(phone) {
   const model = tcNorm_(phone.model), memory = tcNorm_(phone.memory), color = tcNorm_(phone.color), sim = tcNorm_(phone.config || phone.sim || 'Не знаю'), ram = tcNorm_(phone.ram);
   if (!model || !memory || !color) return ''; return [model, memory, color, sim, /^iphone\b/.test(model) ? '' : ram].join('|');
 }
-/** Relax SIM/colour only when every matching prepared-catalogue row has one price. */
-function tcAvitoSafePhoneFallback_(phones, target) {
-  const model = tcNorm_(target.model), memory = tcNorm_(target.memory), color = tcNorm_(target.color), ram = tcNorm_(target.ram);
-  if (!model || !memory || !color) return null;
-  const base = phones.filter(function(phone) { return tcNorm_(phone.model) === model && tcNorm_(phone.memory) === memory && (/^iphone\b/.test(model) || tcNorm_(phone.ram) === ram); });
-  const onePrice = function(items) { const prices = Array.from(new Set(items.map(function(item) { return Number(item.price); }).filter(Boolean))); return prices.length === 1 ? prices[0] : 0; };
-  const sameColor = onePrice(base.filter(function(phone) { return tcNorm_(phone.color) === color; }));
-  if (sameColor) return { price:sameColor, rule:'same-model-memory-color' };
-  const anyColor = onePrice(base); return anyColor ? { price:anyColor, rule:'same-model-memory' } : null;
-}
-function tcAvitoCheapestPhoneFallback_(phones, target) {
-  const model = tcNorm_(target.model), memory = tcNorm_(target.memory), color = tcNorm_(target.color), ram = tcNorm_(target.ram);
-  if (!model || !memory || !color) return null;
-  const base = phones.filter(function(phone) { return tcNorm_(phone.model) === model && tcNorm_(phone.memory) === memory && (/^iphone\b/.test(model) || tcNorm_(phone.ram) === ram); });
-  const cheapest = function(items) { const prices = items.map(function(item) { return Number(item.price); }).filter(Boolean); return prices.length ? Math.min.apply(null, prices) : 0; };
-  const sameColor = cheapest(base.filter(function(phone) { return tcNorm_(phone.color) === color; }));
-  return sameColor ? { price:sameColor, rule:'same-model-memory-color-cheapest' } : (cheapest(base) ? { price:cheapest(base), rule:'same-model-memory-cheapest' } : null);
-}
 function tcAvitoLabel_(row, layout) { return [row[layout.model], row[layout.memory], row[layout.color], row[layout.sim], row[layout.ram]].map(String).join(' | '); }
 function tcAvitoTitleLayout_(headers) { const index = {}; headers.forEach(function(value, column) { index[tcNorm_(value)] = column; }); return index.title >= 0 && index.price >= 0 ? { title:index.title, price:index.price } : null; }
 function tcAvitoTitlePricePlan_(products, category, layout, rows) {
   const source = tcAvitoTitleSourceIndex_(products, category), updates = [], missing = [], ambiguous = []; let matched = 0;
-  rows.forEach(function(row, rowIndex) { const key = tcAvitoTitleKey_(row[layout.title]); if (!key) return; if (source.conflicts[key]) { ambiguous.push(String(row[layout.title])); return; } const price = source.prices[key]; if (!price) { missing.push(String(row[layout.title])); return; } matched++; if (Number(row[layout.price]) !== price) updates.push({ row:rowIndex, price:price }); });
+  rows.forEach(function(row, rowIndex) { const key = tcAvitoTitleKey_(row[layout.title]); if (!key) return; const price = source.prices[key]; if (!price) { missing.push(String(row[layout.title])); return; } matched++; if (Number(row[layout.price]) !== price) updates.push({ row:rowIndex, price:price }); });
   return { updates:updates, matched:matched, missing:missing, ambiguous:ambiguous };
 }
-function tcAvitoTitleSourceIndex_(products, category) { const prices = {}, conflicts = {}; products.filter(function(product) { return product.category === category && Number(product.price) > 0; }).forEach(function(product) { const key = tcAvitoTitleKey_(tcDisplay_(product)); if (!key) return; if (prices[key] && prices[key] !== Number(product.price)) { conflicts[key] = true; return; } prices[key] = Number(product.price); }); return { prices:prices, conflicts:conflicts }; }
+function tcAvitoTitleSourceIndex_(products, category) { const prices = {}, conflicts = {}; products.filter(function(product) { return product.category === category && Number(product.price) > 0; }).forEach(function(product) { const key = tcAvitoTitleKey_(tcDisplay_(product)), price = Number(product.price); if (!key) return; prices[key] = prices[key] ? Math.min(prices[key], price) : price; }); return { prices:prices, conflicts:conflicts }; }
 function tcAvitoTitleKey_(value) { return String(value || '').replace(/[\u{1F1E6}-\u{1F1FF}]{2}/gu, '').replace(/[()\[\],.;:]+/g, ' ').replace(/\s+/g, ' ').trim().toLocaleLowerCase('ru-RU'); }
-function tcAvitoTitleFallback_(items, category, targetTitle) {
-  const threshold = { 'айпады':0.55, 'дайсон':0.55, 'часы':0.60, 'макбуки':0.65, 'наушники':0.65, 'пс':0.65 }[category] || 0.70;
-  const candidates = items.map(function(item) { return { title:item.title, price:item.price, score:tcAvitoTitleScore_(category, targetTitle, item.title) }; }).filter(function(item) { return item.score >= threshold; });
-  if (!candidates.length) return null;
-  candidates.sort(function(left, right) { return right.score - left.score; });
-  const bestScore = candidates[0].score, best = candidates.filter(function(item) { return item.score === bestScore; }), prices = Array.from(new Set(best.map(function(item) { return Number(item.price); })));
-  return prices.length === 1 ? { price:prices[0], score:bestScore } : { ambiguous:true };
-}
-function tcAvitoCheapestTitleFallback_(items, category, targetTitle) {
-  const threshold = { 'айпады':0.55, 'дайсон':0.55, 'часы':0.60, 'макбуки':0.65, 'наушники':0.65, 'пс':0.65 }[category] || 0.70;
-  const candidates = items.map(function(item) { return { title:item.title, price:item.price, score:tcAvitoTitleScore_(category, targetTitle, item.title) }; }).filter(function(item) { return item.score >= threshold; });
-  if (!candidates.length) return null;
-  const bestScore = Math.max.apply(null, candidates.map(function(item) { return item.score; })), best = candidates.filter(function(item) { return item.score === bestScore; });
-  return { price:Math.min.apply(null, best.map(function(item) { return Number(item.price); }).filter(Boolean)), score:bestScore };
-}
-function tcAvitoTitleScore_(category, left, right) {
-  const a = tcAvitoTitleWords_(left), b = tcAvitoTitleWords_(right); if (!a.length || !b.length || tcAvitoHardwareConflict_(category, a, b)) return 0;
-  const set = {}; a.forEach(function(word) { set[word] = true; }); return b.filter(function(word) { return set[word]; }).length / Math.max(a.length, b.length);
-}
-function tcAvitoTitleWords_(value) {
-  const ignored = { apple:true, samsung:true, sony:true, стайлер:true, гарантия:true, рассрочка:true, active:true, актив:true, уценка:true, новый:true, оригинал:true, товар:true, sale:true, neo:true, loop:true, milanese:true };
-  const text = String(value || '').replace(/[\u{1F1E6}-\u{1F1FF}]{2}/gu, '').toLocaleLowerCase('ru-RU').replace(/ё/g, 'е')
-    .replace(/ipad\s+(\d+)\s+mini/g, 'ipad mini $1').replace(/apple\s+watch\s+(?:series\s+)?(se|ultra)\s+(\d+)/g, 'watch $1$2').replace(/apple\s+watch\s+series\s+(\d+)/g, 'watch s$1')
-    .replace(/playstation/g, 'ps').replace(/\bps\s+(\d)\b/g, 'ps$1').replace(/airpods/gi, 'airpods').replace(/airpods\s+pro\s+(\d+)/g, 'airpods pro$1').replace(/airpods\s+(\d+)\b/g, 'airpods$1')
-    .replace(/(\d+)\s*\/\s*(\d+)(?:\s*(gb|гб|tb|тб))?/g, function(all, ram, storage, unit) { return ram + 'x' + storage + (/^(tb|тб)$/i.test(unit || '') ? 'tb' : 'gb'); }).replace(/(\d+)\s*(?:gb|гб)/g, '$1gb').replace(/(\d+)\s*(?:tb|тб)/g, '$1tb')
-    .replace(/(\d+)\s*mm\b/g, '$1mm').replace(/wi[\s-]*fi/g, 'wifi').replace(/[()\[\],.;:+/\\-]+/g, ' ').replace(/\s+/g, ' ').trim();
-  return Array.from(new Set(text.split(' ').filter(function(word) { return word.length > 1 && !ignored[word] && !/^\d{4}$/.test(word) && !/^[a-zа-я]{1,2}\d{3,}[a-zа-я0-9-]*$/i.test(word); })));
-}
-function tcAvitoHardwareConflict_(category, left, right) {
-  const pick = function(words, pattern) { return words.filter(function(word) { return pattern.test(word); }); }, differs = function(pattern) { const a = pick(left, pattern), b = pick(right, pattern); return a.length && b.length && !a.some(function(word) { return b.indexOf(word) >= 0; }); };
-  if (category === 'макбуки' && (differs(/^m\d+$/) || differs(/^\d+x\d+(?:gb|tb)?$/))) return true;
-  if (category === 'айпады' && (differs(/^a\d+$/) || differs(/^\d+(?:gb|tb)$/) || (left.indexOf('lte') >= 0) !== (right.indexOf('lte') >= 0))) return true;
-  if (category === 'дайсон' && differs(/^(?:hs|hd)\d+$/)) return true;
-  if (category === 'часы' && (differs(/^\d+mm$/) || differs(/^(?:se|ultra|s)\d+$/))) return true;
-  if (category === 'наушники' && (differs(/^pro\d+$/) || differs(/^airpods\d+$/))) return true;
-  if (category === 'пс' && differs(/^ps\d+$/)) return true;
-  return false;
-}
 function tcWriteAvitoPrices_(sheet, priceColumn, updates) { updates.sort(function(a, b) { return a.row - b.row; }); for (let start = 0; start < updates.length;) { let end = start + 1; while (end < updates.length && updates[end].row === updates[end - 1].row + 1) end++; sheet.getRange(TC.avito.firstDataRow + updates[start].row, priceColumn + 1, end - start, 1).setValues(updates.slice(start, end).map(function(item) { return [item.price]; })); start = end; } }
 
 function tcWriteSheet_(sheet, products) {
