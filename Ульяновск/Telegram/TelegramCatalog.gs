@@ -130,7 +130,7 @@ function tcSyncAvitoPrices_() {
     const layout = target.kind === 'phone' ? tcAvitoLayout_(headers) : tcAvitoTitleLayout_(headers);
     if (!layout) throw new Error('Неверная шапка листа объявлений Ульяновска «' + sheet.getName() + '»: нужны ' + (target.kind === 'phone' ? 'Model, MemorySize, Color, SimConfig, RamSize и Price.' : 'Title и Price.'));
     const height = Math.max(sheet.getLastRow() - TC.avito.headerRow, 0), values = height ? sheet.getRange(TC.avito.firstDataRow, 1, height, width).getValues() : [];
-    const plan = target.kind === 'phone' ? tcAvitoDirectPhonePlan_(source, layout, values) : tcAvitoDirectTitlePlan_(source, layout, values);
+    const plan = target.kind === 'phone' ? tcAvitoDirectPhonePlan_(source, layout, values) : tcAvitoDirectTitlePlan_(source, category, layout, values);
     tcWriteAvitoPrices_(sheet, layout.price, plan.updates);
     report.sheets[category] = { matched: plan.matched, updated: plan.updates.length, missing: plan.missing.slice(0, 200), ambiguous: plan.ambiguous.slice(0, 200) };
   });
@@ -229,13 +229,14 @@ function tcAvitoDirectPhonePlan_(sourceRows, layout, rows) {
     const target = { model:row[layout.model], memory:row[layout.memory], color:row[layout.color], sim:row[layout.sim], ram:row[layout.ram] }, key = tcAvitoPhoneKey_(target);
     if (!key) return;
     if (conflicts[key]) { ambiguous.push(tcAvitoLabel_(row, layout)); return; }
-    const price = prices[key]; if (!price) { missing.push(tcAvitoLabel_(row, layout)); return; }
+    const fallback = prices[key] ? null : tcAvitoSafePhoneFallback_(sourceRows, target);
+    const price = prices[key] || (fallback && fallback.price); if (!price) { missing.push(tcAvitoLabel_(row, layout)); return; }
     matched++; if (Number(row[layout.price]) !== price) updates.push({ row:rowIndex, price:price });
   });
   return { updates:updates, matched:matched, missing:missing, ambiguous:ambiguous };
 }
 /** Copies non-phone prices from the prepared source catalogue by Title. */
-function tcAvitoDirectTitlePlan_(sourceRows, layout, rows) {
+function tcAvitoDirectTitlePlan_(sourceRows, category, layout, rows) {
   const prices = {}, conflicts = {}, updates = [], missing = [], ambiguous = []; let matched = 0;
   sourceRows.forEach(function(row) {
     const key = tcAvitoTitleKey_(row.title); if (!key) return;
@@ -245,7 +246,9 @@ function tcAvitoDirectTitlePlan_(sourceRows, layout, rows) {
   rows.forEach(function(row, rowIndex) {
     const key = tcAvitoTitleKey_(row[layout.title]); if (!key) return;
     if (conflicts[key]) { ambiguous.push(String(row[layout.title])); return; }
-    const price = prices[key]; if (!price) { missing.push(String(row[layout.title])); return; }
+    const fallback = prices[key] ? null : tcAvitoTitleFallback_(sourceRows, category, row[layout.title]);
+    if (fallback && fallback.ambiguous) { ambiguous.push(String(row[layout.title])); return; }
+    const price = prices[key] || (fallback && fallback.price); if (!price) { missing.push(String(row[layout.title])); return; }
     matched++; if (Number(row[layout.price]) !== price) updates.push({ row:rowIndex, price:price });
   });
   return { updates:updates, matched:matched, missing:missing, ambiguous:ambiguous };

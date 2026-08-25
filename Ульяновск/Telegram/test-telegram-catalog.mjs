@@ -215,7 +215,12 @@ test('copies Avito prices from the prepared catalogue fields, not raw Telegram n
     ['Galaxy S25', '256 ГБ', 'синий', 'SIM + eSIM', '12 ГБ', '']
   ]);
   assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row: 0, price: 46800 }, { row: 1, price: 48800 }]);
-  const titlePlan = api.tcAvitoDirectTitlePlan_([{ title: 'iPad 11 128GB Wi-Fi Pink', price: 40800 }], api.tcAvitoTitleLayout_(['Title', 'Price']), [['iPad 11 128GB Wi-Fi Pink', '']]);
+  const relaxedPhonePlan = api.tcAvitoDirectPhonePlan_([
+    { model: 'iPhone 13', memory: '128 ГБ', color: 'белый', sim: '2 SIM', ram: '', price: 52800 },
+    { model: 'iPhone 13', memory: '128 ГБ', color: 'белый', sim: 'SIM + eSIM', ram: '', price: 52800 }
+  ], layout, [['iPhone 13', '128 ГБ', 'белый', 'Не знаю', '4 ГБ', '']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(relaxedPhonePlan.updates)), [{ row: 0, price: 52800 }]);
+  const titlePlan = api.tcAvitoDirectTitlePlan_([{ title: 'iPad 11 128GB Wi-Fi Pink', price: 40800 }], 'айпады', api.tcAvitoTitleLayout_(['Title', 'Price']), [['Apple iPad 11, 128 ГБ Wi-Fi Pink', '']]);
   assert.deepEqual(JSON.parse(JSON.stringify(titlePlan.updates)), [{ row: 0, price: 40800 }]);
 });
 
