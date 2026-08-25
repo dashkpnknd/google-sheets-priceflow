@@ -103,6 +103,7 @@ function syncTelegramCatalog_() {
     // source for Avito: it already has the selected country, markup and every
     // technical field in separate columns.  Do not match Avito to raw Telegram
     // display text a second time.
+    SpreadsheetApp.flush();
     const priceSync = tcSyncAvitoPrices_();
     const now = new Date(); p.setProperty(TC.props.last, String(now.getTime()));
     p.setProperty(TC.props.status, 'Каталог обновлён: ' + written + ' позиций.');
