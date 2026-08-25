@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const source = fs.readFileSync(new URL('./TelegramCatalog.gs', import.meta.url), 'utf8') + `
-globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcColor_,tcLayouts_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcAddTwoSimMirror_,tcChooseCheapestCountry_,tcParseMarkupCsv_,tcApplyUlyanovskMarkup_,tcMarkupAmount_};`;
+globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcColor_,tcLayouts_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcAddTwoSimMirror_,tcChooseCheapestCountry_,tcParseMarkupCsv_,tcApplyUlyanovskMarkup_,tcMarkupAmount_,tcAvitoLayout_,tcAvitoPricePlan_};`;
 const parseCsv = (value) => String(value).trim().split(/\r?\n/).map((line) => {
   const cells = []; let current = ''; let quoted = false;
   for (let index = 0; index < line.length; index++) {
@@ -186,4 +186,19 @@ test('supports a title/price template and reports concise outcome', () => {
   assert.match(summary, /самых дешёвых вариантов: 10/);
   assert.match(summary, /Наценка из файла применена к 100/);
   assert.match(summary, /Без правила наценки: 20/);
+});
+
+test('plans direct Ulyanovsk Avito price updates without changing any product fields', () => {
+  const layout = api.tcAvitoLayout_(['Vendor', 'Model', 'MemorySize', 'Color', 'SimConfig', 'RamSize', 'Price']);
+  const products = [
+    { category: 'телефоны', name: 'iPhone 13 128GB 2 SIM Black', price: 46800 },
+    { category: 'телефоны', name: 'Galaxy A17 4/128GB Black', price: 13000 }
+  ];
+  const rows = [
+    ['Apple', 'iPhone 13', '128 ГБ', 'черный', '2 SIM', '4 ГБ', ''],
+    ['Samsung', 'Galaxy A17', '128 ГБ', 'черный', 'Не знаю', '4 ГБ', '']
+  ];
+  const plan = api.tcAvitoPricePlan_(products, layout, rows);
+  assert.equal(JSON.stringify(plan.updates), JSON.stringify([{ row: 0, price: 46800 }, { row: 1, price: 13000 }]));
+  assert.equal(plan.matched, 2);
 });

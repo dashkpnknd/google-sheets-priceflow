@@ -9,6 +9,8 @@ const TC = {
   // Публичный файл клиента с правилами наценки. Суммы не хранятся в коде:
   // при каждом обновлении читается его актуальная версия.
   markupSheetId: '1DOuNTe2yJcU6h-TK3-xpWqe6zWpNl0NAQfVVYvZ0IpA',
+  // Fixed Ulyanovsk Avito phone workbook. Only the Price column is changed.
+  avito: { spreadsheetId: '19GKgYl_RYR5Ezl6_L_bjIGkHmM2_vsWp5X1ZTV4rAF0', sheetId: 739636152, headerRow: 2, firstDataRow: 3 },
   props: { project: 'TC_PROJECT', channel: 'TC_CHANNEL', mirrorTwoSim: 'TC_MIRROR_TWO_SIM', last: 'TC_LAST', status: 'TC_STATUS' }
 };
 
@@ -92,15 +94,68 @@ function syncTelegramCatalog_() {
       if (!sheet) throw new Error('Нет листа «' + name + '» в стандартной таблице.');
       written += tcWriteSheet_(sheet, entries);
     });
+    const priceSync = tcSyncAvitoPrices_(rows);
     const now = new Date(); p.setProperty(TC.props.last, String(now.getTime()));
     p.setProperty(TC.props.status, 'Каталог обновлён: ' + written + ' позиций.');
     return {
       rows: rows.length, written: written, mirrored: mirror.mirrored,
       cheapest: cheapest.removed, markedUp: markup.applied, withoutMarkup: markup.withoutRule,
-      skippedSheets: skippedSheets
+      skippedSheets: skippedSheets, priceSync: priceSync
     };
   } finally { lock.releaseLock(); }
 }
+
+/** Updates only prices in the Ulyanovsk Avito mobile-listing workbook. */
+function tcSyncAvitoPrices_(products) {
+  const book = SpreadsheetApp.openById(TC.avito.spreadsheetId);
+  const sheet = book.getSheets().find(function(item) { return item.getSheetId() === TC.avito.sheetId; });
+  if (!sheet) throw new Error('Не найден лист мобильных объявлений Ульяновска по сохранённому ID.');
+  const width = sheet.getLastColumn(), headers = sheet.getRange(TC.avito.headerRow, 1, 1, width).getValues()[0];
+  const layout = tcAvitoLayout_(headers);
+  if (!layout) throw new Error('Неверная шапка объявлений Ульяновска: нужны Model, MemorySize, Color, SimConfig, RamSize и Price.');
+  const height = Math.max(sheet.getLastRow() - TC.avito.headerRow, 0);
+  const values = height ? sheet.getRange(TC.avito.firstDataRow, 1, height, width).getValues() : [];
+  const plan = tcAvitoPricePlan_(products, layout, values);
+  plan.updates.forEach(function(update) { sheet.getRange(TC.avito.firstDataRow + update.row, layout.price + 1).setValue(update.price); });
+  PropertiesService.getScriptProperties().setProperty('TC_LAST_PRICE_REPORT', JSON.stringify({
+    at: new Date().toISOString(), sourceRows: products.length, matched: plan.matched,
+    updated: plan.updates.length, missing: plan.missing.slice(0, 200), ambiguous: plan.ambiguous.slice(0, 200)
+  }));
+  return { matched: plan.matched, written: plan.updates.length, missing: plan.missing, ambiguous: plan.ambiguous };
+}
+function tcAvitoLayout_(headers) {
+  const index = {}; headers.forEach(function(value, column) { index[tcNorm_(value)] = column; });
+  const required = ['model', 'memorysize', 'color', 'simconfig', 'ramsize', 'price'];
+  return required.every(function(name) { return index[name] >= 0; }) ? { model:index.model, memory:index.memorysize, color:index.color, sim:index.simconfig, ram:index.ramsize, price:index.price } : null;
+}
+function tcAvitoPricePlan_(products, layout, rows) {
+  const source = tcAvitoSourceIndex_(products), updates = [], missing = [], ambiguous = []; let matched = 0;
+  rows.forEach(function(row, rowIndex) {
+    const key = tcAvitoPhoneKey_({ model:row[layout.model], memory:row[layout.memory], color:row[layout.color], sim:row[layout.sim], ram:row[layout.ram] });
+    if (!key) return;
+    if (source.conflicts[key]) { ambiguous.push(tcAvitoLabel_(row, layout)); return; }
+    const price = source.prices[key];
+    if (!price) { missing.push(tcAvitoLabel_(row, layout)); return; }
+    matched++;
+    if (Number(row[layout.price]) !== price) updates.push({ row:rowIndex, price:price });
+  });
+  return { updates:updates, matched:matched, missing:missing, ambiguous:ambiguous };
+}
+function tcAvitoSourceIndex_(products) {
+  const prices = {}, conflicts = {};
+  products.filter(function(product) { return product.category === 'телефоны' && Number(product.price) > 0; }).forEach(function(product) {
+    const phone = tcPhone_(tcDisplay_(product)), key = tcAvitoPhoneKey_(phone); if (!key) return;
+    if (prices[key] && prices[key] !== Number(product.price)) { conflicts[key] = true; return; }
+    prices[key] = Number(product.price);
+  });
+  return { prices:prices, conflicts:conflicts };
+}
+function tcAvitoPhoneKey_(phone) {
+  const model = tcNorm_(phone.model), memory = tcNorm_(phone.memory), color = tcNorm_(phone.color), sim = tcNorm_(phone.config || phone.sim || 'Не знаю'), ram = tcNorm_(phone.ram);
+  if (!model || !memory || !color) return '';
+  return [model, memory, color, sim, /^iphone\b/.test(model) ? '' : ram].join('|');
+}
+function tcAvitoLabel_(row, layout) { return [row[layout.model], row[layout.memory], row[layout.color], row[layout.sim], row[layout.ram]].map(String).join(' | '); }
 
 function tcWriteSheet_(sheet, products) {
   tcRemoveCountryColumns_(sheet);
