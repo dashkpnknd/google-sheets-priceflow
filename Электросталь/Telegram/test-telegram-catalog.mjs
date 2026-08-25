@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const source = fs.readFileSync(new URL('./TelegramCatalog.gs', import.meta.url), 'utf8') + `
-globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcColor_,tcLayouts_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcApplyElektrostalMarkup_,tcElektrostalMarkupAmount_,tcExpand_,tcAvitoLayout_,tcAvitoPricePlan_,tcAvitoTitleLayout_,tcAvitoTitlePricePlan_};`;
+globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcColor_,tcLayouts_,tcLayoutFor_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcApplyElektrostalMarkup_,tcElektrostalMarkupAmount_,tcExpand_,tcAvitoLayout_,tcAvitoPricePlan_,tcAvitoTitleLayout_,tcAvitoTitlePricePlan_};`;
 const parseCsv = (value) => String(value).trim().split(/\r?\n/).map((line) => {
   const cells = []; let current = ''; let quoted = false;
   for (let index = 0; index < line.length; index++) {
@@ -176,6 +176,13 @@ test('fills Android RAM separately in the standard right-hand phone block', () =
   const layout = api.tcLayouts_(headers)[0];
   const row = api.tcTargetRow_(headers, layout, { name: 'Pixel 7 8/128GB Lemongrass', variant: '🇺🇸', price: 23500 });
   assert.deepEqual([...row], ['Pixel 7', 'Не знаю', '128 ГБ', 'желтый', '8 ГБ', 23500]);
+});
+
+test('keeps service-marked iPhones in the left phone block', () => {
+  const layouts = api.tcLayouts_(['Model', 'SimConfig', 'MemorySize', 'Color', 'Price', '', 'Model', 'SimConfig', 'MemorySize', 'Color', 'RamSize', 'Price']);
+  assert.equal(api.tcLayoutFor_(layouts, { category: 'телефоны', name: '• iPhone 17 256GB Black' }), 0);
+  assert.equal(api.tcLayoutFor_(layouts, { category: 'телефоны', name: '(Уценка) iPhone 16 128GB White' }), 0);
+  assert.equal(api.tcLayoutFor_(layouts, { category: 'телефоны', name: 'Galaxy S25 12/256GB Blue' }), 1);
 });
 
 test('removes supplier service markers and duplicate specs from the model field', () => {

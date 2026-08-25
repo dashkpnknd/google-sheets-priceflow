@@ -224,7 +224,10 @@ function tcLayoutFor_(layouts, product) {
   if (layouts.length === 1) return 0;
   // The supplied standard phone template uses its first block for iPhone and
   // the second for Android. Other multi-block templates keep source order.
-  if (product.category === 'телефоны') return /^iphone\b/i.test(product.name) ? 0 : layouts.length - 1;
+  if (product.category === 'телефоны') {
+    const name = String(product.name || '').replace(/^\s*[•·▪◦\-]+\s*/, '').replace(/^\s*\((?:актив|уценка|active)\)\s*/i, '');
+    return /^iphone\b/i.test(name) ? 0 : layouts.length - 1;
+  }
   return 0;
 }
 
