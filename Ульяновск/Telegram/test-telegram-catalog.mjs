@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const source = fs.readFileSync(new URL('./TelegramCatalog.gs', import.meta.url), 'utf8') + `
-globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcColor_,tcLayouts_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcAddTwoSimMirror_,tcChooseCheapestCountry_,tcParseMarkupCsv_,tcApplyUlyanovskMarkup_,tcMarkupAmount_,tcAvitoLayout_,tcAvitoPricePlan_,tcAvitoTitleLayout_,tcAvitoTitlePricePlan_,tcAvitoSafePhoneFallback_,tcAvitoTitleFallback_,tcAvitoTitleScore_};`;
+globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcColor_,tcLayouts_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcAddTwoSimMirror_,tcChooseCheapestCountry_,tcParseMarkupCsv_,tcApplyUlyanovskMarkup_,tcMarkupAmount_,tcAvitoLayout_,tcAvitoPricePlan_,tcAvitoTitleLayout_,tcAvitoTitlePricePlan_,tcAvitoDirectSource_,tcAvitoDirectPhonePlan_,tcAvitoDirectTitlePlan_,tcAvitoSafePhoneFallback_,tcAvitoTitleFallback_,tcAvitoTitleScore_};`;
 const parseCsv = (value) => String(value).trim().split(/\r?\n/).map((line) => {
   const cells = []; let current = ''; let quoted = false;
   for (let index = 0; index < line.length; index++) {
@@ -201,6 +201,22 @@ test('plans direct Ulyanovsk Avito price updates without changing any product fi
   const plan = api.tcAvitoPricePlan_(products, layout, rows);
   assert.equal(JSON.stringify(plan.updates), JSON.stringify([{ row: 0, price: 46800 }, { row: 1, price: 13000 }]));
   assert.equal(plan.matched, 2);
+});
+
+test('copies Avito prices from the prepared catalogue fields, not raw Telegram names', () => {
+  const sourceHeaders = ['Model', 'SimConfig', 'MemorySize', 'Color', 'Price', '', 'Model', 'SimConfig', 'MemorySize', 'Color', 'RamSize', 'Price'];
+  const source = api.tcAvitoDirectSource_(sourceHeaders, [
+    ['iPhone 13', '2 SIM', '128 ГБ', 'черный', 46800, '', '', '', '', '', '', ''],
+    ['', '', '', '', '', '', 'Galaxy S25', 'SIM + eSIM', '256 ГБ', 'синий', '12 ГБ', 48800]
+  ]);
+  const layout = api.tcAvitoLayout_(['Model', 'MemorySize', 'Color', 'SimConfig', 'RamSize', 'Price']);
+  const plan = api.tcAvitoDirectPhonePlan_(source, layout, [
+    ['iPhone 13', '128 ГБ', 'черный', '2 SIM', '4 ГБ', ''],
+    ['Galaxy S25', '256 ГБ', 'синий', 'SIM + eSIM', '12 ГБ', '']
+  ]);
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row: 0, price: 46800 }, { row: 1, price: 48800 }]);
+  const titlePlan = api.tcAvitoDirectTitlePlan_([{ title: 'iPad 11 128GB Wi-Fi Pink', price: 40800 }], api.tcAvitoTitleLayout_(['Title', 'Price']), [['iPad 11 128GB Wi-Fi Pink', '']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(titlePlan.updates)), [{ row: 0, price: 40800 }]);
 });
 
 test('uses an unambiguous supplier price when only SIM or catalogue colour differs', () => {
