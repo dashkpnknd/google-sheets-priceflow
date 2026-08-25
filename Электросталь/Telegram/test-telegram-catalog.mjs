@@ -243,4 +243,9 @@ test('copies Elektrostal prices from its prepared catalogue, with only safe fiel
   assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row: 0, price: 46800 }, { row: 1, price: 48800 }]);
   const titlePlan = api.tcAvitoDirectTitlePlan_([{ title: 'iPad 11 128GB Wi-Fi Pink', price: 40800 }], 'айпады', api.tcAvitoTitleLayout_(['Title', 'Price']), [['Apple iPad 11, 128 ГБ Wi-Fi Pink', '']]);
   assert.deepEqual(JSON.parse(JSON.stringify(titlePlan.updates)), [{ row: 0, price: 40800 }]);
+  const cheapestPhonePlan = api.tcAvitoDirectPhonePlan_([
+    { model: 'Galaxy S25', memory: '256 ГБ', color: 'синий', sim: 'SIM + eSIM', ram: '12 ГБ', price: 57500 },
+    { model: 'Galaxy S25', memory: '256 ГБ', color: 'синий', sim: 'SIM + eSIM', ram: '12 ГБ', price: 56500 }
+  ], layout, [['Galaxy S25', '256 ГБ', 'синий', 'SIM + eSIM', '12 ГБ', '']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(cheapestPhonePlan.updates)), [{ row: 0, price: 56500 }]);
 });

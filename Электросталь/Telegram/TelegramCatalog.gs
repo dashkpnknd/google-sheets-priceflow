@@ -145,12 +145,11 @@ function tcAvitoDirectSource_(headers, rows) {
 }
 function tcAvitoDirectPhonePlan_(sourceRows, layout, rows) {
   const prices = {}, conflicts = {}, updates = [], missing = [], ambiguous = []; let matched = 0;
-  sourceRows.forEach(function(row) { const key = tcAvitoPhoneKey_(row); if (!key) return; if (prices[key] && prices[key] !== Number(row.price)) conflicts[key] = true; prices[key] = Number(row.price); });
+  sourceRows.forEach(function(row) { const key = tcAvitoPhoneKey_(row), price = Number(row.price); if (!key || !price) return; prices[key] = prices[key] ? Math.min(prices[key], price) : price; });
   rows.forEach(function(row, rowIndex) {
     const target = { model:row[layout.model], memory:row[layout.memory], color:row[layout.color], sim:row[layout.sim], ram:row[layout.ram] }, key = tcAvitoPhoneKey_(target);
     if (!key) return;
-    if (conflicts[key]) { ambiguous.push(tcAvitoLabel_(row, layout)); return; }
-    const fallback = prices[key] ? null : tcAvitoSafePhoneFallback_(sourceRows, target), price = prices[key] || (fallback && fallback.price);
+    const fallback = prices[key] ? null : tcAvitoCheapestPhoneFallback_(sourceRows, target), price = prices[key] || (fallback && fallback.price);
     if (!price) { missing.push(tcAvitoLabel_(row, layout)); return; }
     matched++; if (Number(row[layout.price]) !== price) updates.push({ row:rowIndex, price:price });
   });
@@ -158,12 +157,10 @@ function tcAvitoDirectPhonePlan_(sourceRows, layout, rows) {
 }
 function tcAvitoDirectTitlePlan_(sourceRows, category, layout, rows) {
   const prices = {}, conflicts = {}, updates = [], missing = [], ambiguous = []; let matched = 0;
-  sourceRows.forEach(function(row) { const key = tcAvitoTitleKey_(row.title); if (!key) return; if (prices[key] && prices[key] !== Number(row.price)) conflicts[key] = true; prices[key] = Number(row.price); });
+  sourceRows.forEach(function(row) { const key = tcAvitoTitleKey_(row.title), price = Number(row.price); if (!key || !price) return; prices[key] = prices[key] ? Math.min(prices[key], price) : price; });
   rows.forEach(function(row, rowIndex) {
     const key = tcAvitoTitleKey_(row[layout.title]); if (!key) return;
-    if (conflicts[key]) { ambiguous.push(String(row[layout.title])); return; }
-    const fallback = prices[key] ? null : tcAvitoTitleFallback_(sourceRows, category, row[layout.title]);
-    if (fallback && fallback.ambiguous) { ambiguous.push(String(row[layout.title])); return; }
+    const fallback = prices[key] ? null : tcAvitoCheapestTitleFallback_(sourceRows, category, row[layout.title]);
     const price = prices[key] || (fallback && fallback.price); if (!price) { missing.push(String(row[layout.title])); return; }
     matched++; if (Number(row[layout.price]) !== price) updates.push({ row:rowIndex, price:price });
   });
@@ -205,6 +202,14 @@ function tcAvitoSafePhoneFallback_(phones, target) {
   if (sameColor) return { price:sameColor, rule:'same-model-memory-color' };
   const anyColor = onePrice(base); return anyColor ? { price:anyColor, rule:'same-model-memory' } : null;
 }
+function tcAvitoCheapestPhoneFallback_(phones, target) {
+  const model = tcNorm_(target.model), memory = tcNorm_(target.memory), color = tcNorm_(target.color), ram = tcNorm_(target.ram);
+  if (!model || !memory || !color) return null;
+  const base = phones.filter(function(phone) { return tcNorm_(phone.model) === model && tcNorm_(phone.memory) === memory && (/^iphone\b/.test(model) || tcNorm_(phone.ram) === ram); });
+  const cheapest = function(items) { const prices = items.map(function(item) { return Number(item.price); }).filter(Boolean); return prices.length ? Math.min.apply(null, prices) : 0; };
+  const sameColor = cheapest(base.filter(function(phone) { return tcNorm_(phone.color) === color; }));
+  return sameColor ? { price:sameColor, rule:'same-model-memory-color-cheapest' } : (cheapest(base) ? { price:cheapest(base), rule:'same-model-memory-cheapest' } : null);
+}
 function tcAvitoLabel_(row, layout) { return [row[layout.model], row[layout.memory], row[layout.color], row[layout.sim], row[layout.ram]].map(String).join(' | '); }
 function tcAvitoTitleLayout_(headers) { const index = {}; headers.forEach(function(value, column) { index[tcNorm_(value)] = column; }); return index.title >= 0 && index.price >= 0 ? { title:index.title, price:index.price } : null; }
 function tcAvitoTitlePricePlan_(products, category, layout, rows) {
@@ -221,6 +226,13 @@ function tcAvitoTitleFallback_(items, category, targetTitle) {
   candidates.sort(function(left, right) { return right.score - left.score; });
   const bestScore = candidates[0].score, best = candidates.filter(function(item) { return item.score === bestScore; }), prices = Array.from(new Set(best.map(function(item) { return Number(item.price); })));
   return prices.length === 1 ? { price:prices[0], score:bestScore } : { ambiguous:true };
+}
+function tcAvitoCheapestTitleFallback_(items, category, targetTitle) {
+  const threshold = { 'айпады':0.55, 'дайсон':0.55, 'часы':0.60, 'макбуки':0.65, 'наушники':0.65, 'пс':0.65 }[category] || 0.70;
+  const candidates = items.map(function(item) { return { title:item.title, price:item.price, score:tcAvitoTitleScore_(category, targetTitle, item.title) }; }).filter(function(item) { return item.score >= threshold; });
+  if (!candidates.length) return null;
+  const bestScore = Math.max.apply(null, candidates.map(function(item) { return item.score; })), best = candidates.filter(function(item) { return item.score === bestScore; });
+  return { price:Math.min.apply(null, best.map(function(item) { return Number(item.price); }).filter(Boolean)), score:bestScore };
 }
 function tcAvitoTitleScore_(category, left, right) {
   const a = tcAvitoTitleWords_(left), b = tcAvitoTitleWords_(right); if (!a.length || !b.length || tcAvitoHardwareConflict_(category, a, b)) return 0;

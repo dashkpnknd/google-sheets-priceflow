@@ -222,6 +222,11 @@ test('copies Avito prices from the prepared catalogue fields, not raw Telegram n
   assert.deepEqual(JSON.parse(JSON.stringify(relaxedPhonePlan.updates)), [{ row: 0, price: 52800 }]);
   const titlePlan = api.tcAvitoDirectTitlePlan_([{ title: 'iPad 11 128GB Wi-Fi Pink', price: 40800 }], 'айпады', api.tcAvitoTitleLayout_(['Title', 'Price']), [['Apple iPad 11, 128 ГБ Wi-Fi Pink', '']]);
   assert.deepEqual(JSON.parse(JSON.stringify(titlePlan.updates)), [{ row: 0, price: 40800 }]);
+  const cheapestPhonePlan = api.tcAvitoDirectPhonePlan_([
+    { model: 'Galaxy S25', memory: '256 ГБ', color: 'синий', sim: 'SIM + eSIM', ram: '12 ГБ', price: 48800 },
+    { model: 'Galaxy S25', memory: '256 ГБ', color: 'синий', sim: 'SIM + eSIM', ram: '12 ГБ', price: 48000 }
+  ], layout, [['Galaxy S25', '256 ГБ', 'синий', 'SIM + eSIM', '12 ГБ', '']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(cheapestPhonePlan.updates)), [{ row: 0, price: 48000 }]);
 });
 
 test('uses an unambiguous supplier price when only SIM or catalogue colour differs', () => {
