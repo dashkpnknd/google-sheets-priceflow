@@ -153,8 +153,12 @@ function tcAvitoPricePlan_(products, layout, rows) {
 function tcAvitoSourceIndex_(products) {
   const prices = {}, conflicts = {}, phones = [];
   products.filter(function(product) { return product.category === 'телефоны' && Number(product.price) > 0; }).forEach(function(product) {
-    const phone = tcPhone_(tcDisplay_(product)), key = tcAvitoPhoneKey_(phone); if (!key) return;
+    const phone = tcPhone_(tcDisplay_(product)), key = tcAvitoPhoneKey_(phone);
+    // Keep a parsed phone even if the supplier omitted its colour.  It cannot
+    // form an exact key, but the safe fallback may still use it when the whole
+    // model/memory/RAM group has one price.
     phones.push({ model:phone.model, memory:phone.memory, color:phone.color, sim:phone.config || phone.sim || 'Не знаю', ram:phone.ram, price:Number(product.price) });
+    if (!key) return;
     if (prices[key] && prices[key] !== Number(product.price)) { conflicts[key] = true; return; }
     prices[key] = Number(product.price);
   });
@@ -241,9 +245,10 @@ function tcAvitoTitleScore_(category, left, right) {
 function tcAvitoTitleWords_(value) {
   const ignored = { apple:true, samsung:true, sony:true, стайлер:true, гарантия:true, рассрочка:true, active:true, актив:true, уценка:true, новый:true, оригинал:true, товар:true, sale:true, neo:true, loop:true, milanese:true };
   const text = String(value || '').replace(/[\u{1F1E6}-\u{1F1FF}]{2}/gu, '').toLocaleLowerCase('ru-RU').replace(/ё/g, 'е')
-    .replace(/ipad\s+(\d+)\s+mini/g, 'ipad mini $1').replace(/apple\s+watch\s+series\s+(\d+)/g, 'watch s$1')
+    .replace(/ipad\s+(\d+)\s+mini/g, 'ipad mini $1').replace(/apple\s+watch\s+(?:series\s+)?(se|ultra)\s+(\d+)/g, 'watch $1$2').replace(/apple\s+watch\s+series\s+(\d+)/g, 'watch s$1')
     .replace(/playstation/g, 'ps').replace(/\bps\s+(\d)\b/g, 'ps$1').replace(/airpods/gi, 'airpods')
-    .replace(/(\d+)\s*\/\s*(\d+)\s*(?:gb|гб)\b/g, '$1x$2gb').replace(/(\d+)\s*(?:gb|гб)\b/g, '$1gb').replace(/(\d+)\s*(?:tb|тб)\b/g, '$1tb')
+    .replace(/airpods\s+pro\s+(\d+)/g, 'airpods pro$1').replace(/airpods\s+(\d+)\b/g, 'airpods$1')
+    .replace(/(\d+)\s*\/\s*(\d+)(?:\s*(gb|гб|tb|тб))?/g, function(all, ram, storage, unit) { return ram + 'x' + storage + (/^(tb|тб)$/i.test(unit || '') ? 'tb' : 'gb'); }).replace(/(\d+)\s*(?:gb|гб)/g, '$1gb').replace(/(\d+)\s*(?:tb|тб)/g, '$1tb')
     .replace(/(\d+)\s*mm\b/g, '$1mm').replace(/wi[\s-]*fi/g, 'wifi').replace(/[()\[\],.;:+/\\-]+/g, ' ').replace(/\s+/g, ' ').trim();
   return Array.from(new Set(text.split(' ').filter(function(word) { return word.length > 1 && !ignored[word] && !/^\d{4}$/.test(word) && !/^[a-zа-я]{1,2}\d{3,}[a-zа-я0-9-]*$/i.test(word); })));
 }
@@ -254,8 +259,10 @@ function tcAvitoHardwareConflict_(category, left, right) {
     return a.length && b.length && !a.some(function(word) { return b.indexOf(word) >= 0; });
   };
   if (category === 'макбуки' && (differs(/^m\d+$/) || differs(/^\d+x\d+(?:gb|tb)?$/))) return true;
+  if (category === 'айпады' && (differs(/^a\d+$/) || differs(/^\d+(?:gb|tb)$/) || (left.indexOf('lte') >= 0) !== (right.indexOf('lte') >= 0))) return true;
   if (category === 'дайсон' && differs(/^(?:hs|hd)\d+$/)) return true;
-  if (category === 'часы' && differs(/^\d+mm$/)) return true;
+  if (category === 'часы' && (differs(/^\d+mm$/) || differs(/^(?:se|ultra|s)\d+$/))) return true;
+  if (category === 'наушники' && (differs(/^pro\d+$/) || differs(/^airpods\d+$/))) return true;
   if (category === 'пс' && differs(/^ps\d+$/)) return true;
   return false;
 }

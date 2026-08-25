@@ -217,6 +217,14 @@ test('uses an unambiguous supplier price when only SIM or catalogue colour diffe
   ], { model: 'iPhone 13', memory: '128 ГБ', color: 'черный', sim: 'Не знаю', ram: '4 ГБ' }), null);
 });
 
+test('uses an unambiguous phone price when the supplier omitted only the colour', () => {
+  const layout = api.tcAvitoLayout_(['Model', 'MemorySize', 'Color', 'SimConfig', 'RamSize', 'Price']);
+  const plan = api.tcAvitoPricePlan_([
+    { category: 'телефоны', name: 'Galaxy S25 FE 8/128GB SIM + eSIM', price: 37300 }
+  ], layout, [['Galaxy S25 FE', '128 ГБ', 'белый', 'SIM + eSIM', '8 ГБ', '']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row: 0, price: 37300 }]);
+});
+
 test('plans direct Ulyanovsk Avito price updates for a title-based non-phone tab', () => {
   const layout = api.tcAvitoTitleLayout_(['id', 'Title', 'Description', 'Price']);
   const products = [
@@ -241,6 +249,19 @@ test('matches iPad and Dyson titles by meaningful words but rejects conflicting 
   assert.equal(api.tcAvitoTitleFallback_([
     { title: 'MacBook Air 13 M5 16/512GB Starlight', price: 150000 }
   ], 'макбуки', 'MacBook Air 13 M4 16/256 Starlight'), null);
+  assert.equal(api.tcAvitoTitleFallback_([
+    { title: 'iPad 11 (A16) 2025 128GB Wi-Fi Pink', price: 40800 },
+    { title: 'iPad 11 (A16) 2025 128GB Wi-Fi + LTE Pink', price: 50300 },
+    { title: 'iPad 11 (A16) 2025 256GB Wi-Fi Pink', price: 48100 }
+  ], 'айпады', 'Apple iPad 11 (A16, 2025), 128 ГБ Wi-Fi Pink').price, 40800);
+  assert.equal(api.tcAvitoTitleFallback_([
+    { title: 'MacBook Air 13 M5 16/512GB Silver', price: 131800 },
+    { title: 'MacBook Air 13 M5 16/1TB Silver', price: 143200 }
+  ], 'макбуки', 'MacBook Air 13 (2026, M5) 16/512 Silver').price, 131800);
+  assert.equal(api.tcAvitoTitleFallback_([
+    { title: 'Apple Watch SE 2 40mm Silver (M/L)', price: 21800 },
+    { title: 'Apple Watch SE 3 40mm Silver (M/L)', price: 23600 }
+  ], 'часы', 'Apple Watch SE 2 40mm Silver').price, 21800);
   assert.equal(api.tcAvitoTitleFallback_([
     { title: 'Apple Watch SE 2 40mm Silver (M/L)', price: 25000 },
     { title: 'Apple Watch SE 2 40mm Silver (S/M)', price: 27000 }
