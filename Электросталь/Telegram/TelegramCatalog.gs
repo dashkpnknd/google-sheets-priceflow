@@ -169,10 +169,25 @@ function tcAvitoLabel_(row, layout) { return [row[layout.model], row[layout.memo
 function tcAvitoTitleLayout_(headers) { const index = {}; headers.forEach(function(value, column) { index[tcNorm_(value)] = column; }); return index.title >= 0 && index.price >= 0 && index.dateend >= 0 ? { title:index.title, price:index.price, dateEnd:index.dateend } : null; }
 function tcAvitoTitlePricePlan_(products, category, layout, rows) {
   const source = tcAvitoTitleSourceIndex_(products, category), updates = [], dateUpdates = [], missing = [], ambiguous = []; let matched = 0, archived = 0, reactivated = 0;
-  rows.forEach(function(row, rowIndex) { const key = tcAvitoTitleKey_(row[layout.title]); if (!key) return; const price = source.prices[key]; if (!price) { missing.push(String(row[layout.title])); if (row[layout.price] !== '') updates.push({ row:rowIndex, price:'' }); if (!tcAvitoDateIsPast_(row[layout.dateEnd])) { dateUpdates.push({ row:rowIndex, value:tcAvitoStopDate_() }); archived++; } return; } matched++; if (Number(row[layout.price]) !== price) updates.push({ row:rowIndex, price:price }); if (tcAvitoDateIsPast_(row[layout.dateEnd])) { dateUpdates.push({ row:rowIndex, value:tcAvitoActiveEndDate_() }); reactivated++; } });
+  rows.forEach(function(row, rowIndex) {
+    const title = String(row[layout.title] || ''), key = tcAvitoTitleKey_(title); if (!key) return;
+    // Exact canonical key first.  Editorially different names then use the
+    // guarded word matcher below; it never relaxes conflicting hardware.
+    const fallback = source.prices[key] ? null : tcAvitoCheapestTitleFallback_(source.items, category, title);
+    const price = source.prices[key] || (fallback && fallback.price);
+    if (!price) { missing.push(title); if (row[layout.price] !== '') updates.push({ row:rowIndex, price:'' }); if (!tcAvitoDateIsPast_(row[layout.dateEnd])) { dateUpdates.push({ row:rowIndex, value:tcAvitoStopDate_() }); archived++; } return; }
+    matched++; if (Number(row[layout.price]) !== price) updates.push({ row:rowIndex, price:price }); if (tcAvitoDateIsPast_(row[layout.dateEnd])) { dateUpdates.push({ row:rowIndex, value:tcAvitoActiveEndDate_() }); reactivated++; }
+  });
   return { updates:updates, dateUpdates:dateUpdates, matched:matched, archived:archived, reactivated:reactivated, missing:missing, ambiguous:ambiguous };
 }
-function tcAvitoTitleSourceIndex_(products, category) { const prices = {}, conflicts = {}; products.filter(function(product) { return product.category === category && Number(product.price) > 0; }).forEach(function(product) { const key = tcAvitoTitleKey_(tcDisplay_(product)), price = Number(product.price); if (!key) return; prices[key] = prices[key] ? Math.min(prices[key], price) : price; }); return { prices:prices, conflicts:conflicts }; }
+function tcAvitoTitleSourceIndex_(products, category) {
+  const prices = {}, conflicts = {}, items = [];
+  products.filter(function(product) { return product.category === category && Number(product.price) > 0; }).forEach(function(product) {
+    const title = tcDisplay_(product), key = tcAvitoTitleKey_(title), price = Number(product.price); if (!key) return;
+    items.push({ title:title, price:price });
+    prices[key] = prices[key] ? Math.min(prices[key], price) : price;
+  }); return { prices:prices, conflicts:conflicts, items:items };
+}
 /**
  * Immutable matching contract for title-based Avito tabs.
  *
@@ -201,6 +216,72 @@ function tcAvitoTitleKey_(value) {
     .toLocaleLowerCase('ru-RU');
   const tokens = text.split(/\s+/).filter(Boolean);
   return tokens.sort().join('|');
+}
+
+/**
+ * A guarded fallback for editorially different Avito and supplier titles.
+ * It accepts the best meaningfully equal configuration and follows the client
+ * rule for real supplier duplicates: select the lowest price.  It never
+ * returns a candidate if declared hardware conflicts.
+ */
+function tcAvitoCheapestTitleFallback_(items, category, targetTitle) {
+  const threshold = { 'айпады':0.70, 'дайсон':0.60, 'часы':0.65, 'макбуки':0.65, 'наушники':0.65, 'пс':0.70 }[category] || 0.75;
+  const candidates = items.map(function(item) { return { title:item.title, price:Number(item.price), score:tcAvitoTitleScore_(category, targetTitle, item.title) }; })
+    .filter(function(item) { return item.score >= threshold && item.price > 0; });
+  if (!candidates.length) return null;
+  const bestScore = Math.max.apply(null, candidates.map(function(item) { return item.score; }));
+  const best = candidates.filter(function(item) { return item.score === bestScore; });
+  return { price:Math.min.apply(null, best.map(function(item) { return item.price; })), score:bestScore };
+}
+function tcAvitoTitleScore_(category, left, right) {
+  const a = tcAvitoTitleWords_(left), b = tcAvitoTitleWords_(right);
+  if (!a.length || !b.length || tcAvitoFamilyConflict_(category, left, right) || tcAvitoColorConflict_(left, right) || tcAvitoHardwareConflict_(category, a, b)) return 0;
+  const set = {}; a.forEach(function(word) { set[word] = true; });
+  const shared = b.filter(function(word) { return set[word]; }).length;
+  return shared / Math.max(a.length, b.length);
+}
+function tcAvitoTitleWords_(value) {
+  const ignored = { apple:true, samsung:true, sony:true, стайлер:true, гарантия:true, рассрочка:true, active:true, актив:true, уценка:true, новый:true, оригинал:true, товар:true, sale:true, neo:true, loop:true, milanese:true, wifi:true };
+  const text = String(value || '').replace(/[\u{1F1E6}-\u{1F1FF}]{2}/gu, '').toLocaleLowerCase('ru-RU').replace(/ё/g, 'е')
+    .replace(/ipad\s+(\d+)\s+mini/g, 'ipad mini $1').replace(/apple\s+watch\s+(?:series\s+)?(se|ultra)\s+(\d+)/g, 'watch $1$2').replace(/apple\s+watch\s+series\s+(\d+)/g, 'watch s$1')
+    .replace(/playstation/g, 'ps').replace(/\bps\s+(\d)\b/g, 'ps$1')
+    .replace(/airpods\s+pro\s+(\d+)/g, 'airpods pro$1').replace(/airpods\s+(\d+)\b/g, 'airpods$1').replace(/\b(h[sd])\s*(\d{2})\b/g, '$1$2')
+    .replace(/(\d+)\s*\/\s*(\d+)(?:\s*(gb|гб|tb|тб))?/g, function(_, ram, storage, unit) { return ram + 'x' + storage + (/^(tb|тб)$/i.test(unit || '') ? 'tb' : 'gb'); })
+    .replace(/(\d+)\s*(?:gb|гб)/g, '$1gb').replace(/(\d+)\s*(?:tb|тб)/g, '$1tb')
+    .replace(/(\d+)\s*mm\b/g, '$1mm').replace(/wi[\s\-\u2010-\u2015]*fi/g, 'wifi').replace(/[()\[\],.;:+/\\-]+/g, ' ').replace(/\s+/g, ' ').trim();
+  return Array.from(new Set(text.split(' ').filter(function(word) { return word.length > 1 && !ignored[word] && !/^\d{4}$/.test(word) && !/^[a-zа-я]{1,2}\d{3,}[a-zа-я0-9-]*$/i.test(word); })));
+}
+function tcAvitoFamilyConflict_(category, left, right) {
+  const family = function(value) {
+    const text = tcNorm_(value);
+    if (category === 'макбуки') return /macbook/.test(text) ? 'macbook' : /galaxy\s*book/.test(text) ? 'galaxybook' : '';
+    if (category === 'айпады') return /ipad/.test(text) ? 'ipad' : /galaxy\s*tab/.test(text) ? 'galaxytab' : /(?:xiaomi|redmi)\s*pad/.test(text) ? 'xiaomipad' : '';
+    if (category === 'часы') return /galaxy/.test(text) ? 'galaxywatch' : /apple|watch\s*(?:series|se|ultra)/.test(text) ? 'applewatch' : /garmin/.test(text) ? 'garmin' : '';
+    if (category === 'наушники') return /airpods/.test(text) ? 'airpods' : /galaxy\s*buds|\bbuds\b/.test(text) ? 'galaxybuds' : '';
+    if (category === 'пс') return /xbox/.test(text) ? 'xbox' : /playstation|\bps\s*\d/.test(text) ? 'playstation' : '';
+    return '';
+  };
+  const a = family(left), b = family(right); return Boolean(a && b && a !== b);
+}
+function tcAvitoColorConflict_(left, right) {
+  const colors = function(value) {
+    const text = tcNorm_(value).replace(/space\s+black/g, 'black').replace(/space\s+gray/g, 'gray').replace(/rose\s+gold/g, 'gold');
+    const names = ['black','white','blue','topaz','purple','plum','silver','gold','starlight','midnight','gray','grey','green','pink','yellow','red','orange','natural','vinca','jasper','ceramic','patina','nickel','copper'];
+    return names.filter(function(name) { return new RegExp('(^|[^a-z])' + name + '($|[^a-z])', 'i').test(text); });
+  };
+  const a = colors(left), b = colors(right); return Boolean(a.length && b.length && !a.some(function(color) { return b.indexOf(color) >= 0; }));
+}
+function tcAvitoHardwareConflict_(category, left, right) {
+  const pick = function(words, pattern) { return words.filter(function(word) { return pattern.test(word); }); };
+  const differs = function(pattern) { const a = pick(left, pattern), b = pick(right, pattern); return a.length && b.length && !a.some(function(word) { return b.indexOf(word) >= 0; }); };
+  const onlyOneHas = function(word) { return (left.indexOf(word) >= 0) !== (right.indexOf(word) >= 0); };
+  if (category === 'макбуки' && (differs(/^m\d+$/) || differs(/^\d+x\d+(?:gb|tb)$/))) return true;
+  if (category === 'айпады' && (differs(/^m\d+$/) || differs(/^a\d+$/) || differs(/^\d+(?:gb|tb)$/) || onlyOneHas('lte') || onlyOneHas('nano') || onlyOneHas('texture'))) return true;
+  if (category === 'дайсон' && differs(/^(?:hs|hd)\d+$/)) return true;
+  if (category === 'часы' && (differs(/^\d+mm$/) || differs(/^(?:se|ultra|s)\d+$/))) return true;
+  if (category === 'наушники' && (differs(/^pro\d+$/) || differs(/^airpods\d+$/))) return true;
+  if (category === 'пс' && differs(/^ps\d+$/)) return true;
+  return false;
 }
 
 /** Run from the Apps Script editor after any code change; sync runs it too. */
@@ -242,9 +323,18 @@ function tcRunElectrostalRegressionTests() {
   equal(lifecycle.archived, 1, 'несуществующий SKU снимается с публикации');
   equal(lifecycle.updates[0].price, 49000, 'точный SKU получает актуальную цену');
   equal(lifecycle.updates[1].price, '', 'несуществующий SKU очищает цену');
+  const macFallback = tcAvitoCheapestTitleFallback_([{ title:'MacBook Air 13 M5 16/512 ГБ Starlight', price:95000 }], 'макбуки', 'MacBook Air 13 (2026, M5) 16/512 Starlight 10C 8G');
+  equal(macFallback && macFallback.price, 95000, 'MacBook: редакторское название');
+  const dysonFallback = tcAvitoCheapestTitleFallback_([{ title:'Dyson HS08 Airwrap Vinca Blue Topaz', price:50000 }], 'дайсон', 'Стайлер Dyson HS08 Vinca Blue/Topaz');
+  equal(dysonFallback && dysonFallback.price, 50000, 'Dyson: порядок слов');
+  equal(tcAvitoCheapestTitleFallback_([{ title:'iPad Pro 11 M4 Nano Texture 2 ТБ Wi-Fi Black', price:133000 }], 'айпады', 'iPad Pro 11 M4 2 ТБ Wi-Fi Black'), null, 'iPad: Nano Texture не подменяется');
+  equal(tcAvitoCheapestTitleFallback_([{ title:'Galaxy Watch 9 44mm Silver', price:30000 }], 'часы', 'Apple Watch SE 2 44mm Silver'), null, 'Apple Watch не Galaxy Watch');
+  equal(tcAvitoCheapestTitleFallback_([{ title:'Dyson HS09 Jasper Plum', price:50000 }], 'дайсон', 'Dyson HS08 Jasper Plum'), null, 'Dyson HS08 не HS09');
+  equal(tcAvitoCheapestTitleFallback_([{ title:'iPad Mini 7 128 ГБ Wi-Fi Blue', price:49000 }], 'айпады', 'iPad Mini 7 128 ГБ Wi-Fi Purple'), null, 'iPad Blue не Purple');
+  equal(tcCategory_('Apple iPhone Air Bumper Case Light Blue'), 'прочее', 'аксессуар не попадает в телефоны');
 
   if (failures.length) throw new Error('REGRESSION FAIL: ' + failures.join(' | '));
-  return { passed: 20, message: 'Электросталь: 20/20 защитных тестов пройдено.' };
+  return { passed: 27, message: 'Электросталь: 27/27 защитных тестов пройдено.' };
 }
 function tcAssertElektrostalInvariants_() { return tcRunElectrostalRegressionTests(); }
 function tcWriteAvitoPrices_(sheet, priceColumn, updates) { tcWriteAvitoColumn_(sheet, priceColumn, updates, 'price'); }
@@ -542,6 +632,10 @@ function tcExpand_(header, item) {
 }
 function tcCategory_(value) {
   const v = tcNorm_(value);
+  // Accessories have no corresponding Avito product tabs in this project.
+  // They must never be turned into implausible phones (for example an iPhone
+  // case with a 2 900 ₽ price and no storage) or affect phone matching.
+  if (/\b(?:case|bumper|wallet|magsafe|folio|pencil|strap|band|charger|cable)\b|чехол|кошел|кабель|заряд/i.test(v)) return 'прочее';
   // Check accessory families before the generic Galaxy/Samsung phone rule.
   // Otherwise Galaxy Buds, Watch and Tab were incorrectly written to phones.
   if (/airpods|galaxy\s*buds|buds\b|наушники|headphones?|гарнитур|колонки/.test(v)) return 'наушники';
