@@ -28,7 +28,8 @@ const TC = {
 function onOpen() {
   SpreadsheetApp.getUi().createMenu('Каталог поставщика')
     .addItem('Подключить Telegram-канал', 'showTelegramCatalogSidebar')
-    .addSeparator().addItem('Пересобрать каталог сейчас', 'runTelegramCatalogNow').addToUi();
+    .addSeparator().addItem('Пересобрать каталог сейчас', 'runTelegramCatalogNow')
+    .addItem('Синхронизировать цены и актуальность', 'runAvitoPriceSyncNow').addToUi();
 }
 
 function showTelegramCatalogSidebar() {
@@ -64,6 +65,9 @@ function saveTelegramCatalogSetup(form) {
 }
 
 function runTelegramCatalogNow() { tcEnsureTrigger_(); const result = syncTelegramCatalog_(); return Object.assign(getTelegramCatalogSetup(), { message: tcSummary_(result) }); }
+// Run this after a catalogue has already been rebuilt when only Avito needs
+// a reconciliation. It reads the prepared tabs, never raw Telegram text.
+function runAvitoPriceSyncNow() { tcAssertUlyanovskInvariants_(); return tcSyncAvitoPrices_(); }
 function syncTelegramCatalog() {
   // A trigger may survive a copied project. Until the user has connected a
   // channel, it should silently do nothing rather than repeatedly fail.
