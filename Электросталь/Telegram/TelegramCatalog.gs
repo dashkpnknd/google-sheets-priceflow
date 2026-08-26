@@ -135,7 +135,7 @@ function tcAvitoPricePlan_(products, layout, rows) {
     // Exact configuration first. When the supplier has the same model and
     // storage (and Android RAM), but another colour/SIM, use its lowest price.
     const phone = { model:row[layout.model], memory:row[layout.memory], color:row[layout.color], sim:row[layout.sim], ram:row[layout.ram] };
-    const price = source.prices[key] || source.relaxedPrices[tcAvitoRelaxedPhoneKey_(phone)]; if (!price) { missing.push(tcAvitoLabel_(row, layout)); return; }
+    const price = source.prices[key] || source.relaxedPrices[tcAvitoRelaxedPhoneKey_(phone)]; if (!price) { missing.push(tcAvitoLabel_(row, layout)); if (row[layout.price] !== '') updates.push({ row:rowIndex, price:'' }); return; }
     matched++; if (Number(row[layout.price]) !== price) updates.push({ row:rowIndex, price:price });
   });
   return { updates:updates, matched:matched, missing:missing, ambiguous:ambiguous };
@@ -161,11 +161,11 @@ function tcAvitoLabel_(row, layout) { return [row[layout.model], row[layout.memo
 function tcAvitoTitleLayout_(headers) { const index = {}; headers.forEach(function(value, column) { index[tcNorm_(value)] = column; }); return index.title >= 0 && index.price >= 0 ? { title:index.title, price:index.price } : null; }
 function tcAvitoTitlePricePlan_(products, category, layout, rows) {
   const source = tcAvitoTitleSourceIndex_(products, category), updates = [], missing = [], ambiguous = []; let matched = 0;
-  rows.forEach(function(row, rowIndex) { const key = tcAvitoTitleKey_(row[layout.title]); if (!key) return; const price = source.prices[key]; if (!price) { missing.push(String(row[layout.title])); return; } matched++; if (Number(row[layout.price]) !== price) updates.push({ row:rowIndex, price:price }); });
+  rows.forEach(function(row, rowIndex) { const key = tcAvitoTitleKey_(row[layout.title]); if (!key) return; const price = source.prices[key]; if (!price) { missing.push(String(row[layout.title])); if (row[layout.price] !== '') updates.push({ row:rowIndex, price:'' }); return; } matched++; if (Number(row[layout.price]) !== price) updates.push({ row:rowIndex, price:price }); });
   return { updates:updates, matched:matched, missing:missing, ambiguous:ambiguous };
 }
 function tcAvitoTitleSourceIndex_(products, category) { const prices = {}, conflicts = {}; products.filter(function(product) { return product.category === category && Number(product.price) > 0; }).forEach(function(product) { const key = tcAvitoTitleKey_(tcDisplay_(product)), price = Number(product.price); if (!key) return; prices[key] = prices[key] ? Math.min(prices[key], price) : price; }); return { prices:prices, conflicts:conflicts }; }
-function tcAvitoTitleKey_(value) { return String(value || '').replace(/[\u{1F1E6}-\u{1F1FF}]{2}/gu, '').replace(/[()\[\],.;:]+/g, ' ').replace(/\s+/g, ' ').trim().toLocaleLowerCase('ru-RU'); }
+function tcAvitoTitleKey_(value) { return String(value || '').replace(/[\u{1F1E6}-\u{1F1FF}]{2}/gu, '').replace(/\b(?:19|20)\d{2}\b/g, '').replace(/[()\[\],.;:]+/g, ' ').replace(/\s+/g, ' ').trim().toLocaleLowerCase('ru-RU'); }
 function tcWriteAvitoPrices_(sheet, priceColumn, updates) { updates.sort(function(a, b) { return a.row - b.row; }); for (let start = 0; start < updates.length;) { let end = start + 1; while (end < updates.length && updates[end].row === updates[end - 1].row + 1) end++; sheet.getRange(TC.avito.firstDataRow + updates[start].row, priceColumn + 1, end - start, 1).setValues(updates.slice(start, end).map(function(item) { return [item.price]; })); start = end; } }
 
 function tcWriteSheet_(sheet, products) {
