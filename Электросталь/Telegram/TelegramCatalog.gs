@@ -273,11 +273,11 @@ function tcAvitoTitleScore_(category, left, right) {
   return shared / Math.max(a.length, b.length);
 }
 function tcAvitoTitleWords_(value) {
-  const ignored = { apple:true, samsung:true, sony:true, стайлер:true, гарантия:true, рассрочка:true, active:true, актив:true, уценка:true, новый:true, оригинал:true, товар:true, sale:true, neo:true, loop:true, milanese:true, wifi:true };
+  const ignored = { apple:true, samsung:true, sony:true, стайлер:true, гарантия:true, рассрочка:true, active:true, актив:true, уценка:true, новый:true, оригинал:true, товар:true, sale:true, loop:true, milanese:true, wifi:true };
   const text = String(value || '').replace(/[\u{1F1E6}-\u{1F1FF}]{2}/gu, '').toLocaleLowerCase('ru-RU').replace(/ё/g, 'е')
     .replace(/ipad\s+(\d+)\s+mini/g, 'ipad mini $1').replace(/apple\s+watch\s+(?:series\s+)?(se|ultra)\s+(\d+)/g, 'watch $1$2').replace(/apple\s+watch\s+series\s+(\d+)/g, 'watch s$1')
     .replace(/playstation/g, 'ps').replace(/\bps\s+(\d)\b/g, 'ps$1')
-    .replace(/airpods\s+pro\s+(\d+)/g, 'airpods pro$1').replace(/airpods\s+(\d+)\b/g, 'airpods$1').replace(/\b(h[sd])\s*(\d{2})\b/g, '$1$2')
+    .replace(/airpods\s+pro\s+(\d+)/g, 'airpods pro$1').replace(/airpods\s+(\d+)\b/g, 'airpods$1').replace(/\b([hsdt])\s*(\d{2})\b/g, '$1$2')
     .replace(/(\d+)\s*\/\s*(\d+)(?:\s*(gb|гб|tb|тб))?/g, function(_, ram, storage, unit) { return ram + 'x' + storage + (/^(tb|тб)$/i.test(unit || '') ? 'tb' : 'gb'); })
     .replace(/(\d+)\s*(?:gb|гб)/g, '$1gb').replace(/(\d+)\s*(?:tb|тб)/g, '$1tb')
     .replace(/(\d+)\s*mm\b/g, '$1mm').replace(/wi[\s\-\u2010-\u2015]*fi/g, 'wifi').replace(/[()\[\],.;:+/\\-]+/g, ' ').replace(/\s+/g, ' ').trim();
@@ -307,13 +307,28 @@ function tcAvitoHardwareConflict_(category, left, right) {
   const pick = function(words, pattern) { return words.filter(function(word) { return pattern.test(word); }); };
   const differs = function(pattern) { const a = pick(left, pattern), b = pick(right, pattern); return a.length && b.length && !a.some(function(word) { return b.indexOf(word) >= 0; }); };
   const onlyOneHas = function(word) { return (left.indexOf(word) >= 0) !== (right.indexOf(word) >= 0); };
+  const screen = tcAvitoScreenSize_(category, left, right);
+  if (screen) return true;
   if (category === 'макбуки' && (differs(/^m\d+$/) || differs(/^\d+x\d+(?:gb|tb)$/))) return true;
   if (category === 'айпады' && (differs(/^m\d+$/) || differs(/^a\d+$/) || differs(/^\d+(?:gb|tb)$/) || onlyOneHas('lte') || onlyOneHas('nano') || onlyOneHas('texture'))) return true;
-  if (category === 'дайсон' && differs(/^(?:hs|hd)\d+$/)) return true;
+  if (category === 'дайсон' && differs(/^(?:hs|hd|ht)\d+$/)) return true;
   if (category === 'часы' && (differs(/^\d+mm$/) || differs(/^(?:se|ultra|s)\d+$/))) return true;
   if (category === 'наушники' && (differs(/^pro\d+$/) || differs(/^airpods\d+$/))) return true;
   if (category === 'пс' && differs(/^ps\d+$/)) return true;
   return false;
+}
+// The size is a material SKU attribute for iPad Air/Pro and MacBook models.
+// It is intentionally extracted from the raw word list, not a fuzzy score:
+// Air 11 must never inherit the price of Air 13, nor MacBook 13 of MacBook 15.
+function tcAvitoScreenSize_(category, left, right) {
+  const words = function(items) { return items.join(' '); };
+  const extract = function(value) {
+    const text = words(value);
+    if (category === 'айпады') { const m = /\bipad\s+(?:air|pro)\s+(11|13)\b/.exec(text); return m && m[1] || ''; }
+    if (category === 'макбуки') { const m = /\bmacbook\s+(?:air|pro)\s+(13|14|15|16)\b|\bmacbook\s+neo\s+(13|14|15|16)\b|\bmacbook\s+(13|14|15|16)\s+neo\b/.exec(text); return m && (m[1] || m[2] || m[3]) || ''; }
+    return '';
+  };
+  const a = extract(left), b = extract(right); return Boolean(a && b && a !== b);
 }
 
 /** Run from the Apps Script editor after any code change; sync runs it too. */
@@ -333,6 +348,9 @@ function tcRunElectrostalRegressionTests() {
   different(key('iPad Air 13 M3 128 ГБ Wi-Fi Blue'), key('iPad Air 13 M4 128 ГБ Wi-Fi Blue'), 'M3 не M4');
   different(key('iPad Pro 11 M4 1 ТБ Wi-Fi Black'), key('iPad Pro 11 M4 2 ТБ Wi-Fi Black'), '1 ТБ не 2 ТБ');
   different(key('iPad Pro 11 M4 2 ТБ Wi-Fi Black'), key('iPad Pro 11 M4 Nano Texture 2 ТБ Wi-Fi Black'), 'обычная версия не Nano Texture');
+  equal(tcAvitoTitleScore_('айпады', 'iPad Air 11 M4 256 ГБ Wi-Fi Blue', 'iPad Air 13 M4 256 ГБ Wi-Fi Blue'), 0, 'iPad Air 11 не iPad Air 13');
+  equal(tcAvitoTitleScore_('макбуки', 'MacBook Air 13 M5 16/512 ГБ Blue', 'MacBook Air 15 M5 16/512 ГБ Blue'), 0, 'MacBook 13 не MacBook 15');
+  equal(tcAvitoTitleScore_('дайсон', 'Dyson HS08 Blue', 'Dyson HT01 Blue'), 0, 'Dyson HS не HT');
 
   // The agreed Elektrostal margin grid and 500 ₽ upward rounding are a hard
   // contract.  Apple and Android must remain different at the same purchase price.
