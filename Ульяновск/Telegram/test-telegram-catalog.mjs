@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const source = fs.readFileSync(new URL('./TelegramCatalog.gs', import.meta.url), 'utf8') + `
-globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcColor_,tcLayouts_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcAddTwoSimMirror_,tcChooseCheapestCountry_,tcParseMarkupCsv_,tcApplyUlyanovskMarkup_,tcMarkupAmount_,tcAvitoLayout_,tcAvitoPricePlan_,tcAvitoTitleLayout_,tcAvitoTitlePricePlan_,tcAvitoDirectSource_,tcAvitoDirectPhonePlan_,tcAvitoDirectTitlePlan_,tcAvitoSafePhoneFallback_,tcAvitoTitleFallback_,tcAvitoTitleScore_};`;
+globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcColor_,tcLayouts_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcAddTwoSimMirror_,tcChooseCheapestCountry_,tcParseMarkupCsv_,tcApplyUlyanovskMarkup_,tcMarkupAmount_,tcMarkupKey_,tcAvitoLayout_,tcAvitoPricePlan_,tcAvitoTitleLayout_,tcAvitoTitlePricePlan_,tcAvitoDirectSource_,tcAvitoDirectPhonePlan_,tcAvitoDirectTitlePlan_,tcAvitoSafePhoneFallback_,tcAvitoTitleFallback_,tcAvitoTitleScore_};`;
 const parseCsv = (value) => String(value).trim().split(/\r?\n/).map((line) => {
   const cells = []; let current = ''; let quoted = false;
   for (let index = 0; index < line.length; index++) {
@@ -112,6 +112,16 @@ test('applies Ulyanovsk markup directly from the markup-file rules', () => {
   assert.deepEqual(priced.rows.map((row) => row.price), [101500, 123800, 22000, 74000, 50000]);
   assert.equal(priced.applied, 4);
   assert.equal(priced.withoutRule, 1);
+});
+
+test('uses exact rules from every Ulyanovsk markup tab before broad brand rules', () => {
+  const rules = api.tcParseMarkupCsv_('Модель,Наценка\nGalaxy S25 12/256GB Blue 🇪🇺,4500\nDyson HJ10 HushJet Black/Teal 🇸🇬,2000\nНаушники AirPods,2000');
+  const priced = api.tcApplyUlyanovskMarkup_([
+    { category: 'телефоны', name: 'Galaxy S25 12/256 ГБ Blue', variant: '🇪🇺', price: 60000 },
+    { category: 'дайсон', name: '(Уценка) Dyson HJ10 HushJet Black/Teal', variant: '🇸🇬', price: 30000 }
+  ], rules);
+  assert.deepEqual(priced.rows.map((row) => row.price), [64500, 32000]);
+  assert.equal(api.tcMarkupKey_('Galaxy S25 12/256GB Blue 🇪🇺'), api.tcMarkupKey_('Galaxy S25 12/256 ГБ Blue'));
 });
 
 test('parses a complete public-channel product post', () => {

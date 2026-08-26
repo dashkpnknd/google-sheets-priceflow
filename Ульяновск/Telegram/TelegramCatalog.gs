@@ -9,6 +9,12 @@ const TC = {
   // Публичный файл клиента с правилами наценки. Суммы не хранятся в коде:
   // при каждом обновлении читается его актуальная версия.
   markupSheetId: '1DOuNTe2yJcU6h-TK3-xpWqe6zWpNl0NAQfVVYvZ0IpA',
+  // Правила распределены по брендам и товарным группам. Нельзя читать
+  // только Apple (gid=0): тогда Android, Dyson, аксессуары и приставки
+  // останутся без наценки.
+  markupGids: [0, 998621873, 1581268057, 816391661, 72651251, 1869147184,
+    385010794, 128937099, 338535652, 463783735, 933137760, 1778122432,
+    739113936, 2069038397],
   // Fixed Ulyanovsk Avito workbook. Only Price is changed in these existing tabs.
   avito: { spreadsheetId: '19GKgYl_RYR5Ezl6_L_bjIGkHmM2_vsWp5X1ZTV4rAF0', headerRow: 2, firstDataRow: 3, sheets: {
     'телефоны': { sheetId: 739636152, kind: 'phone' }, 'макбуки': { sheetId: 328331373, kind: 'title' },
@@ -541,19 +547,21 @@ function tcChooseCheapestCountry_(rows) {
 }
 
 function tcLoadUlyanovskMarkup_() {
-  const url = 'https://docs.google.com/spreadsheets/d/' + TC.markupSheetId + '/export?format=csv&gid=0';
-  const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
-  if (response.getResponseCode() !== 200) {
-    throw new Error('Не удалось прочитать файл наценок Ульяновска. Проверьте доступ к нему.');
-  }
-  const rules = tcParseMarkupCsv_(response.getContentText());
+  const rules = TC.markupGids.reduce(function(all, gid) {
+    const url = 'https://docs.google.com/spreadsheets/d/' + TC.markupSheetId + '/export?format=csv&gid=' + gid;
+    const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+    if (response.getResponseCode() !== 200) {
+      throw new Error('Не удалось прочитать вкладку ' + gid + ' файла наценок Ульяновска. Проверьте доступ к ней.');
+    }
+    return all.concat(tcParseMarkupCsv_(response.getContentText()));
+  }, []);
   if (!rules.length) throw new Error('В файле наценок Ульяновска не найдены правила.');
   return rules;
 }
 
 function tcParseMarkupCsv_(csv) {
   const table = Utilities.parseCsv(String(csv || ''));
-  return table.slice(1).map(function(row) {
+  return table.map(function(row) {
     const label = String(row[0] || '').trim();
     const amount = Number(String(row[1] || '').replace(/[^\d.,-]/g, '').replace(',', '.'));
     return label && Number.isFinite(amount) ? { label: label, amount: amount } : null;
@@ -572,17 +580,34 @@ function tcApplyUlyanovskMarkup_(rows, rules) {
 }
 
 function tcMarkupAmount_(row, rules) {
-  const name = tcNorm_(tcDisplay_(row)), phone = tcPhone_(tcDisplay_(row));
+  const display = tcDisplay_(row), name = tcNorm_(display), phone = tcPhone_(display);
   const find = function(pattern) {
     const hit = rules.find(function(rule) { return pattern.test(tcNorm_(rule.label)); });
     return hit ? hit.amount : null;
   };
+  // Точные карточки из брендовых вкладок имеют приоритет над общими
+  // правилами Apple/Samsung. Флаги страны и служебные пометки не меняют
+  // товар; если после их удаления есть правила с разной наценкой, fallback
+  // не угадывает и переходит к общему правилу.
+  const direct = rules.find(function(rule) { return tcNorm_(rule.label) === name; });
+  if (direct) return direct.amount;
+  const productKey = tcMarkupKey_(display), equalRules = rules.filter(function(rule) { return tcMarkupKey_(rule.label) === productKey; });
+  const amounts = equalRules.map(function(rule) { return rule.amount; }).filter(function(amount, index, values) { return values.indexOf(amount) === index; });
+  if (productKey && amounts.length === 1) return amounts[0];
   if (/airpods/.test(name)) return find(/наушники\s+airpods/);
   if (/\bwatch\b/.test(name)) return find(/^часы$/);
   if (/macbook/.test(name)) return find(/^macbook/);
   if (/\b(imac|mini)\b/.test(name)) return find(/imac\/mini/);
   if (/ipad/.test(name)) return find(/\bpro\b/.test(name) ? /^ipad\s+pro$/ : /ipad.*кроме\s+про/);
-  if (!/^iphone\b/.test(name)) return null;
+  if (!/^iphone\b/.test(name)) {
+    if (/galaxy\s*buds/.test(name)) return find(/galaxy\s*buds/);
+    if (/galaxy\s*watch/.test(name)) return find(/galaxy\s*watch/);
+    if (/galaxy\s*tab\s*s/.test(name)) return find(/galaxy\s*tab\s*s.*сер/);
+    if (/galaxy\s*tab\s*a/.test(name)) return find(/galaxy\s*tab\s*a.*сер/);
+    if (/galaxy\s*(?:s|z\s*fold)/.test(name)) return find(/s\s*-\s*сер|z\s*-?fold/);
+    if (/galaxy\s*a\d/.test(name)) return find(/a\s*-\s*сер/);
+    return null;
+  }
 
   const memoryGb = Number(String(phone.memory || '').replace(/[^\d]/g, ''));
   const premium = /^iphone\s+17\s+(?:pro|max|pro\s+max)\b/.test(name) && memoryGb >= 512;
@@ -590,7 +615,18 @@ function tcMarkupAmount_(row, rules) {
     const amount = find(/iphone\s+17\s+pro.*512.*17\s+pro\s+max.*512/);
     if (amount !== null) return amount;
   }
-  return find(/iphone\s+13.*17\s+pro\s+max.*256/);
+  const apple = find(/iphone\s+13.*17\s+pro\s+max.*256/);
+  if (apple !== null) return apple;
+  return null;
+}
+
+function tcMarkupKey_(value) {
+  return tcNorm_(value)
+    .replace(/[\u{1F1E6}-\u{1F1FF}]{2}/gu, ' ')
+    .replace(/[()\[\],.;:]+/g, ' ')
+    .replace(/(?:^|\s)(?:актив|уценка|active)(?=\s|$)/gi, ' ')
+    .replace(/(\d+)\s*(?:gb|гб)/gi, '$1gb').replace(/(\d+)\s*(?:tb|тб)/gi, '$1tb')
+    .replace(/[^a-zа-я0-9]+/gi, ' ').replace(/ё/g, 'е').replace(/\s+/g, ' ').trim();
 }
 
 function tcFetchRows_(channel) {
