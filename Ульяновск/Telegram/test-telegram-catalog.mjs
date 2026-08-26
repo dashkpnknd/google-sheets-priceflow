@@ -199,14 +199,14 @@ test('supports a title/price template and reports concise outcome', () => {
 });
 
 test('plans direct Ulyanovsk Avito price updates without changing any product fields', () => {
-  const layout = api.tcAvitoLayout_(['Vendor', 'Model', 'MemorySize', 'Color', 'SimConfig', 'RamSize', 'Price']);
+  const layout = api.tcAvitoLayout_(['Vendor', 'Model', 'MemorySize', 'Color', 'SimConfig', 'RamSize', 'Price', 'DateEnd']);
   const products = [
     { category: 'телефоны', name: 'iPhone 13 128GB 2 SIM Black', price: 46800 },
     { category: 'телефоны', name: 'Galaxy A17 4/128GB Black', price: 13000 }
   ];
   const rows = [
-    ['Apple', 'iPhone 13', '128 ГБ', 'черный', '2 SIM', '4 ГБ', ''],
-    ['Samsung', 'Galaxy A17', '128 ГБ', 'черный', 'Не знаю', '4 ГБ', '']
+    ['Apple', 'iPhone 13', '128 ГБ', 'черный', '2 SIM', '4 ГБ', '', new Date('2099-01-01')],
+    ['Samsung', 'Galaxy A17', '128 ГБ', 'черный', 'Не знаю', '4 ГБ', '', new Date('2099-01-01')]
   ];
   const plan = api.tcAvitoPricePlan_(products, layout, rows);
   assert.equal(JSON.stringify(plan.updates), JSON.stringify([{ row: 0, price: 46800 }, { row: 1, price: 13000 }]));
@@ -219,23 +219,23 @@ test('copies Avito prices from the prepared catalogue fields, not raw Telegram n
     ['iPhone 13', '2 SIM', '128 ГБ', 'черный', 46800, '', '', '', '', '', '', ''],
     ['', '', '', '', '', '', 'Galaxy S25', 'SIM + eSIM', '256 ГБ', 'синий', '12 ГБ', 48800]
   ]);
-  const layout = api.tcAvitoLayout_(['Model', 'MemorySize', 'Color', 'SimConfig', 'RamSize', 'Price']);
+  const layout = api.tcAvitoLayout_(['Model', 'MemorySize', 'Color', 'SimConfig', 'RamSize', 'Price', 'DateEnd']);
   const plan = api.tcAvitoDirectPhonePlan_(source, layout, [
-    ['iPhone 13', '128 ГБ', 'черный', '2 SIM', '4 ГБ', ''],
-    ['Galaxy S25', '256 ГБ', 'синий', 'SIM + eSIM', '12 ГБ', '']
+    ['iPhone 13', '128 ГБ', 'черный', '2 SIM', '4 ГБ', '', new Date('2099-01-01')],
+    ['Galaxy S25', '256 ГБ', 'синий', 'SIM + eSIM', '12 ГБ', '', new Date('2099-01-01')]
   ]);
   assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row: 0, price: 46800 }, { row: 1, price: 48800 }]);
   const relaxedPhonePlan = api.tcAvitoDirectPhonePlan_([
     { model: 'iPhone 13', memory: '128 ГБ', color: 'белый', sim: '2 SIM', ram: '', price: 52800 },
     { model: 'iPhone 13', memory: '128 ГБ', color: 'белый', sim: 'SIM + eSIM', ram: '', price: 52800 }
-  ], layout, [['iPhone 13', '128 ГБ', 'белый', 'Не знаю', '4 ГБ', '']]);
+  ], layout, [['iPhone 13', '128 ГБ', 'белый', 'Не знаю', '4 ГБ', '', new Date('2099-01-01')]]);
   assert.deepEqual(JSON.parse(JSON.stringify(relaxedPhonePlan.updates)), [{ row: 0, price: 52800 }]);
-  const titlePlan = api.tcAvitoDirectTitlePlan_([{ title: 'iPad 11 128GB Wi-Fi Pink', price: 40800 }], 'айпады', api.tcAvitoTitleLayout_(['Title', 'Price']), [['Apple iPad 11, 128 ГБ Wi-Fi Pink', '']]);
+  const titlePlan = api.tcAvitoDirectTitlePlan_([{ title: 'iPad 11 128GB Wi-Fi Pink', price: 40800 }], 'айпады', api.tcAvitoTitleLayout_(['Title', 'Price', 'DateEnd']), [['Apple iPad 11, 128 ГБ Wi-Fi Pink', '', new Date('2099-01-01')]]);
   assert.deepEqual(JSON.parse(JSON.stringify(titlePlan.updates)), [{ row: 0, price: 40800 }]);
   const cheapestPhonePlan = api.tcAvitoDirectPhonePlan_([
     { model: 'Galaxy S25', memory: '256 ГБ', color: 'синий', sim: 'SIM + eSIM', ram: '12 ГБ', price: 48800 },
     { model: 'Galaxy S25', memory: '256 ГБ', color: 'синий', sim: 'SIM + eSIM', ram: '12 ГБ', price: 48000 }
-  ], layout, [['Galaxy S25', '256 ГБ', 'синий', 'SIM + eSIM', '12 ГБ', '']]);
+  ], layout, [['Galaxy S25', '256 ГБ', 'синий', 'SIM + eSIM', '12 ГБ', '', new Date('2099-01-01')]]);
   assert.deepEqual(JSON.parse(JSON.stringify(cheapestPhonePlan.updates)), [{ row: 0, price: 48000 }]);
 });
 
@@ -254,20 +254,20 @@ test('uses an unambiguous supplier price when only SIM or catalogue colour diffe
 });
 
 test('uses an unambiguous phone price when the supplier omitted only the colour', () => {
-  const layout = api.tcAvitoLayout_(['Model', 'MemorySize', 'Color', 'SimConfig', 'RamSize', 'Price']);
+  const layout = api.tcAvitoLayout_(['Model', 'MemorySize', 'Color', 'SimConfig', 'RamSize', 'Price', 'DateEnd']);
   const plan = api.tcAvitoPricePlan_([
     { category: 'телефоны', name: 'Galaxy S25 FE 8/128GB SIM + eSIM', price: 37300 }
-  ], layout, [['Galaxy S25 FE', '128 ГБ', 'белый', 'SIM + eSIM', '8 ГБ', '']]);
+  ], layout, [['Galaxy S25 FE', '128 ГБ', 'белый', 'SIM + eSIM', '8 ГБ', '', new Date('2099-01-01')]]);
   assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row: 0, price: 37300 }]);
 });
 
 test('plans direct Ulyanovsk Avito price updates for a title-based non-phone tab', () => {
-  const layout = api.tcAvitoTitleLayout_(['id', 'Title', 'Description', 'Price']);
+  const layout = api.tcAvitoTitleLayout_(['id', 'Title', 'Description', 'Price', 'DateEnd']);
   const products = [
     { category: 'макбуки', name: 'MacBook Air 13 M4 Midnight', variant: '🇯🇵', price: 104000 },
     { category: 'макбуки', name: 'MacBook Air 13 M4 Midnight', variant: '🇺🇸', price: 106000 }
   ];
-  const rows = [['1', 'MacBook Air 13 M4 Midnight', '', 99000], ['2', 'MacBook Pro 14 M4', '', 123000]];
+  const rows = [['1', 'MacBook Air 13 M4 Midnight', '', 99000, new Date('2099-01-01')], ['2', 'MacBook Pro 14 M4', '', 123000, new Date('2099-01-01')]];
   const plan = api.tcAvitoTitlePricePlan_(products.slice(0, 1), 'макбуки', layout, rows);
   assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row: 0, price: 104000 }]);
   assert.equal(plan.matched, 1);
