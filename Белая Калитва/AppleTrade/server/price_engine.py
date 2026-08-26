@@ -35,6 +35,8 @@ _MODEL = re.compile(
     r"ipad\s+(?:air|pro|mini)?\s*\d+|macbook\s+(?:air|pro|neo)?\s*\d+|"
     r"apple\s+watch\s+(?:s\d+|se\s*\d*|ultra\s*\d*)|"
     r"galaxy\s+(?:s|a|z|m)\d+(?:\+|\s+(?:ultra|fe|plus))?|"
+    r"(?:samsung\s+)?(?:s|a|z|m)\d+(?:\+|\s+(?:ultra|fe|plus))?|"
+    r"(?:xiaomi|redmi|poco|asus|oneplus|realme|oppo|vivo|honor|huawei)\s+[a-z]*\d+(?:\s+(?:pro|ultra|plus|lite))?|"
     r"pixel\s+\d+(?:\s+(?:pro|xl|a))?)\b",
     re.IGNORECASE,
 )
