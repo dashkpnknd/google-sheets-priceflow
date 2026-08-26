@@ -9,7 +9,7 @@ import json
 import logging
 import os
 import threading
-from datetime import UTC, datetime
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
@@ -41,7 +41,35 @@ def atomic_json(path: Path, data: object) -> None:
 
 
 def set_status(state: str, **extra: object) -> None:
-    atomic_json(STATUS, {"state": state, "at": datetime.now(UTC).isoformat(), **extra})
+    previous: dict[str, object] = {}
+    if STATUS.exists():
+        try:
+            previous = json.loads(STATUS.read_text("utf-8"))
+        except (OSError, json.JSONDecodeError):
+            pass
+    # Do not lose the last successful refresh while reporting an error: that
+    # timestamp lets consumers distinguish a fresh catalog from stale cache.
+    if state != "ready" and "lastSuccessAt" in previous:
+        extra.setdefault("lastSuccessAt", previous["lastSuccessAt"])
+    atomic_json(STATUS, {"state": state, "at": datetime.now(timezone.utc).isoformat(), **extra})
+
+
+def snapshot_is_fresh() -> tuple[bool, str]:
+    """A stale Telegram cache must never be presented as a current price list."""
+    if not SNAPSHOT.exists() or not STATUS.exists():
+        return False, "snapshot is not ready"
+    try:
+        status = json.loads(STATUS.read_text("utf-8"))
+        if status.get("state") != "ready":
+            return False, f"telegram collector state: {status.get('state', 'unknown')}"
+        payload = json.loads(SNAPSHOT.read_text("utf-8"))
+        refreshed = datetime.fromisoformat(payload["refreshedAt"].replace("Z", "+00:00"))
+        max_age = max(60, int(os.environ.get("MAX_SNAPSHOT_AGE_SECONDS", "1800")))
+        if datetime.now(timezone.utc) - refreshed.astimezone(timezone.utc) > timedelta(seconds=max_age):
+            return False, "snapshot is stale"
+    except (KeyError, OSError, ValueError, json.JSONDecodeError) as error:
+        return False, f"invalid snapshot status: {error}"
+    return True, ""
 
 
 class SnapshotHandler(BaseHTTPRequestHandler):
@@ -62,7 +90,12 @@ class SnapshotHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = urlparse(self.path).path
         if path == "/health":
-            self.send_json(200, json.loads(STATUS.read_text("utf-8")) if STATUS.exists() else {"state": "starting"})
+            fresh, reason = snapshot_is_fresh()
+            status = json.loads(STATUS.read_text("utf-8")) if STATUS.exists() else {"state": "starting"}
+            status["fresh"] = fresh
+            if not fresh:
+                status["reason"] = reason
+            self.send_json(200 if fresh else 503, status)
             return
         if path != "/krasnodar/snapshot":
             self.send_json(404, {"error": "not found"})
@@ -71,8 +104,9 @@ class SnapshotHandler(BaseHTTPRequestHandler):
         if not hmac.compare_digest(received, self.secret):
             self.send_json(401, {"error": "unauthorized"})
             return
-        if not SNAPSHOT.exists():
-            self.send_json(503, {"error": "snapshot is not ready"})
+        fresh, reason = snapshot_is_fresh()
+        if not fresh:
+            self.send_json(503, {"error": reason})
             return
         self.send_json(200, json.loads(SNAPSHOT.read_text("utf-8")))
 
@@ -88,10 +122,10 @@ async def collect(client: TelegramClient, limit: int) -> int:
         if not message.message or not message.message.strip():
             continue
         changed = message.edit_date or message.date
-        posts.append({"id": str(message.id), "text": message.message, "updatedAt": changed.astimezone(UTC).isoformat()})
+        posts.append({"id": str(message.id), "text": message.message, "updatedAt": changed.astimezone(timezone.utc).isoformat()})
     posts.sort(key=lambda post: int(post["id"]))
-    atomic_json(SNAPSHOT, {"posts": posts, "channel": TARGET_TITLE, "refreshedAt": datetime.now(UTC).isoformat()})
-    set_status("ready", channel=TARGET_TITLE, posts=len(posts))
+    atomic_json(SNAPSHOT, {"posts": posts, "channel": TARGET_TITLE, "refreshedAt": datetime.now(timezone.utc).isoformat()})
+    set_status("ready", channel=TARGET_TITLE, posts=len(posts), lastSuccessAt=datetime.now(timezone.utc).isoformat())
     return len(posts)
 
 
@@ -102,12 +136,18 @@ async def main() -> None:
     threading.Thread(target=server.serve_forever, daemon=True).start()
     client = TelegramClient(str(DATA / "telegram"), int(required("TG_API_ID")), required("TG_API_HASH"))
     await client.connect()
-    if not await client.is_user_authorized():
-        raise RuntimeError("Telegram session is not authorized")
     interval = max(60, int(os.environ.get("REFRESH_SECONDS", "900")))
     try:
         while True:
             try:
+                # A temporary transport loss should repair itself.  A revoked
+                # session is explicitly marked as requiring re-authorisation.
+                if not client.is_connected():
+                    await client.connect()
+                if not await client.is_user_authorized():
+                    set_status("needs_reauth", error="Telegram session is not authorized")
+                    await asyncio.sleep(interval)
+                    continue
                 count = await collect(client, int(os.environ.get("TG_HISTORY_LIMIT", "1000")))
                 logging.warning("snapshot refreshed: %s posts", count)
             except Exception as error:
