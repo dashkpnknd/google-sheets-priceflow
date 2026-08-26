@@ -98,7 +98,10 @@ function syncTelegramCatalog_() {
       if (!sheet) throw new Error('Нет листа «' + name + '» в стандартной таблице.');
       written += tcWriteSheet_(sheet, entries);
     });
-    const priceSync = tcSyncAvitoPrices_(rows);
+    // Avito reads exactly the ready catalogue with markup, not the temporary
+    // Telegram parsing result from this execution.
+    SpreadsheetApp.flush();
+    const priceSync = tcSyncAvitoPrices_(tcReadReadyCatalog_(book));
     const now = new Date(); p.setProperty(TC.props.last, String(now.getTime()));
     p.setProperty(TC.props.status, 'Каталог обновлён: ' + written + ' позиций.');
     return {
@@ -109,14 +112,43 @@ function syncTelegramCatalog_() {
   } finally { lock.releaseLock(); }
 }
 
+/** Reads the ready, marked-up catalogue that the customer sees. */
+function tcReadReadyCatalog_(book) {
+  const ready = { rows: [], available: {} };
+  Object.keys(TC.avito.sheets).forEach(function(category) {
+    const sheet = book.getSheetByName(category);
+    if (!sheet) throw new Error('Нет готового листа «' + category + '» для синхронизации Avito.');
+    const width = sheet.getLastColumn(), headers = sheet.getRange(1, 1, 1, width).getValues()[0];
+    tcValidateSchema_(sheet, headers);
+    const layouts = tcLayouts_(headers);
+    const height = Math.max(sheet.getLastRow() - 1, 0), values = height ? sheet.getRange(2, 1, height, width).getValues() : [];
+    layouts.forEach(function(layout) {
+      values.forEach(function(row) {
+        const price = Number(row[layout.priceColumn] || 0);
+        if (!price) return;
+        if (category === 'телефоны') {
+          const phone = { model:row[layout.model], memory:row[layout.memory], color:row[layout.color], sim:row[layout.sim], ram:row[layout.ram] };
+          if (tcAvitoPhoneKey_(phone)) ready.rows.push({ category:category, phone:phone, price:price });
+        } else {
+          const title = String(row[layout.title] || '').trim();
+          if (title) ready.rows.push({ category:category, name:title, price:price });
+        }
+      });
+    });
+    ready.available[category] = true;
+  });
+  return ready;
+}
+
 /**
  * Updates Price and the Avito lifecycle in every existing listing tab.
  * A missing source SKU is not a similar SKU: its DateEnd is put in the past
  * so Avito archives the old announcement rather than displaying a stale one.
  */
-function tcSyncAvitoPrices_(products) {
-  const book = SpreadsheetApp.openById(TC.avito.spreadsheetId), report = { at: new Date().toISOString(), sourceRows: products.length, sheets: {} };
+function tcSyncAvitoPrices_(ready) {
+  const products = ready.rows, book = SpreadsheetApp.openById(TC.avito.spreadsheetId), report = { at: new Date().toISOString(), sourceRows: products.length, sheets: {} };
   Object.keys(TC.avito.sheets).forEach(function(category) {
+    if (!ready.available[category]) { report.sheets[category] = { skipped:'Нет готового листа-источника' }; return; }
     const target = TC.avito.sheets[category], sheet = book.getSheets().find(function(item) { return item.getSheetId() === target.sheetId; });
     if (!sheet) throw new Error('Не найден лист объявлений Электростали для категории «' + category + '».');
     const width = sheet.getLastColumn(), headers = sheet.getRange(TC.avito.headerRow, 1, 1, width).getValues()[0];
@@ -151,7 +183,7 @@ function tcAvitoPricePlan_(products, layout, rows) {
 function tcAvitoSourceIndex_(products) {
   const prices = {}, relaxedPrices = {}, conflicts = {};
   products.filter(function(product) { return product.category === 'телефоны' && Number(product.price) > 0; }).forEach(function(product) {
-    const phone = tcPhone_(tcDisplay_(product)), key = tcAvitoPhoneKey_(phone); if (!key) return;
+    const phone = product.phone || tcPhone_(tcDisplay_(product)), key = tcAvitoPhoneKey_(phone); if (!key) return;
     const price = Number(product.price), relaxedKey = tcAvitoRelaxedPhoneKey_(phone);
     prices[key] = prices[key] ? Math.min(prices[key], price) : price;
     relaxedPrices[relaxedKey] = relaxedPrices[relaxedKey] ? Math.min(relaxedPrices[relaxedKey], price) : price;

@@ -228,24 +228,28 @@ test('supports a title/price template and reports concise outcome', () => {
 });
 
 test('plans direct Elektrostal Avito price updates for phones and title-based tabs', () => {
-  const phoneLayout = api.tcAvitoLayout_(['Vendor', 'Model', 'MemorySize', 'Color', 'SimConfig', 'RamSize', 'Price']);
-  const phonePlan = api.tcAvitoPricePlan_([{ category: 'телефоны', name: 'iPhone 13 128GB 2 SIM Black', price: 46800 }], phoneLayout, [['Apple', 'iPhone 13', '128 ГБ', 'черный', '2 SIM', '4 ГБ', '']]);
+  const phoneLayout = api.tcAvitoLayout_(['Vendor', 'Model', 'MemorySize', 'Color', 'SimConfig', 'RamSize', 'Price', 'DateEnd']);
+  const phonePlan = api.tcAvitoPricePlan_([{ category: 'телефоны', name: 'iPhone 13 128GB 2 SIM Black', price: 46800 }], phoneLayout, [['Apple', 'iPhone 13', '128 ГБ', 'черный', '2 SIM', '4 ГБ', '', '25.09.2026']]);
   assert.deepEqual(JSON.parse(JSON.stringify(phonePlan.updates)), [{ row: 0, price: 46800 }]);
-  const titleLayout = api.tcAvitoTitleLayout_(['id', 'Title', 'Price']);
-  const titlePlan = api.tcAvitoTitlePricePlan_([{ category: 'дайсон', name: '(Уценка) Dyson HS 09 Amber Silk', price: 53500 }], 'дайсон', titleLayout, [['1', '(Уценка) Dyson HS 09 Amber Silk', 50000]]);
+  const readyPhonePlan = api.tcAvitoPricePlan_([{ category: 'телефоны', phone: { model: 'iPhone 13', memory: '128 ГБ', color: 'черный', sim: '2 SIM', ram: '' }, price: 46800 }], phoneLayout, [['Apple', 'iPhone 13', '128 ГБ', 'черный', '2 SIM', '4 ГБ', '', '25.09.2026']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(readyPhonePlan.updates)), [{ row: 0, price: 46800 }]);
+  const titleLayout = api.tcAvitoTitleLayout_(['id', 'Title', 'Price', 'DateEnd']);
+  const titlePlan = api.tcAvitoTitlePricePlan_([{ category: 'дайсон', name: '(Уценка) Dyson HS 09 Amber Silk', price: 53500 }], 'дайсон', titleLayout, [['1', '(Уценка) Dyson HS 09 Amber Silk', 50000, '25.09.2026']]);
   assert.deepEqual(JSON.parse(JSON.stringify(titlePlan.updates)), [{ row: 0, price: 53500 }]);
-  const ipadPlan = api.tcAvitoTitlePricePlan_([{ category: 'айпады', name: 'iPad Air 13 M3 128 ГБ Wi-Fi Blue', price: 73000 }], 'айпады', titleLayout, [['1', 'iPad Air 13 M3 (2025), 128 ГБ Wi-Fi Blue', 72500]]);
+  const ipadPlan = api.tcAvitoTitlePricePlan_([{ category: 'айпады', name: 'iPad Air 13 M3 128 ГБ Wi-Fi Blue', price: 73000 }], 'айпады', titleLayout, [['1', 'iPad Air 13 M3 (2025), 128 ГБ Wi-Fi Blue', 72500, '25.09.2026']]);
   assert.deepEqual(JSON.parse(JSON.stringify(ipadPlan.updates)), [{ row: 0, price: 73000 }]);
-  const unavailableIpad = api.tcAvitoTitlePricePlan_([], 'айпады', titleLayout, [['1', 'iPad Air 13 M3 (2025), 256 ГБ Wi-Fi Starlight', 60500]]);
+  const unavailableIpad = api.tcAvitoTitlePricePlan_([], 'айпады', titleLayout, [['1', 'iPad Air 13 M3 (2025), 256 ГБ Wi-Fi Starlight', 60500, '25.09.2026']]);
   assert.deepEqual(JSON.parse(JSON.stringify(unavailableIpad.updates)), [{ row: 0, price: '' }]);
+  assert.equal(unavailableIpad.archived, 1);
+  assert.equal(unavailableIpad.dateUpdates.length, 1);
   const lowestPhone = api.tcAvitoPricePlan_([
     { category: 'телефоны', name: 'Galaxy S25 12/256GB Blue SIM + eSIM', price: 57500 },
     { category: 'телефоны', name: 'Galaxy S25 12/256GB Blue SIM + eSIM', price: 56500 }
-  ], phoneLayout, [['Samsung', 'Galaxy S25', '256 ГБ', 'синий', 'SIM + eSIM', '12 ГБ', '']]);
+  ], phoneLayout, [['Samsung', 'Galaxy S25', '256 ГБ', 'синий', 'SIM + eSIM', '12 ГБ', '', '25.09.2026']]);
   assert.deepEqual(JSON.parse(JSON.stringify(lowestPhone.updates)), [{ row: 0, price: 56500 }]);
   const relaxedPhone = api.tcAvitoPricePlan_([
     { category: 'телефоны', name: 'iPhone 15 128GB Black eSIM', price: 65000 },
     { category: 'телефоны', name: 'iPhone 15 128GB Blue 2 SIM', price: 63000 }
-  ], phoneLayout, [['Apple', 'iPhone 15', '128 ГБ', 'белый', 'SIM + eSIM', '6 ГБ', '']]);
+  ], phoneLayout, [['Apple', 'iPhone 15', '128 ГБ', 'белый', 'SIM + eSIM', '6 ГБ', '', '25.09.2026']]);
   assert.deepEqual(JSON.parse(JSON.stringify(relaxedPhone.updates)), [{ row: 0, price: 63000 }]);
 });
