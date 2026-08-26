@@ -1,0 +1,15 @@
+services:
+  appletrade-snapshot:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      # Shared read-only Telegram session from the existing collector.  Do not
+      # create this service until the account is authorized again.
+      - krasnodar-telegram_telegram-session:/data:ro
+    ports:
+      - "127.0.0.1:8091:8091"
+
+volumes:
+  krasnodar-telegram_telegram-session:
+    external: true
