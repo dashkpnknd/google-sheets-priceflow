@@ -252,7 +252,7 @@ test('plans direct Elektrostal Avito price updates for phones and title-based ta
   const readyPhonePlan = api.tcAvitoPricePlan_([{ category: 'телефоны', phone: { model: 'iPhone 13', memory: '128 ГБ', color: 'черный', sim: '2 SIM', ram: '' }, price: 46800 }], phoneLayout, [['Apple', 'iPhone 13', '128 ГБ', 'черный', '2 SIM', '4 ГБ', '', '25.09.2026']]);
   assert.deepEqual(JSON.parse(JSON.stringify(readyPhonePlan.updates)), [{ row: 0, price: 46800 }]);
   const titleLayout = api.tcAvitoTitleLayout_(['id', 'Title', 'Price', 'DateEnd']);
-  const titlePlan = api.tcAvitoTitlePricePlan_([{ category: 'дайсон', name: '(Уценка) Dyson HS 09 Amber Silk', price: 53500 }], 'дайсон', titleLayout, [['1', '(Уценка) Dyson HS 09 Amber Silk', 50000, '25.09.2026']]);
+  const titlePlan = api.tcAvitoTitlePricePlan_([{ category: 'дайсон', name: 'Dyson HS 09 Amber Silk', price: 53500 }], 'дайсон', titleLayout, [['1', 'Dyson HS 09 Amber Silk', 50000, '25.09.2026']]);
   assert.deepEqual(JSON.parse(JSON.stringify(titlePlan.updates)), [{ row: 0, price: 53500 }]);
   const ipadPlan = api.tcAvitoTitlePricePlan_([{ category: 'айпады', name: 'iPad Air 13 M3 128 ГБ Wi-Fi Blue', price: 73000 }], 'айпады', titleLayout, [['1', 'iPad Air 13 M3 (2025), 128 ГБ Wi-Fi Blue', 72500, '25.09.2026']]);
   assert.deepEqual(JSON.parse(JSON.stringify(ipadPlan.updates)), [{ row: 0, price: 73000 }]);
@@ -278,6 +278,15 @@ test('plans direct Elektrostal Avito price updates for phones and title-based ta
     { category: 'телефоны', name: 'iPhone 15 128GB Blue 2 SIM', price: 63000 }
   ], phoneLayout, [['Apple', 'iPhone 15', '128 ГБ', 'белый', 'SIM + eSIM', '6 ГБ', 62000, '25.09.2026']]);
   assert.deepEqual(JSON.parse(JSON.stringify(unavailablePhone.updates)), [{ row: 0, price: '' }]);
+  const onlyServicePhone = api.tcAvitoPricePlan_([
+    { category:'телефоны', name:'iPhone 17 512GB Black SIM + eSIM ASIS', price:89500 }
+  ], phoneLayout, [['Apple', 'iPhone 17', '512 ГБ', 'черный', 'SIM + eSIM', '', 95000, '25.09.2026']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(onlyServicePhone.updates)), [{ row:0, price:'' }]);
+  const regularOverService = api.tcAvitoPricePlan_([
+    { category:'телефоны', name:'iPhone 17 512GB Black SIM + eSIM', price:95000 },
+    { category:'телефоны', name:'iPhone 17 512GB Black SIM + eSIM ASIS', price:89500 }
+  ], phoneLayout, [['Apple', 'iPhone 17', '512 ГБ', 'черный', 'SIM + eSIM', '', 89500, '25.09.2026']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(regularOverService.updates)), [{ row:0, price:95000 }]);
 });
 
 test('does not substitute a declared 2 SIM offer for an eSIM listing', () => {

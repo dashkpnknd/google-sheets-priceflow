@@ -176,15 +176,17 @@ function tcAvitoPricePlan_(products, layout, rows) {
   rows.forEach(function(row, rowIndex) {
     const key = tcAvitoPhoneKey_({ model:row[layout.model], memory:row[layout.memory], color:row[layout.color], sim:row[layout.sim], ram:row[layout.ram] }); if (!key) return;
     const phone = { model:row[layout.model], memory:row[layout.memory], color:row[layout.color], sim:row[layout.sim], ram:row[layout.ram] };
-    const fallback = source.prices[key] ? null : tcAvitoSafePhoneFallback_(source.phones, phone);
-    const price = source.prices[key] || (fallback && fallback.price); if (!price) { missing.push(tcAvitoLabel_(row, layout)); if (row[layout.price] !== '') { updates.push({ row:rowIndex, price:'' }); cleared++; } return; }
+    // Phone rows are no exception: an absent exact model / memory / colour /
+    // SIM / RAM combination must clear Price, never receive a neighbouring
+    // supplier offer.  In particular, no "unknown-field" fallback is allowed.
+    const price = source.prices[key]; if (!price) { missing.push(tcAvitoLabel_(row, layout)); if (row[layout.price] !== '') { updates.push({ row:rowIndex, price:'' }); cleared++; } return; }
     matched++; if (Number(row[layout.price]) !== price) updates.push({ row:rowIndex, price:price });
   });
   return { updates:updates, matched:matched, cleared:cleared, missing:missing, ambiguous:ambiguous };
 }
 function tcAvitoSourceIndex_(products) {
   const prices = {}, conflicts = {}, phones = [];
-  products.filter(function(product) { return product.category === 'телефоны' && Number(product.price) > 0; }).forEach(function(product) {
+  products.filter(function(product) { return product.category === 'телефоны' && tcAvitoEligibleProduct_(product) && Number(product.price) > 0; }).forEach(function(product) {
     const phone = product.phone || tcPhone_(tcDisplay_(product)), key = tcAvitoPhoneKey_(phone); if (!key) return;
     const price = Number(product.price);
     phones.push({ model:phone.model, memory:phone.memory, color:phone.color, sim:phone.config || phone.sim || 'Не знаю', ram:phone.ram, price:price });
@@ -230,7 +232,11 @@ function tcAvitoTitlePricePlan_(products, category, layout, rows) {
   });
   return { updates:updates, matched:matched, cleared:cleared, missing:missing, ambiguous:ambiguous };
 }
-function tcAvitoTitleSourceIndex_(products, category) { const prices = {}, items = []; products.filter(function(product) { return product.category === category && Number(product.price) > 0; }).forEach(function(product) { const title = tcDisplay_(product), key = tcAvitoTitleKey_(title), price = Number(product.price); if (!key) return; items.push({ title:title, price:price }); prices[key] = prices[key] ? Math.min(prices[key], price) : price; }); return { prices:prices, items:items }; }
+function tcAvitoTitleSourceIndex_(products, category) { const prices = {}, items = []; products.filter(function(product) { return product.category === category && tcAvitoEligibleProduct_(product) && Number(product.price) > 0; }).forEach(function(product) { const title = tcDisplay_(product), key = tcAvitoTitleKey_(title), price = Number(product.price); if (!key) return; items.push({ title:title, price:price }); prices[key] = prices[key] ? Math.min(prices[key], price) : price; }); return { prices:prices, items:items }; }
+// Service / discounted stock stays visible in the supplier catalogue, but it
+// is not a price source for ordinary Avito ads.  It must never win because it
+// is cheaper than the current regular SKU.
+function tcAvitoEligibleProduct_(product) { return !/(?:^|\s)\((?:актив|уценка)\)|\b(?:active|asis|cpo)\b/i.test(tcDisplay_(product)); }
 function tcAvitoTitleKey_(value) { let text = String(value || '').replace(/[\u{1F1E6}-\u{1F1FF}]{2}/gu, '').replace(/\b(?:19|20)\d{2}\b(?!\s*(?:гб|gb|тб|tb))/giu, '').replace(/\bapple\b/gi, '').replace(/(\d+(?:[.,]\d+)?)\s*(?:тб|tb)(?=$|[^\p{L}\p{N}])/giu, function(_, amount) { return String(Math.round(Number(String(amount).replace(',', '.')) * 1024)) + ' gb'; }).replace(/(\d+(?:[.,]\d+)?)\s*(?:гб|gb)(?=$|[^\p{L}\p{N}])/giu, '$1 gb').replace(/wi[\s\-\u2010-\u2015]?fi/gi, 'wifi').replace(/space\s+gray/gi, 'spacegray').replace(/space\s+black/gi, 'black').replace(/[()\[\],.;:/|]+/g, ' ').toLocaleLowerCase('ru-RU'); return text.split(/\s+/).filter(Boolean).sort().join('|'); }
 function tcAvitoCheapestTitleFallback_(items, category, targetTitle) { const threshold = { 'айпады':0.70, 'дайсон':0.60, 'часы':0.65, 'макбуки':0.65, 'наушники':0.65, 'пс':0.70 }[category] || 0.75; const candidates = items.map(function(item) { return { title:item.title, price:Number(item.price), score:tcAvitoTitleScore_(category, targetTitle, item.title) }; }).filter(function(item) { return item.score >= threshold && item.price > 0; }); if (!candidates.length) return null; const bestScore = Math.max.apply(null, candidates.map(function(item) { return item.score; })); const best = candidates.filter(function(item) { return item.score === bestScore; }); return { price:Math.min.apply(null, best.map(function(item) { return item.price; })), score:bestScore }; }
 function tcAvitoTitleScore_(category, left, right) { const a = tcAvitoTitleWords_(left), b = tcAvitoTitleWords_(right); if (!a.length || !b.length || tcAvitoFamilyConflict_(category, left, right) || tcAvitoColorConflict_(left, right) || tcAvitoHardwareConflict_(category, a, b)) return 0; const set = {}; a.forEach(function(word) { set[word] = true; }); const shared = b.filter(function(word) { return set[word]; }).length; return shared / Math.max(a.length, b.length); }
