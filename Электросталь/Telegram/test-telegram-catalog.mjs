@@ -113,6 +113,17 @@ test('applies Elektrоstal Apple and Android markup to all eligible categories, 
   assert.equal(priced.withoutRule, 1);
 });
 
+test('removes every iPhone 13 and 14 variant before the Elektrostal catalogue and markup', () => {
+  const priced = api.tcApplyElektrostalMarkup_([
+    { category: 'телефоны', name: 'iPhone 13 mini 128GB Black', price: 40000 },
+    { category: 'телефоны', name: 'iPhone 14 Pro Max 256GB Purple', price: 70000 },
+    { category: 'телефоны', name: 'iPhone 15 128GB Black', price: 60000 }
+  ]);
+  assert.equal(priced.excluded, 2);
+  assert.deepEqual(priced.rows.map((row) => row.name), ['iPhone 15 128GB Black']);
+  assert.equal(priced.rows[0].price, 65000);
+});
+
 test('parses the supplier price-channel bullet format and keeps a country flag', () => {
   const rows = api.tcParsePost_('📱 iPhone\n💼 Цена за объём\n• iPhone 17 Pro 256GB Blue 🇯🇵 — 102.990 ₽', 'astoredirectprice', '6331');
   assert.equal(rows.length, 1);

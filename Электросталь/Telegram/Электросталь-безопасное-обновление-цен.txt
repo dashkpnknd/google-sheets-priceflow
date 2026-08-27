@@ -80,6 +80,11 @@ function syncTelegramCatalog_() {
     const p = PropertiesService.getScriptProperties(), channel = p.getProperty(TC.props.channel);
     if (!channel) throw new Error('Сначала подключите публичный Telegram-канал.');
     const sourceRows = tcFetchRows_(channel);
+    // Remember which source sections were actually received before project
+    // exclusions. This lets an intentionally empty section clear old prices,
+    // while a Telegram/source failure still leaves the existing tab intact.
+    const observedCategories = {};
+    sourceRows.forEach(function(row) { observedCategories[row.category] = true; });
     // Электросталь: сохраняем все позиции поставщика. Выбор самого дешёвого
     // варианта по странам — локальное правило Ульяновска и здесь не применяется.
     const markup = tcApplyElektrostalMarkup_(sourceRows);
@@ -91,7 +96,7 @@ function syncTelegramCatalog_() {
       const entries = byCategory[name] || [], sheet = book.getSheetByName(name);
       // Never clear a customer tab when the channel did not yield this category:
       // a temporary parsing/source failure must not erase a catalogue.
-      if (!entries.length) { skippedSheets.push(name); return; }
+      if (!entries.length && !observedCategories[name]) { skippedSheets.push(name); return; }
       if (!sheet) throw new Error('Нет листа «' + name + '» в стандартной таблице.');
       written += tcWriteSheet_(sheet, entries);
     });
@@ -106,6 +111,7 @@ function syncTelegramCatalog_() {
     return {
       rows: rows.length, written: written,
       cheapest: 0, markedUp: markup.applied, withoutMarkup: markup.withoutRule,
+      excluded: markup.excluded,
       skippedSheets: skippedSheets, priceSync: priceSync
     };
   } finally { lock.releaseLock(); }
@@ -371,24 +377,36 @@ function tcChannel_(value) { const v = String(value || '').trim().replace(/^http
 function tcSummary_(result) {
   const markedUp = Number(result.markedUp || 0);
   const withoutMarkup = Number(result.withoutMarkup || 0);
+  const excluded = Number(result.excluded || 0);
   return 'Каталог получен: ' + result.rows + ' позиций. Записано в листы: ' + result.written +
     '. Наценка Электростали применена к ' + markedUp + ' позициям' +
     (withoutMarkup ? '. Без правила наценки: ' + withoutMarkup : '') +
+    (excluded ? '. Исключены iPhone 13/14: ' + excluded : '') +
     '. Далее обновляется автоматически каждые 15 минут.';
 }
 function tcNorm_(value) { return String(value || '').trim().toLocaleLowerCase('ru-RU'); }
 function tcDisplay_(product) { return [product.name, product.variant].filter(Boolean).join(' ').replace(/[\u{1F1E6}-\u{1F1FF}]{2}/gu, '').replace(/\s+/g, ' ').trim(); }
 
 function tcApplyElektrostalMarkup_(rows) {
-  let applied = 0, withoutRule = 0;
-  const priced = rows.map(function(row) {
+  let applied = 0, withoutRule = 0, excluded = 0;
+  const priced = rows.filter(function(row) {
+    if (!tcExcludedElektrostalSku_(row)) return true;
+    excluded++;
+    return false;
+  }).map(function(row) {
     const amount = tcElektrostalMarkupAmount_(row);
     if (amount === null) { withoutRule++; return Object.assign({}, row); }
     applied++;
     const price = Math.ceil((Number(row.price) + amount) / 500) * 500;
     return Object.assign({}, row, { supplierPrice: row.price, markup: amount, price: price });
   });
-  return { rows: priced, applied: applied, withoutRule: withoutRule };
+  return { rows: priced, applied: applied, withoutRule: withoutRule, excluded: excluded };
+}
+
+/** Project rule: no iPhone 13/14, including Mini/Plus/Pro/Pro Max, anywhere. */
+function tcExcludedElektrostalSku_(row) {
+  if (!row || row.category !== 'телефоны') return false;
+  return /^iphone\s+(?:13|14)(?:\s|$)/i.test(tcDisplay_(row));
 }
 
 function tcElektrostalMarkupAmount_(row) {
