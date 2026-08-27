@@ -733,16 +733,25 @@ function tcMarkupKey_(value) {
 }
 
 function tcFetchRows_(channel) {
-  // The first Telegram preview page is the supplier's current price snapshot.
-  // Older preview pages contain superseded price posts. Merging them made a
-  // disappeared SKU look current and preserved its old selling price.
-  const response = UrlFetchApp.fetch('https://t.me/s/' + channel, { muteHttpExceptions: true });
-  if (response.getResponseCode() !== 200) throw new Error('Telegram вернул HTTP ' + response.getResponseCode());
-  const parsed = tcParsePreview_(response.getContentText(), channel);
-  if (!parsed.rows.length) throw new Error('В актуальном снимке Telegram не найдено ни одной подтверждённой цены. Каталог не изменён.');
+  // Apple, Android and other supplier sections are updated independently.
+  // Keep the newest post for every section instead of treating one page as
+  // the whole catalogue or merging every historical SKU indiscriminately.
+  let url = 'https://t.me/s/' + channel, page = 0; const rows = [], newest = {};
+  while (url && page++ < 12) {
+    const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+    if (response.getResponseCode() !== 200) throw new Error('Telegram вернул HTTP ' + response.getResponseCode());
+    const parsed = tcParsePreview_(response.getContentText(), channel);
+    parsed.rows.forEach(function(row) {
+      rows.push(row);
+      const section = row.section || tcNorm_(row.category);
+      newest[section] = Math.max(Number(newest[section] || 0), Number(row.post || 0));
+    });
+    url = parsed.previous ? 'https://t.me' + parsed.previous : '';
+  }
+  if (!rows.length) throw new Error('В Telegram не найдено ни одной подтверждённой цены. Каталог не изменён.');
   const unique = {};
-  parsed.rows.forEach(function(row) {
-    const key = tcNorm_(row.name).replace(/[^a-zа-я0-9]+/g, ' ') + '|' + tcNorm_(row.variant);
+  rows.filter(function(row) { return Number(row.post || 0) === newest[row.section || tcNorm_(row.category)]; }).forEach(function(row) {
+    const key = (row.section || '') + '|' + tcNorm_(row.name).replace(/[^a-zа-я0-9]+/g, ' ') + '|' + tcNorm_(row.variant);
     if (!unique[key]) unique[key] = row;
   });
   return Object.keys(unique).map(function(key) { return unique[key]; });
@@ -764,10 +773,15 @@ function tcHtml_(value) { return String(value || '').replace(/<br\s*\/?>/gi, '\n
 function tcParsePost_(text, channel, post) {
   const lines = String(text || '').split('\n').map(function(line) { return line.trim(); }).filter(Boolean);
   if (!lines.length || /товары\s+не\s+найдены/i.test(text)) return [];
-  const header = lines[0].replace(/^📦\s*/, '').replace(/\s*\(часть\s*\d+\/\d+\)\s*$/i, '');
+  const rawHeader = lines[0].replace(/^📦\s*/, '');
+  const header = rawHeader.replace(/\s*\(часть\s*\d+\/\d+\)\s*$/i, '');
+  const section = tcNorm_(rawHeader);
   // Supplier sections may be named just "Google" or "Honor". The models in
   // their rows still identify the correct destination sheet.
-  return lines.slice(1).map(function(line) { return tcLine_(header, line, channel, post); })
+  return lines.slice(1).map(function(line) {
+    const row = tcLine_(header, line, channel, post);
+    return row && Object.assign(row, { section: section });
+  })
     .filter(function(row) { return row && TC.sheets.indexOf(row.category) >= 0; });
 }
 
