@@ -179,7 +179,9 @@ function tcAvitoPricePlan_(products, layout, rows) {
 }
 function tcAvitoSourceIndex_(products) {
   const prices = {}, conflicts = {}, phones = [];
-  products.filter(function(product) { return product.category === 'телефоны' && Number(product.price) > 0; }).forEach(function(product) {
+  // ASIS/CPO is retained in the supplier catalogue with an explicit marker,
+  // but must never become the price of an ordinary new-device Avito listing.
+  products.filter(function(product) { return product.category === 'телефоны' && Number(product.price) > 0 && !tcIsAsis_(tcDisplay_(product)); }).forEach(function(product) {
     const phone = tcPhone_(tcDisplay_(product)), key = tcAvitoPhoneKey_(phone);
     // Keep a parsed phone even if the supplier omitted its colour.  It cannot
     // form an exact key, but the safe fallback may still use it when the whole
@@ -431,8 +433,10 @@ function tcRunUlyanovskRegressionTests() {
   equal(tcParseMarkupCsv_('Модель,Наценка\niPhone,\nMacBook,3000').length, 1, 'пустая наценка не равна нулевой');
   const plan = tcAvitoDirectTitlePlan_([{ title:'iPad Mini 7 A17 128 GB Wi-Fi Blue', price:49000 }], 'айпады', { title:0, price:1 }, [['iPad 7 mini (2024), 128 ГБ Wi-Fi Blue', 0], ['iPad Pro 11 M4 2 ТБ Wi-Fi Black', 130000]]);
   equal(plan.matched, 1, 'существующий SKU должен обновиться'); equal(plan.cleared, 1, 'у отсутствующего SKU очищается только цена'); equal(plan.updates[1].price, '', 'у отсутствующего SKU очищается цена');
+  truth(tcIsAsis_('iPhone (ASIS) 16 Pro 128GB'), 'ASIS должен быть распознан');
+  equal(tcOutputPhoneModel_(tcPhone_('iPhone (ASIS) 16 Pro 128GB White'), 'iPhone (ASIS) 16 Pro 128GB White', 'fallback'), '(ASIS) iPhone 16 Pro', 'ASIS должен быть виден в модели');
   if (failures.length) throw new Error('REGRESSION FAIL (Ульяновск): ' + failures.join(' | '));
-  return { passed:14, message:'Ульяновск: 14/14 защитных проверок пройдено.' };
+  return { passed:16, message:'Ульяновск: 16/16 защитных проверок пройдено.' };
 }
 function tcAssertUlyanovskInvariants_() { return tcRunUlyanovskRegressionTests(); }
 
@@ -510,7 +514,7 @@ function tcTargetRow_(headers, layout, product) {
   const at = function(column, value) { if (column >= layout.start && column <= layout.priceColumn) row[column - layout.start] = value; };
   const full = tcDisplay_(product), phone = tcPhone_(full);
   if (layout.title >= 0) at(layout.title, full);
-  if (layout.model >= 0) at(layout.model, phone.model || product.name);
+  if (layout.model >= 0) at(layout.model, tcOutputPhoneModel_(phone, full, product.name));
   if (layout.memory >= 0) at(layout.memory, phone.memory);
   if (layout.ram >= 0) at(layout.ram, phone.ram);
   if (layout.color >= 0) at(layout.color, phone.color);
@@ -579,6 +583,11 @@ function tcSummary_(result) {
 }
 function tcNorm_(value) { return String(value || '').trim().toLocaleLowerCase('ru-RU'); }
 function tcDisplay_(product) { return [product.name, product.variant].filter(Boolean).join(' ').replace(/[\u{1F1E6}-\u{1F1FF}]{2}/gu, '').replace(/\s+/g, ' ').trim(); }
+function tcIsAsis_(value) { return /\(\s*asis(?:[^)]*)\)|\bcpo\b/i.test(String(value || '')); }
+function tcOutputPhoneModel_(phone, full, fallback) {
+  const model = phone.model || fallback;
+  return tcIsAsis_(full) && !/^\(asis\)\s*/i.test(model) ? '(ASIS) ' + model : model;
+}
 
 /**
  * Client-specific publishing rule. Some Avito catalogues need a third
@@ -592,14 +601,14 @@ function tcAddTwoSimMirror_(sourceRows, enabled) {
   const existingTwoSim = {};
   rows.forEach(function(row) {
     const phone = tcPhone_(tcDisplay_(row));
-    if (phone.config === '2 SIM') existingTwoSim[tcTwoSimKey_(phone)] = true;
+    if (phone.config === '2 SIM') existingTwoSim[tcTwoSimKey_(phone, row)] = true;
   });
   const additions = [];
   rows.forEach(function(row) {
     const phone = tcPhone_(tcDisplay_(row));
     if (phone.config !== 'SIM + eSIM') return;
     const replacement = tcReplaceTwoSim_(row);
-    const key = tcTwoSimKey_(tcPhone_(tcDisplay_(replacement)));
+    const key = tcTwoSimKey_(tcPhone_(tcDisplay_(replacement)), replacement);
     if (!key || existingTwoSim[key]) return;
     existingTwoSim[key] = true;
     additions.push(replacement);
@@ -612,8 +621,8 @@ function tcReplaceTwoSim_(row) {
   return Object.assign({}, row, { name: replace(row.name), variant: replace(row.variant), generatedTwoSim: true });
 }
 
-function tcTwoSimKey_(phone) {
-  return [phone.model, phone.memory, phone.ram, phone.color, phone.country]
+function tcTwoSimKey_(phone, row) {
+  return [tcIsAsis_(row && tcDisplay_(row)) ? 'asis' : 'new', phone.model, phone.memory, phone.ram, phone.color, phone.country]
     .map(tcNorm_).join('|').replace(/^\|+|\|+$/g, '');
 }
 
@@ -625,7 +634,7 @@ function tcChooseCheapestCountry_(rows) {
     const phone = tcPhone_(tcDisplay_(row));
     const fallback = tcNorm_(tcDisplay_(row))
       .replace(/[\u{1F1E6}-\u{1F1FF}]/gu, '').replace(/\s+/g, ' ').trim();
-    const key = [row.category, phone.model || fallback, phone.config, phone.memory, phone.ram, phone.color]
+    const key = [row.category, tcIsAsis_(tcDisplay_(row)) ? 'asis' : 'new', phone.model || fallback, phone.config, phone.memory, phone.ram, phone.color]
       .map(tcNorm_).join('|');
     const current = selected[key];
     const currentPhone = current && tcPhone_(tcDisplay_(current));
