@@ -260,6 +260,14 @@ test('plans direct Elektrostal Avito price updates for phones and title-based ta
   assert.deepEqual(JSON.parse(JSON.stringify(unavailableIpad.updates)), [{ row: 0, price: '' }]);
   assert.equal(unavailableIpad.cleared, 1);
   assert.equal(unavailableIpad.dateUpdates, undefined);
+  const onlyDiscountedMacBook = api.tcAvitoTitlePricePlan_([
+    { category:'макбуки', name:'(Уценка) MacBook Neo 13 8/256 Blush', price:65000 }
+  ], 'макбуки', titleLayout, [['1', 'MacBook Neo 13 8/256 Blush', 64000, '25.09.2026']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(onlyDiscountedMacBook.updates)), [{ row:0, price:'' }]);
+  const similarIpad = api.tcAvitoTitlePricePlan_([
+    { category:'айпады', name:'iPad Air 13 M3 256 ГБ Wi-Fi Blue', price:76000 }
+  ], 'айпады', titleLayout, [['1', 'iPad Air 13 M3 128 ГБ Wi-Fi Blue', 75000, '25.09.2026']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(similarIpad.updates)), [{ row:0, price:'' }]);
   const lowestPhone = api.tcAvitoPricePlan_([
     { category: 'телефоны', name: 'Galaxy S25 12/256GB Blue SIM + eSIM', price: 57500 },
     { category: 'телефоны', name: 'Galaxy S25 12/256GB Blue SIM + eSIM', price: 56500 }
