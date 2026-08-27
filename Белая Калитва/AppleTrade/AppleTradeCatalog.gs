@@ -69,15 +69,24 @@ function bkWriteTitlePrice_(sheet, rows) {
 function bkWritePhones_(sheet, rows) {
   const last = Math.max(sheet.getLastRow(), 2); sheet.getRange(2, 1, last - 1, Math.max(sheet.getLastColumn(), 12)).clearContent();
   const apple = [], android = [];
-  rows.forEach(r => (/\biphone\b/i.test(r.title) ? apple : android).push(bkPhoneRow_(r.title, Number(r.price))));
+  rows.forEach(r => {
+    const parsed = bkPhone_(r.title);
+    // SIM is a material iPhone attribute for every downstream channel.  The
+    // source can contain old menu rows without a SIM label; do not invent
+    // "Не знаю" and make such an offer look like either eSIM or SIM+eSIM.
+    // It remains absent until Top re:sale confirms the exact SIM version.
+    if (parsed.apple && parsed.sim === 'Не знаю') return;
+    (parsed.apple ? apple : android).push(bkPhoneValues_(parsed, Number(r.price)));
+  });
   if (apple.length) sheet.getRange(2, 1, apple.length, 5).setValues(apple);
   if (android.length) sheet.getRange(2, 7, android.length, 6).setValues(android);
 }
 
 function bkPhoneRow_(title, price) {
   const parsed = bkPhone_(title);
-  return parsed.apple ? [parsed.model, parsed.sim, parsed.memory, parsed.color, price] : [parsed.model, parsed.sim, parsed.memory, parsed.color, parsed.ram, price];
+  return bkPhoneValues_(parsed, price);
 }
+function bkPhoneValues_(parsed, price) { return parsed.apple ? [parsed.model, parsed.sim, parsed.memory, parsed.color, price] : [parsed.model, parsed.sim, parsed.memory, parsed.color, parsed.ram, price]; }
 
 /**
  * Supplier-catalog parser only. It preserves a status such as `(Asis+)` or
