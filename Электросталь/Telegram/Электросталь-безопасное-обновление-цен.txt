@@ -425,15 +425,37 @@ function tcElektrostalMarkupAmount_(row) {
 }
 
 function tcFetchRows_(channel) {
-  let url = 'https://t.me/s/' + channel, page = 0; const latest = {};
+  // Supplier sections are updated independently.  Walking the history is
+  // necessary because a current catalogue is split across several posts, but
+  // merging every historical SKU resurrected products that had disappeared
+  // from a newer version of the same section.
+  let url = 'https://t.me/s/' + channel, page = 0; const rows = [];
   while (url && page++ < 12) {
     const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
     if (response.getResponseCode() !== 200) throw new Error('Telegram вернул HTTP ' + response.getResponseCode());
     const parsed = tcParsePreview_(response.getContentText(), channel);
-    parsed.rows.forEach(function(row) { const key = tcNorm_(row.name).replace(/[^a-zа-я0-9]+/g, ' ') + '|' + tcNorm_(row.variant); if (!latest[key]) latest[key] = row; });
+    rows.push.apply(rows, parsed.rows);
     url = parsed.previous ? 'https://t.me' + parsed.previous : '';
   }
-  return Object.keys(latest).map(function(key) { return latest[key]; });
+  if (!rows.length) throw new Error('В Telegram не найдено ни одной подтверждённой цены. Каталог не изменён.');
+  return tcKeepLatestSections_(rows);
+}
+
+/** Keeps the last complete message for each supplier price section. */
+function tcKeepLatestSections_(rows) {
+  const newest = {}, unique = {};
+  rows.forEach(function(row) {
+    const section = row.section || tcNorm_(row.category);
+    newest[section] = Math.max(Number(newest[section] || 0), Number(row.post || 0));
+  });
+  rows.filter(function(row) {
+    const section = row.section || tcNorm_(row.category);
+    return Number(row.post || 0) === newest[section];
+  }).forEach(function(row) {
+    const key = (row.section || tcNorm_(row.category)) + '|' + tcNorm_(row.name).replace(/[^a-zа-я0-9]+/g, ' ') + '|' + tcNorm_(row.variant);
+    if (!unique[key]) unique[key] = row;
+  });
+  return Object.keys(unique).map(function(key) { return unique[key]; });
 }
 
 function tcParsePreview_(html, channel) {
@@ -457,16 +479,21 @@ function tcParsePost_(text, channel, post) {
   // parsed separately from the older one-line "name — price" template.
   // Электросталь использует основную стоимость за одну единицу.
   if (/цена\s+за\s+объём/i.test(text) && lines.some(function(line) { return /^1\s*шт\s+/i.test(line); })) return tcParseVolumePost_(lines, channel, post);
-  const header = lines[0].replace(/^📦\s*/, '').replace(/\s*\(часть\s*\d+\/\d+\)\s*$/i, '');
+  const rawHeader = lines[0].replace(/^📦\s*/, '');
+  const header = rawHeader.replace(/\s*\(часть\s*\d+\/\d+\)\s*$/i, '');
+  const section = tcNorm_(rawHeader);
   // Supplier sections may be named just "Google" or "Honor". The models in
   // their rows still identify the correct destination sheet.
-  return lines.slice(1).map(function(line) { return tcLine_(header, line, channel, post); })
+  return lines.slice(1).map(function(line) {
+    const row = tcLine_(header, line, channel, post);
+    return row && Object.assign(row, { section: section });
+  })
     .filter(function(row) { return row && TC.sheets.indexOf(row.category) >= 0; });
 }
 
 function tcParseVolumePost_(lines, channel, post) {
   const rows = [], header = String(lines[0] || '').replace(/^[^\p{L}\d]*/u, '').trim();
-  let previous = '', brand = '';
+  let previous = '', brand = '', section = tcNorm_(header);
   lines.forEach(function(raw) {
     const line = String(raw).replace(/^[\[\]•·▪◦.\s]+/, '').replace(/\s+/g, ' ').trim();
     if (!line || /^(?:цена\s+за\s+объём|\d+\s*шт\s*[—-]\s*основная|нашли\s+дешевле|актуальные\s+позиции)/i.test(line)) return;
@@ -474,23 +501,23 @@ function tcParseVolumePost_(lines, channel, post) {
     if (price) {
       const name = tcVolumeName_(brand, previous);
       const amount = Number(price[1].replace(/[.\s]/g, ''));
-      if (name && amount > 0) rows.push({ category: tcCategory_(name), name: name, variant: '', price: amount, post: post, url: 'https://t.me/' + channel + '/' + post });
+      if (name && amount > 0) rows.push({ category: tcCategory_(name), name: name, variant: '', price: amount, post: post, section: section, url: 'https://t.me/' + channel + '/' + post });
       return;
     }
     previous = line;
     // A title with an explicit Apple brand is a context only; the following
     // configuration line is the actual SKU.
-    if (/^Apple\s*[·.]\s*iPhone\s+\d/i.test(line)) { brand = 'iPhone'; previous = ''; }
-    else if (/^Apple\s*[·.]\s*iPad\b/i.test(line)) { brand = 'iPad'; previous = ''; }
-    else if (/^Apple\s*[·.]\s*MacBook\b/i.test(line)) { brand = 'MacBook'; previous = ''; }
-    else if (/^Apple\s*[·.]\s*Apple\s+Watch\b/i.test(line)) { brand = 'Apple Watch'; previous = ''; }
-    else if (/^iPhone\s+\d/i.test(line)) brand = 'iPhone';
-    else if (/^iPad\b/i.test(line)) brand = 'iPad';
-    else if (/^MacBook\b/i.test(line)) brand = 'MacBook';
-    else if (/^Apple\s+Watch\b/i.test(line)) brand = 'Apple Watch';
+    if (/^Apple\s*[·.]\s*iPhone\s+\d/i.test(line)) { brand = 'iPhone'; section = tcNorm_(line); previous = ''; }
+    else if (/^Apple\s*[·.]\s*iPad\b/i.test(line)) { brand = 'iPad'; section = tcNorm_(line); previous = ''; }
+    else if (/^Apple\s*[·.]\s*MacBook\b/i.test(line)) { brand = 'MacBook'; section = tcNorm_(line); previous = ''; }
+    else if (/^Apple\s*[·.]\s*Apple\s+Watch\b/i.test(line)) { brand = 'Apple Watch'; section = tcNorm_(line); previous = ''; }
+    else if (/^iPhone\s+\d/i.test(line)) { brand = 'iPhone'; section = tcNorm_(line); }
+    else if (/^iPad\b/i.test(line)) { brand = 'iPad'; section = tcNorm_(line); }
+    else if (/^MacBook\b/i.test(line)) { brand = 'MacBook'; section = tcNorm_(line); }
+    else if (/^Apple\s+Watch\b/i.test(line)) { brand = 'Apple Watch'; section = tcNorm_(line); }
     // A new non-Apple product begins a new context. Without this reset a
     // later Dyson/Garmin line in one Telegram post inherited "MacBook".
-    else if (/^(?:Dyson|Garmin|PlayStation|PS[345]\b|Xbox|Samsung|Galaxy|Pixel|Xiaomi|Redmi|Honor|Huawei|OnePlus|Realme|Oppo|Vivo)\b/i.test(line)) brand = '';
+    else if (/^(?:Dyson|Garmin|PlayStation|PS[345]\b|Xbox|Samsung|Galaxy|Pixel|Xiaomi|Redmi|Honor|Huawei|OnePlus|Realme|Oppo|Vivo)\b/i.test(line)) { brand = ''; section = tcNorm_(line); }
   });
   return rows.filter(function(row) { return TC.sheets.indexOf(row.category) >= 0; });
 }
