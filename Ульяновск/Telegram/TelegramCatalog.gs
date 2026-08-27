@@ -733,15 +733,19 @@ function tcMarkupKey_(value) {
 }
 
 function tcFetchRows_(channel) {
-  let url = 'https://t.me/s/' + channel, page = 0; const latest = {};
-  while (url && page++ < 12) {
-    const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
-    if (response.getResponseCode() !== 200) throw new Error('Telegram вернул HTTP ' + response.getResponseCode());
-    const parsed = tcParsePreview_(response.getContentText(), channel);
-    parsed.rows.forEach(function(row) { const key = tcNorm_(row.name).replace(/[^a-zа-я0-9]+/g, ' ') + '|' + tcNorm_(row.variant); if (!latest[key]) latest[key] = row; });
-    url = parsed.previous ? 'https://t.me' + parsed.previous : '';
-  }
-  return Object.keys(latest).map(function(key) { return latest[key]; });
+  // The first Telegram preview page is the supplier's current price snapshot.
+  // Older preview pages contain superseded price posts. Merging them made a
+  // disappeared SKU look current and preserved its old selling price.
+  const response = UrlFetchApp.fetch('https://t.me/s/' + channel, { muteHttpExceptions: true });
+  if (response.getResponseCode() !== 200) throw new Error('Telegram вернул HTTP ' + response.getResponseCode());
+  const parsed = tcParsePreview_(response.getContentText(), channel);
+  if (!parsed.rows.length) throw new Error('В актуальном снимке Telegram не найдено ни одной подтверждённой цены. Каталог не изменён.');
+  const unique = {};
+  parsed.rows.forEach(function(row) {
+    const key = tcNorm_(row.name).replace(/[^a-zа-я0-9]+/g, ' ') + '|' + tcNorm_(row.variant);
+    if (!unique[key]) unique[key] = row;
+  });
+  return Object.keys(unique).map(function(key) { return unique[key]; });
 }
 
 function tcParsePreview_(html, channel) {
