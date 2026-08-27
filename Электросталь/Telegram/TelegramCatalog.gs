@@ -174,7 +174,11 @@ function tcAvitoLayout_(headers) {
 function tcAvitoPricePlan_(products, layout, rows) {
   const source = tcAvitoSourceIndex_(products), updates = [], missing = [], ambiguous = []; let matched = 0, cleared = 0;
   rows.forEach(function(row, rowIndex) {
-    const key = tcAvitoPhoneKey_({ model:row[layout.model], memory:row[layout.memory], color:row[layout.color], sim:row[layout.sim], ram:row[layout.ram] }); if (!key) return;
+    const key = tcAvitoPhoneKey_({ model:row[layout.model], memory:row[layout.memory], color:row[layout.color], sim:row[layout.sim], ram:row[layout.ram] });
+    // An incomplete existing phone listing is not an exact SKU and must not
+    // keep a price.  Previously it was silently skipped, leaving stale Price
+    // on rows such as Galaxy S26 Ultra without MemorySize/RamSize.
+    if (!key) { missing.push(tcAvitoLabel_(row, layout) + ' (неполный SKU)'); if (row[layout.price] !== '') { updates.push({ row:rowIndex, price:'' }); cleared++; } return; }
     const phone = { model:row[layout.model], memory:row[layout.memory], color:row[layout.color], sim:row[layout.sim], ram:row[layout.ram] };
     // Phone rows are no exception: an absent exact model / memory / colour /
     // SIM / RAM combination must clear Price, never receive a neighbouring
