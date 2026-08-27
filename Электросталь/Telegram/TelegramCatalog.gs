@@ -436,22 +436,23 @@ function tcElektrostalMarkupAmount_(row) {
 }
 
 function tcFetchRows_(channel) {
-  // This channel keeps its live catalogue in long-lived, edited posts.  The
-  // pinned "Навигация по прайсу" is the source of truth for that complete
-  // catalogue; a limited walk through chronological history is not.
-  const landing = UrlFetchApp.fetch('https://t.me/s/' + channel, { muteHttpExceptions: true });
-  if (landing.getResponseCode() !== 200) throw new Error('Telegram вернул HTTP ' + landing.getResponseCode());
-  const postIds = tcNavigationPostIds_(landing.getContentText(), channel);
-  if (!postIds.length) throw new Error('В закреплённой навигации Telegram не найдены ссылки на прайс. Каталог не изменён.');
-  const responses = UrlFetchApp.fetchAll(postIds.map(function(id) {
-    return { url:'https://t.me/s/' + channel + '/' + id, muteHttpExceptions:true };
-  }));
+  // Электросталь: источник — весь публичный Telegram-канал, а не закреплённая
+  // навигация и не ограниченная история.  Обходим все страницы `?before=` до
+  // самого первого сообщения; запись начинается только после полного обхода.
   const rows = [];
-  responses.forEach(function(response, index) {
-    if (response.getResponseCode() !== 200) throw new Error('Telegram не открыл прайс-сообщение ' + postIds[index] + ': HTTP ' + response.getResponseCode());
-    rows.push.apply(rows, tcParseDirectPost_(response.getContentText(), channel, postIds[index]));
-  });
-  if (!rows.length) throw new Error('В актуальной навигации Telegram не найдено ни одной подтверждённой цены. Каталог не изменён.');
+  const seenPages = {}, seenPosts = {};
+  let url = 'https://t.me/s/' + channel;
+  while (url) {
+    if (seenPages[url]) throw new Error('Telegram вернул повторяющуюся страницу истории; каталог не изменён.');
+    seenPages[url] = true;
+    const response = UrlFetchApp.fetch(url, { muteHttpExceptions:true });
+    if (response.getResponseCode() !== 200) throw new Error('Telegram не открыл историю канала: HTTP ' + response.getResponseCode());
+    const page = tcParsePreview_(response.getContentText(), channel), byPost = {};
+    page.rows.forEach(function(row) { (byPost[String(row.post)] = byPost[String(row.post)] || []).push(row); });
+    Object.keys(byPost).forEach(function(post) { if (!seenPosts[post]) { seenPosts[post] = true; rows.push.apply(rows, byPost[post]); } });
+    url = page.previous ? 'https://t.me' + page.previous : '';
+  }
+  if (!rows.length) throw new Error('Во всём канале Telegram не найдено ни одной подтверждённой цены. Каталог не изменён.');
   return rows;
 }
 

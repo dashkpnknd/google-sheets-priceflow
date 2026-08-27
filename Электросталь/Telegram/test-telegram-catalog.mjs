@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const source = fs.readFileSync(new URL('./TelegramCatalog.gs', import.meta.url), 'utf8') + `
-globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcColor_,tcLayouts_,tcLayoutFor_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcApplyElektrostalMarkup_,tcElektrostalMarkupAmount_,tcExpand_,tcAvitoLayout_,tcAvitoPricePlan_,tcAvitoTitleLayout_,tcAvitoTitlePricePlan_,tcAvitoSafePhoneFallback_,tcNavigationPostIds_};`;
+globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcColor_,tcLayouts_,tcLayoutFor_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcApplyElektrostalMarkup_,tcElektrostalMarkupAmount_,tcExpand_,tcAvitoLayout_,tcAvitoPricePlan_,tcAvitoTitleLayout_,tcAvitoTitlePricePlan_,tcAvitoSafePhoneFallback_,tcNavigationPostIds_,tcParsePreview_};`;
 const parseCsv = (value) => String(value).trim().split(/\r?\n/).map((line) => {
   const cells = []; let current = ''; let quoted = false;
   for (let index = 0; index < line.length; index++) {
@@ -144,6 +144,15 @@ test('uses every permanent price message from the current Telegram navigation', 
     '<a href="https://t.me/astoredirectprice/8765">iPhone</a><a href="https://t.me/astoredirectprice/8783">Galaxy S</a>' +
     '<a href="https://t.me/astoredirectprice/8765">duplicate</a></div>';
   assert.deepEqual([...api.tcNavigationPostIds_(html, 'astoredirectprice')], [8765, 8783]);
+});
+
+test('parses a history page and exposes the previous page cursor for full-channel reading', () => {
+  const html = '<div class="tgme_widget_message_wrap"><div data-post="astoredirectprice/10"></div><div class="tgme_widget_message_text">iPhone 16\n128GB Black — 61 100 ₽</div></div>' +
+    '<a href="/s/astoredirectprice?before=9" class="tme_messages_more">more</a>';
+  const page = api.tcParsePreview_(html, 'astoredirectprice');
+  assert.equal(page.rows.length, 1);
+  assert.equal(page.rows[0].name, 'iPhone 16 128GB Black');
+  assert.equal(page.previous, '/s/astoredirectprice?before=9');
 });
 
 test('does not carry a MacBook heading over to Dyson or Garmin lines in one Telegram post', () => {
