@@ -6,7 +6,13 @@ const BK = {
   tabs: ['телефоны', 'аксессуары', 'макбуки', 'аймак', 'айпады', 'камеры', 'часы', 'наушники', 'пс', 'дайсон'],
 };
 
-function onOpen() { SpreadsheetApp.getUi().createMenu('AppleTrade').addItem('Открыть каталог', 'bkShowSidebar').addItem('Пересобрать каталог', 'bkRefreshCatalog').addToUi(); }
+function onOpen() {
+  SpreadsheetApp.getUi().createMenu('AppleTrade')
+    .addItem('Открыть каталог', 'bkShowSidebar')
+    .addItem('Пересобрать каталог', 'bkRefreshCatalog')
+    .addItem('Включить автообновление 15 мин', 'bkInstallAndRefresh')
+    .addToUi();
+}
 function bkShowSidebar() { SpreadsheetApp.getUi().showSidebar(HtmlService.createHtmlOutputFromFile('AppleTradeCatalogSidebar').setTitle('Каталог AppleTrade')); }
 
 function bkRefreshCatalog() {
@@ -19,10 +25,40 @@ function bkRefreshCatalog() {
   const book = SpreadsheetApp.getActive();
   BK.tabs.forEach(name => {
     const sheet = book.getSheetByName(name); if (!sheet) throw new Error('Нет обязательной вкладки: ' + name);
+    bkValidateSheet_(sheet, name);
     const rows = payload.categories[name] || [];
     if (name === 'телефоны') bkWritePhones_(sheet, rows); else bkWriteTitlePrice_(sheet, rows);
   });
+  PropertiesService.getScriptProperties().setProperty('BK_LAST_REFRESH', JSON.stringify({
+    at: new Date().toISOString(), catalogRefreshedAt: payload.refreshedAt,
+    total: Number(payload.total || 0), sources: payload.sources || []
+  }));
   book.toast('Загружено позиций: ' + payload.total + '. Источники: ' + payload.sources.join(', '), 'AppleTrade', 8);
+  return { total: Number(payload.total || 0), sources: payload.sources || [], catalogRefreshedAt: payload.refreshedAt };
+}
+
+function bkGetSetup() {
+  const p = PropertiesService.getScriptProperties();
+  const hasTrigger = ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'bkRefreshCatalog');
+  let last = null;
+  try { last = JSON.parse(p.getProperty('BK_LAST_REFRESH') || 'null'); } catch (error) { last = null; }
+  return { hasTrigger: hasTrigger, last: last };
+}
+
+function bkInstallAndRefresh() {
+  bkInstallTrigger();
+  return bkRefreshCatalog();
+}
+
+function bkValidateSheet_(sheet, name) {
+  const headers = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), name === 'телефоны' ? 12 : 2)).getValues()[0]
+    .map(value => String(value || '').trim().toLowerCase().replace(/\s+/g, ''));
+  const expected = name === 'телефоны'
+    ? ['model', 'simconfig', 'memorysize', 'color', 'price', '', 'model', 'simconfig', 'memorysize', 'color', 'ramsize', 'price']
+    : ['title', 'price'];
+  if (expected.some((value, index) => headers[index] !== value)) {
+    throw new Error('Неверная шапка вкладки «' + name + '». Каталог не очищен.');
+  }
 }
 
 function bkWriteTitlePrice_(sheet, rows) {
