@@ -767,17 +767,36 @@ function tcLine_(header, line, channel, post) {
   return name && price > 0 ? { category: tcCategory_(header + ' ' + name), name: name, variant: variant, price: price, post: post, url: 'https://t.me/' + channel + '/' + post } : null;
 }
 
-function tcExpand_(header, item) { const h = String(header).replace(/\\/g, ' ').trim(), i = String(item); if (/^iphone\s/i.test(h) && !/^iphone\s/i.test(i)) return h + ' ' + i; if (/^macbook\b/i.test(h) && !/^macbook\b/i.test(i)) return h + ' ' + i; if (/^dyson\b/i.test(h) && !/^dyson\b/i.test(i)) return h + ' ' + i; if (/^airpods\b/i.test(h) && !/^airpods\b/i.test(i)) return h + ' ' + i; if (/^imac\b/i.test(h) && !/^imac\b/i.test(i)) return h + ' ' + i; if (/^watch\b/i.test(h) && /^watch\b/i.test(i)) return 'Apple ' + i; return i; }
+function tcExpand_(header, item) {
+  const h = String(header).replace(/\\/g, ' ').replace(/\s+/g, ' ').trim(), i = String(item).trim();
+  // In Uniseil posts a section can already contain the model ("iPhone 16 Pro")
+  // while each line starts with it again ("16 Pro 128GB …").  Keep one model
+  // name only; duplicated text previously made diagnostics and exact matching
+  // needlessly fragile.
+  const iphone = /^iphone\s+(.+)$/i.exec(h);
+  if (iphone && !/^iphone\s/i.test(i)) {
+    const tail = iphone[1].trim();
+    const escaped = tail.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const repeated = new RegExp('^' + escaped + '(?:\\s+|$)', 'i');
+    return 'iPhone ' + tail + (repeated.test(i) ? ' ' + i.replace(repeated, '').trim() : ' ' + i);
+  }
+  if (/^macbook\b/i.test(h) && !/^macbook\b/i.test(i)) return h + ' ' + i;
+  if (/^dyson\b/i.test(h) && !/^dyson\b/i.test(i)) return h + ' ' + i;
+  if (/^airpods\b/i.test(h) && !/^airpods\b/i.test(i)) return h + ' ' + i;
+  if (/^imac\b/i.test(h) && !/^imac\b/i.test(i)) return h + ' ' + i;
+  if (/^watch\b/i.test(h) && /^watch\b/i.test(i)) return 'Apple ' + i;
+  return i;
+}
 function tcCategory_(value) { const v = tcNorm_(value); if (/iphone|galaxy|pixel|xiaomi|samsung|honor|huawei|oneplus|realme/.test(v)) return 'телефоны'; if (/macbook/.test(v)) return 'макбуки'; if (/ipad/.test(v)) return 'айпады'; if (/watch/.test(v)) return 'часы'; if (/airpods|наушники|колонки/.test(v)) return 'наушники'; if (/playstation|\bps[345]\b|xbox/.test(v)) return 'пс'; if (/dyson/.test(v)) return 'дайсон'; if (/imac/.test(v)) return 'аймаки'; return 'прочее'; }
 function tcPhone_(value) {
   const text = String(value || ''), specs = /(\d{1,2})\s*\/\s*(\d{2,4})\s*(гб|gb|тб|tb)/i.exec(text);
   const memory = specs ? null : /(?:^|\s)(\d{1,4})\s?(гб|gb|тб|tb)(?=\s|$)/i.exec(text);
   const unit = function(amount, suffix) { return amount + ' ' + suffix.toUpperCase().replace('GB', 'ГБ').replace('TB', 'ТБ'); };
-  const sim = /\b2\s*(?:sim|сим)\b/i.test(text) ? '2 SIM' : /sim\s*\+\s*e\s*-?sim/i.test(text) ? 'SIM + eSIM' : /e\s*-?sim/i.test(text) ? 'eSIM' : /\bsim\b/i.test(text) ? 'SIM' : '';
+  const sim = /\b(?:2\s*(?:sim|сим)|dual\s*-?\s*sim)\b/i.test(text) ? '2 SIM' : /sim\s*\+\s*e\s*-?sim/i.test(text) ? 'SIM + eSIM' : /e\s*-?sim/i.test(text) ? 'eSIM' : /\bsim\b/i.test(text) ? 'SIM' : '';
   return { model: tcModel_(text), memory: specs ? unit(specs[2], specs[3]) : memory ? unit(memory[1], memory[2]) : '', ram: specs ? unit(specs[1], 'GB') : '', color: tcColor_(text), config: sim, country: tcCountry_(text) };
 }
 function tcModel_(value) { const text = String(value || '').replace(/\(\s*asis\s*\)/gi, ' ').replace(/\s+/g, ' ').trim(); const iphone = /\biphone\s+(\d+(?:e)?(?:\s+(?:air|pro\s*max|pro|plus|mini))?)/i.exec(text); if (iphone) return 'iPhone ' + iphone[1].replace(/\s+/g, ' ').trim(); const other = /\b(galaxy\s+(?:s|a|z|m)\d+(?:\+|\s+(?:ultra|fe|plus))?|pixel\s+\d+(?:[a-z])?(?:\s+(?:pro|xl))?|honor\s+[\w-]+(?:\s+(?:pro|lite|x\d+d?))?)/i.exec(text); return other ? other[1].replace(/\s+/g, ' ').trim() : ''; }
-function tcCountry_(value) { const flag = /(🇺🇸|🇯🇵|🇭🇰|🇰🇷|🇮🇳|🇨🇦|🇸🇬|🇦🇪|🇷🇺|🇨🇳)/u.exec(String(value || '')); const names = {'🇺🇸':'США','🇯🇵':'Япония','🇭🇰':'Гонконг','🇰🇷':'Корея','🇮🇳':'Индия','🇨🇦':'Канада','🇸🇬':'Сингапур','🇦🇪':'ОАЭ','🇷🇺':'Россия','🇨🇳':'Китай'}; return flag ? names[flag[1]] + ' ' + flag[1] : ''; }
+function tcCountry_(value) { const flag = /(🇺🇸|🇯🇵|🇭🇰|🇰🇷|🇮🇳|🇨🇦|🇸🇬|🇦🇪|🇷🇺|🇨🇳|🇪🇺|🇦🇺|🇰🇼|🇮🇩|🇧🇷)/u.exec(String(value || '')); const names = {'🇺🇸':'США','🇯🇵':'Япония','🇭🇰':'Гонконг','🇰🇷':'Корея','🇮🇳':'Индия','🇨🇦':'Канада','🇸🇬':'Сингапур','🇦🇪':'ОАЭ','🇷🇺':'Россия','🇨🇳':'Китай','🇪🇺':'Европа','🇦🇺':'Австралия','🇰🇼':'Кувейт','🇮🇩':'Индонезия','🇧🇷':'Бразилия'}; return flag ? names[flag[1]] + ' ' + flag[1] : ''; }
 // Цвет из Telegram может стоять в любом месте строки и быть отделён скобками,
 // тире или флагом страны. Это не подставляет цвет, которого нет у поставщика.
 function tcColorKey_(value) { return tcNorm_(value).replace(/ё/g, 'е').replace(/[^a-zа-я0-9]+/gi, ' ').replace(/\s+/g, ' ').trim(); }

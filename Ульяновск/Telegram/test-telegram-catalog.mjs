@@ -61,6 +61,15 @@ test('reads a supplier price and splits SIM and country into separate fields', (
   assert.equal(phone.country, 'Индия 🇮🇳');
 });
 
+test('does not duplicate a model supplied both by the section title and its row', () => {
+  const row = api.tcLine_('iPhone 16 Pro', '16 Pro 128GB White 🇨🇳 (Dual-Sim) - 78 900 ₽', 'opt_uniseil', '7291');
+  assert.equal(row.name, 'iPhone 16 Pro 128GB White');
+  const phone = api.tcPhone_(row.name + ' ' + row.variant);
+  assert.equal(phone.model, 'iPhone 16 Pro');
+  assert.equal(phone.config, '2 SIM');
+  assert.equal(phone.country, 'Китай 🇨🇳');
+});
+
 test('recognises colours in any part of a Telegram item without inventing a missing one', () => {
   assert.equal(api.tcColor_('iPhone 17 Pro — чёрный 256GB 🇯🇵'), 'черный');
   assert.equal(api.tcColor_('iPhone 16 Pro (Desert Titanium), eSIM'), 'золотистый');
