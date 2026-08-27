@@ -9,7 +9,7 @@ const BK = {
 function onOpen() {
   SpreadsheetApp.getUi().createMenu('AppleTrade')
     .addItem('Открыть каталог', 'bkShowSidebar')
-    .addItem('Пересобрать каталог', 'bkRefreshCatalog')
+    .addItem('Пересобрать каталог', 'bkInstallAndRefresh')
     .addItem('Включить автообновление 15 мин', 'bkInstallAndRefresh')
     .addToUi();
 }
