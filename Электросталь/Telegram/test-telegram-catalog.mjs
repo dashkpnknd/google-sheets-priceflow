@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const source = fs.readFileSync(new URL('./TelegramCatalog.gs', import.meta.url), 'utf8') + `
-globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcColor_,tcLayouts_,tcLayoutFor_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcApplyElektrostalMarkup_,tcElektrostalMarkupAmount_,tcExpand_,tcAvitoLayout_,tcAvitoPricePlan_,tcAvitoTitleLayout_,tcAvitoTitlePricePlan_,tcAvitoSafePhoneFallback_,tcNavigationPostIds_};`;
+globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcColor_,tcLayouts_,tcLayoutFor_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcApplyElektrostalMarkup_,tcElektrostalMarkupAmount_,tcExpand_,tcAvitoLayout_,tcAvitoPricePlan_,tcAvitoTitleLayout_,tcAvitoTitlePricePlan_,tcAvitoSafePhoneFallback_,tcNavigationPostIds_,tcNormalSupplierProduct_};`;
 const parseCsv = (value) => String(value).trim().split(/\r?\n/).map((line) => {
   const cells = []; let current = ''; let quoted = false;
   for (let index = 0; index < line.length; index++) {
@@ -294,4 +294,17 @@ test('does not substitute a declared 2 SIM offer for an eSIM listing', () => {
   assert.equal(api.tcAvitoSafePhoneFallback_([
     { model:'iPhone 16 Pro', memory:'128 ГБ', color:'белый', sim:'2 SIM', ram:'', price:81900 }
   ], { model:'iPhone 16 Pro', memory:'128 ГБ', color:'белый', sim:'eSIM', ram:'' }), null);
+});
+
+test('removes service stock before standard phone fields discard its status', () => {
+  const rows = [
+    { category:'телефоны', name:'iPhone 17 512GB Black eSIM', price:92000 },
+    { category:'телефоны', name:'iPhone 17 512GB Black eSIM ASIS', price:86500 },
+    { category:'телефоны', name:'(Актив) iPhone 17 Air 1TB White eSIM', price:89500 },
+    { category:'макбуки', name:'(Уценка) MacBook Neo 13 8/256 Blush', price:65000 },
+    { category:'телефоны', name:'Galaxy A56 8/256GB Black', price:32000 }
+  ];
+  assert.deepEqual([...rows.filter(api.tcNormalSupplierProduct_).map((row) => row.name)], [
+    'iPhone 17 512GB Black eSIM', 'Galaxy A56 8/256GB Black'
+  ]);
 });
