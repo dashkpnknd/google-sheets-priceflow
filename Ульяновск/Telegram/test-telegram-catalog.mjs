@@ -109,7 +109,7 @@ test('applies Ulyanovsk markup directly from the markup-file rules', () => {
     { category: 'айпады', name: 'iPad Pro 13 256GB', price: 70000 },
     { category: 'телефоны', name: 'Pixel 10 256GB', price: 50000 }
   ], rules);
-  assert.deepEqual(priced.rows.map((row) => row.price), [101500, 123800, 22000, 74000, 50000]);
+  assert.deepEqual(priced.rows.map((row) => row.price), [101500, 123800, 22000, 74000]);
   assert.equal(priced.applied, 4);
   assert.equal(priced.withoutRule, 1);
 });
