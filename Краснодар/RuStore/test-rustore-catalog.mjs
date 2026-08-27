@@ -111,6 +111,15 @@ test('plans direct Krasnodar Avito price updates without changing product fields
   assert.equal(plan.matched, 2);
   assert.deepEqual(Array.from(plan.missing), []);
 });
+test('clears a stale Avito price when its current phone SKU is absent', () => {
+  const layout = api.rusAvitoLayout_(['Vendor', 'Model', 'MemorySize', 'Color', 'SimConfig', 'RamSize', 'Price']);
+  const plan = api.rusAvitoPricePlan_([
+    { category:'телефоны', name:'iPhone 16 Pro 128GB White 2 SIM', price:81900 }
+  ], layout, [['Apple', 'iPhone 16 Pro', '128 ГБ', 'белый', 'eSIM', '', 74600]]);
+  assert.equal(JSON.stringify(plan.updates), JSON.stringify([{ row:0, price:'' }]));
+  assert.equal(plan.cleared, 1);
+  assert.equal(api.rusPhone_('iPhone 16 Pro 128GB White Dual-SIM').sim, '2 SIM');
+});
 test('accepts the known Krasnodar listing display variants', () => {
   const layout = api.rusAvitoLayout_(['Vendor', 'Model', 'MemorySize', 'Color', 'SimConfig', 'RamSize', 'Price']);
   const products = [

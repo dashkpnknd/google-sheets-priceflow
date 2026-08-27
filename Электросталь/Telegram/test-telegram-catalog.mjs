@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const source = fs.readFileSync(new URL('./TelegramCatalog.gs', import.meta.url), 'utf8') + `
-globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcColor_,tcLayouts_,tcLayoutFor_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcApplyElektrostalMarkup_,tcElektrostalMarkupAmount_,tcExpand_,tcAvitoLayout_,tcAvitoPricePlan_,tcAvitoTitleLayout_,tcAvitoTitlePricePlan_};`;
+globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcColor_,tcLayouts_,tcLayoutFor_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcApplyElektrostalMarkup_,tcElektrostalMarkupAmount_,tcExpand_,tcAvitoLayout_,tcAvitoPricePlan_,tcAvitoTitleLayout_,tcAvitoTitlePricePlan_,tcAvitoSafePhoneFallback_};`;
 const parseCsv = (value) => String(value).trim().split(/\r?\n/).map((line) => {
   const cells = []; let current = ''; let quoted = false;
   for (let index = 0; index < line.length; index++) {
@@ -240,16 +240,23 @@ test('plans direct Elektrostal Avito price updates for phones and title-based ta
   assert.deepEqual(JSON.parse(JSON.stringify(ipadPlan.updates)), [{ row: 0, price: 73000 }]);
   const unavailableIpad = api.tcAvitoTitlePricePlan_([], 'айпады', titleLayout, [['1', 'iPad Air 13 M3 (2025), 256 ГБ Wi-Fi Starlight', 60500, '25.09.2026']]);
   assert.deepEqual(JSON.parse(JSON.stringify(unavailableIpad.updates)), [{ row: 0, price: '' }]);
-  assert.equal(unavailableIpad.archived, 1);
-  assert.equal(unavailableIpad.dateUpdates.length, 1);
+  assert.equal(unavailableIpad.cleared, 1);
+  assert.equal(unavailableIpad.dateUpdates, undefined);
   const lowestPhone = api.tcAvitoPricePlan_([
     { category: 'телефоны', name: 'Galaxy S25 12/256GB Blue SIM + eSIM', price: 57500 },
     { category: 'телефоны', name: 'Galaxy S25 12/256GB Blue SIM + eSIM', price: 56500 }
   ], phoneLayout, [['Samsung', 'Galaxy S25', '256 ГБ', 'синий', 'SIM + eSIM', '12 ГБ', '', '25.09.2026']]);
   assert.deepEqual(JSON.parse(JSON.stringify(lowestPhone.updates)), [{ row: 0, price: 56500 }]);
-  const relaxedPhone = api.tcAvitoPricePlan_([
+  const unavailablePhone = api.tcAvitoPricePlan_([
     { category: 'телефоны', name: 'iPhone 15 128GB Black eSIM', price: 65000 },
     { category: 'телефоны', name: 'iPhone 15 128GB Blue 2 SIM', price: 63000 }
-  ], phoneLayout, [['Apple', 'iPhone 15', '128 ГБ', 'белый', 'SIM + eSIM', '6 ГБ', '', '25.09.2026']]);
-  assert.deepEqual(JSON.parse(JSON.stringify(relaxedPhone.updates)), [{ row: 0, price: 63000 }]);
+  ], phoneLayout, [['Apple', 'iPhone 15', '128 ГБ', 'белый', 'SIM + eSIM', '6 ГБ', 62000, '25.09.2026']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(unavailablePhone.updates)), [{ row: 0, price: '' }]);
+});
+
+test('does not substitute a declared 2 SIM offer for an eSIM listing', () => {
+  assert.equal(api.tcPhone_('iPhone 16 Pro 128GB White (Dual-SIM)').config, '2 SIM');
+  assert.equal(api.tcAvitoSafePhoneFallback_([
+    { model:'iPhone 16 Pro', memory:'128 ГБ', color:'белый', sim:'2 SIM', ram:'', price:81900 }
+  ], { model:'iPhone 16 Pro', memory:'128 ГБ', color:'белый', sim:'eSIM', ram:'' }), null);
 });

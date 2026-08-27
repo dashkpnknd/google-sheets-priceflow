@@ -25,6 +25,7 @@ DATA = Path("/data")
 CATALOG = DATA / "belaya-kalitva-catalog.json"
 STATUS = DATA / "belaya-kalitva-status.json"
 WATCHED = DATA / "belaya-kalitva-watched-posts.json"
+MAX_CATALOG_AGE = timedelta(minutes=int(os.environ.get("CATALOG_MAX_AGE_MINUTES", "30")))
 # AppleTrade's agreed supplier contract is only a confirmed "name — price"
 # row.  Do not import the volume-price rule from Elektrostal.
 PRICE = re.compile(r"^\s*(?P<title>.+?)\s*(?:—|–|-)\s*(?P<price>\d[\d\s.]{2,})\s*(?:₽|р\.?|rub)?\s*$", re.I)
@@ -65,6 +66,16 @@ def write(path: Path, value: object) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
     tmp.replace(path)
+def fresh_catalog() -> dict[str, object] | None:
+    """Never serve a saved supplier snapshot after the polling loop has failed."""
+    if not CATALOG.exists(): return None
+    try:
+        payload = json.loads(CATALOG.read_text("utf-8"))
+        refreshed = datetime.fromisoformat(str(payload.get("refreshedAt", "")).replace("Z", "+00:00"))
+        if refreshed.tzinfo is None: return None
+        return payload if now() - refreshed.astimezone(timezone.utc) <= MAX_CATALOG_AGE else None
+    except (ValueError, TypeError, json.JSONDecodeError):
+        return None
 def category(title: str) -> str | None:
     t = norm(title)
     # Source-menu categories.  Accessories must be checked before phones:
@@ -270,7 +281,8 @@ class Handler(BaseHTTPRequestHandler):
         if urlparse(self.path).path == "/health":
             self.send_json(200 if STATUS.exists() else 503, json.loads(STATUS.read_text()) if STATUS.exists() else {"state": "starting"}); return
         if urlparse(self.path).path != "/belaya-kalitva/catalog" or not hmac.compare_digest(self.headers.get("X-PriceFlow-Secret", ""), self.secret): self.send_json(401, {"error": "unauthorized"}); return
-        self.send_json(200 if CATALOG.exists() else 503, json.loads(CATALOG.read_text()) if CATALOG.exists() else {"error": "catalog not ready"})
+        payload = fresh_catalog()
+        self.send_json(200 if payload else 503, payload if payload else {"error": "catalog unavailable or stale"})
 
 
 async def main() -> None:

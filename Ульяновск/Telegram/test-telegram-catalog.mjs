@@ -238,7 +238,7 @@ test('copies Avito prices from the prepared catalogue fields, not raw Telegram n
     { model: 'iPhone 13', memory: '128 ГБ', color: 'белый', sim: '2 SIM', ram: '', price: 52800 },
     { model: 'iPhone 13', memory: '128 ГБ', color: 'белый', sim: 'SIM + eSIM', ram: '', price: 52800 }
   ], layout, [['iPhone 13', '128 ГБ', 'белый', 'Не знаю', '4 ГБ', '', new Date('2099-01-01')]]);
-  assert.deepEqual(JSON.parse(JSON.stringify(relaxedPhonePlan.updates)), [{ row: 0, price: 52800 }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(relaxedPhonePlan.updates)), []);
   const titlePlan = api.tcAvitoDirectTitlePlan_([{ title: 'iPad 11 128GB Wi-Fi Pink', price: 40800 }], 'айпады', api.tcAvitoTitleLayout_(['Title', 'Price', 'DateEnd']), [['Apple iPad 11, 128 ГБ Wi-Fi Pink', '', new Date('2099-01-01')]]);
   assert.deepEqual(JSON.parse(JSON.stringify(titlePlan.updates)), [{ row: 0, price: 40800 }]);
   const cheapestPhonePlan = api.tcAvitoDirectPhonePlan_([
@@ -248,18 +248,27 @@ test('copies Avito prices from the prepared catalogue fields, not raw Telegram n
   assert.deepEqual(JSON.parse(JSON.stringify(cheapestPhonePlan.updates)), [{ row: 0, price: 48000 }]);
 });
 
-test('uses an unambiguous supplier price when only SIM or catalogue colour differs', () => {
+test('never substitutes a different supplier SIM or colour configuration', () => {
   const phones = [
     { model: 'iPhone 13', memory: '128 ГБ', color: 'белый', sim: '2 SIM', ram: '', price: 52800 },
     { model: 'iPhone 13', memory: '128 ГБ', color: 'белый', sim: 'SIM + eSIM', ram: '', price: 52800 },
     { model: 'iPhone 13 Mini', memory: '512 ГБ', color: 'черный', sim: '2 SIM', ram: '', price: 48800 }
   ];
-  assert.equal(api.tcAvitoSafePhoneFallback_(phones, { model: 'iPhone 13', memory: '128 ГБ', color: 'белый', sim: 'Не знаю', ram: '4 ГБ' }).price, 52800);
-  assert.equal(api.tcAvitoSafePhoneFallback_(phones, { model: 'iPhone 13 Mini', memory: '512 ГБ', color: 'розовый', sim: 'Не знаю', ram: '4 ГБ' }).price, 48800);
+  assert.equal(api.tcAvitoSafePhoneFallback_(phones, { model: 'iPhone 13', memory: '128 ГБ', color: 'белый', sim: 'Не знаю', ram: '4 ГБ' }), null);
+  assert.equal(api.tcAvitoSafePhoneFallback_(phones, { model: 'iPhone 13 Mini', memory: '512 ГБ', color: 'розовый', sim: 'Не знаю', ram: '4 ГБ' }), null);
   assert.equal(api.tcAvitoSafePhoneFallback_([
     { model: 'iPhone 13', memory: '128 ГБ', color: 'черный', sim: '2 SIM', ram: '', price: 46800 },
     { model: 'iPhone 13', memory: '128 ГБ', color: 'черный', sim: 'SIM + eSIM', ram: '', price: 40000 }
   ], { model: 'iPhone 13', memory: '128 ГБ', color: 'черный', sim: 'Не знаю', ram: '4 ГБ' }), null);
+});
+
+test('does not copy a 2 SIM price into an unavailable eSIM listing', () => {
+  const layout = api.tcAvitoLayout_(['Model', 'MemorySize', 'Color', 'SimConfig', 'RamSize', 'Price']);
+  const plan = api.tcAvitoDirectPhonePlan_([
+    { model:'iPhone 16 Pro', memory:'128 ГБ', color:'белый', sim:'2 SIM', ram:'', price:81900 }
+  ], layout, [['iPhone 16 Pro', '128 ГБ', 'белый', 'eSIM', '', 74600]]);
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row:0, price:'' }]);
+  assert.equal(plan.cleared, 1);
 });
 
 test('uses an unambiguous phone price when the supplier omitted only the colour', () => {

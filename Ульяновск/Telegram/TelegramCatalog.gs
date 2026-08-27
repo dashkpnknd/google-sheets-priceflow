@@ -198,19 +198,18 @@ function tcAvitoSourceIndex_(products) {
  * Thus the fallback never chooses between competing supplier prices.
  */
 function tcAvitoSafePhoneFallback_(phones, target) {
-  const model = tcNorm_(target.model), memory = tcNorm_(target.memory), color = tcNorm_(target.color), ram = tcNorm_(target.ram);
+  const model = tcNorm_(target.model), memory = tcNorm_(target.memory), color = tcNorm_(target.color), sim = tcNorm_(target.sim || target.config || 'Не знаю'), ram = tcNorm_(target.ram);
   if (!model || !memory || !color) return null;
-  const base = phones.filter(function(phone) {
-    return tcNorm_(phone.model) === model && tcNorm_(phone.memory) === memory && (/^iphone\b/.test(model) || tcNorm_(phone.ram) === ram);
+  const unknown = function(value) { return !value || value === 'не знаю'; };
+  const candidates = phones.filter(function(phone) {
+    const phoneColor = tcNorm_(phone.color), phoneSim = tcNorm_(phone.sim || phone.config || 'Не знаю');
+    return tcNorm_(phone.model) === model && tcNorm_(phone.memory) === memory &&
+      (/^iphone\b/.test(model) || tcNorm_(phone.ram) === ram) &&
+      (unknown(phoneColor) || phoneColor === color) && (unknown(phoneSim) || phoneSim === sim) &&
+      (unknown(phoneColor) || unknown(phoneSim));
   });
-  const onePrice = function(items) {
-    const prices = Array.from(new Set(items.map(function(item) { return Number(item.price); }).filter(Boolean)));
-    return prices.length === 1 ? prices[0] : 0;
-  };
-  const sameColor = onePrice(base.filter(function(phone) { return tcNorm_(phone.color) === color; }));
-  if (sameColor) return { price:sameColor, rule:'same-model-memory-color' };
-  const anyColor = onePrice(base);
-  return anyColor ? { price:anyColor, rule:'same-model-memory' } : null;
+  const prices = Array.from(new Set(candidates.map(function(item) { return Number(item.price); }).filter(Boolean)));
+  return prices.length === 1 ? { price:prices[0], rule:'supplier-omitted-field' } : null;
 }
 function tcAvitoPhoneKey_(phone) {
   const model = tcNorm_(phone.model), memory = tcNorm_(phone.memory), color = tcNorm_(phone.color), sim = tcNorm_(phone.config || phone.sim || 'Не знаю'), ram = tcNorm_(phone.ram);
@@ -262,14 +261,25 @@ function tcAvitoDirectTitlePlan_(sourceRows, category, layout, rows) {
   });
   return { updates:updates, matched:matched, cleared:cleared, missing:missing, ambiguous:ambiguous };
 }
-/** Client rule: when the source has several valid supplier variants, use the lowest price. */
+/**
+ * A price may be reused only for a field that the supplier omitted.  A
+ * different colour or SIM is a different sellable SKU, even when its price
+ * happens to be the same today.  This prevents a disappeared eSIM offer from
+ * receiving the price of a current 2 SIM offer.
+ */
 function tcAvitoCheapestPhoneFallback_(phones, target) {
-  const model = tcNorm_(target.model), memory = tcNorm_(target.memory), color = tcNorm_(target.color), ram = tcNorm_(target.ram);
+  const model = tcNorm_(target.model), memory = tcNorm_(target.memory), color = tcNorm_(target.color), sim = tcNorm_(target.sim || target.config || 'Не знаю'), ram = tcNorm_(target.ram);
   if (!model || !memory || !color) return null;
-  const base = phones.filter(function(phone) { return tcNorm_(phone.model) === model && tcNorm_(phone.memory) === memory && (/^iphone\b/.test(model) || tcNorm_(phone.ram) === ram); });
-  const cheapest = function(items) { const prices = items.map(function(item) { return Number(item.price); }).filter(Boolean); return prices.length ? Math.min.apply(null, prices) : 0; };
-  const sameColor = cheapest(base.filter(function(phone) { return tcNorm_(phone.color) === color; }));
-  return sameColor ? { price:sameColor, rule:'same-model-memory-color-cheapest' } : (cheapest(base) ? { price:cheapest(base), rule:'same-model-memory-cheapest' } : null);
+  const unknown = function(value) { return !value || value === 'не знаю'; };
+  const candidates = phones.filter(function(phone) {
+    const phoneColor = tcNorm_(phone.color), phoneSim = tcNorm_(phone.sim || phone.config || 'Не знаю');
+    return tcNorm_(phone.model) === model && tcNorm_(phone.memory) === memory &&
+      (/^iphone\b/.test(model) || tcNorm_(phone.ram) === ram) &&
+      (unknown(phoneColor) || phoneColor === color) && (unknown(phoneSim) || phoneSim === sim) &&
+      (unknown(phoneColor) || unknown(phoneSim));
+  });
+  const prices = Array.from(new Set(candidates.map(function(item) { return Number(item.price); }).filter(Boolean)));
+  return prices.length === 1 ? { price:prices[0], rule:'supplier-omitted-field' } : null;
 }
 function tcAvitoTitlePricePlan_(products, category, layout, rows) {
   const source = tcAvitoTitleSourceIndex_(products, category), updates = [], missing = [], ambiguous = []; let matched = 0;
