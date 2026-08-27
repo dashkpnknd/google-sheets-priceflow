@@ -208,7 +208,7 @@ function rusParsePost_(text, postId) {
   lines.forEach(function(raw) {
     // Supplier headings use category emoji. Remove those markers but keep
     // regional-indicator country flags intact at the beginning of product rows.
-    const line = raw.replace(/^(?:[•·▪◦📱🎧🎮💼💻🔘🏠🕹️📸🔌🔥⚠️🔈⌚🤖👱🏽‍♀️\uFE0F]+\s*)+/u, '').trim();
+    const line = raw.replace(/^(?:[📍•·▪◦📱🎧🎮💼💻🔘🏠🕹️📸🔌🔥⚠️🔈⌚🤖👱🏽‍♀️\uFE0F]+\s*)+/u, '').trim();
     if (!line || /^(цена за объ[её]м|\d+\s*шт\s*[—-]\s*основная|указано по обычной цене|уточняйте|цены могут|конфигурац|если в прайсе|нашли дешевле)/i.test(line)) return;
     // Объёмные строки «1 шт / 3+ / 5+» относятся к другому клиентскому
     // формату и для Краснодара не являются товарной позицией.
@@ -247,7 +247,7 @@ function rusRowsForCountries_(name, price, postId) {
 }
 function rusExpand_(context, item) {
   const value = String(item).trim(), ctx = String(context || '').replace(/[.·•]{3,}/g, '').trim(), flags = /^((?:[\u{1F1E6}-\u{1F1FF}]{2})+)\s*/u.exec(value);
-  const core = (flags ? value.slice(flags[0].length) : value).replace(/^(?:[•·▪◦📱🎧🎮💼💻🔘🏠🕹️📸🔌🔥⚠️🔈⌚🤖👱🏽‍♀️\uFE0F]+\s*)+/u, '').trim(), suffix = flags ? ' ' + flags[1] : '';
+  const core = (flags ? value.slice(flags[0].length) : value).replace(/^(?:[📍•·▪◦📱🎧🎮💼💻🔘🏠🕹️📸🔌🔥⚠️🔈⌚🤖👱🏽‍♀️\uFE0F]+\s*)+/u, '').trim(), suffix = flags ? ' ' + flags[1] : '';
   if (!ctx) return core + suffix;
   if (/^iphone\s+\d+(?:e)?(?:\s+(?:pro max|pro|plus|air|mini))?$/i.test(ctx) && /^\d/.test(core)) return 'iPhone ' + core + suffix;
   if (/^iphone\s+air$/i.test(ctx) && !/^iphone\b/i.test(core)) return 'iPhone ' + core + suffix;
@@ -264,7 +264,7 @@ function rusExpand_(context, item) {
   return core + suffix;
 }
 function rusLooksLikeProduct_(line) { return /\d/.test(line) && !/^(?:\d+\s*шт|\d+\+|\d{1,2}:\d{2})/i.test(line); }
-function rusCategory_(value) { const v = rusNorm_(value); if (/чехол|стекло|кабель|заряд|адаптер|держател|ремеш|powerbank|пауэрбанк/.test(v)) return 'прочее'; if (/airpods|galaxy\s*buds|\bbuds\b|наушник|headphones?/.test(v)) return 'наушники'; if (/apple\s*watch|galaxy\s*(watch|fit|ring)|\bwatch\b/.test(v)) return 'часы'; if (/ipad|galaxy\s*tab|\btablet\b/.test(v)) return 'айпады'; if (/macbook/.test(v)) return 'макбуки'; if (/\bimac\b/.test(v)) return 'аймаки'; if (/dyson/.test(v)) return 'дайсон'; if (/playstation|\bps[345]\b|xbox/.test(v)) return /gamepad|controller|геймпад|док|подставк|дисковод/.test(v) ? 'прочее' : 'пс'; if (/iphone|samsung|galaxy|pixel|xiaomi|redmi|honor|huawei|oneplus|realme|oppo|vivo/.test(v)) return 'телефоны'; return 'прочее'; }
+function rusCategory_(value) { const v = rusNorm_(value); if (/\bsmart\s*tag(?:\d|\b)|\bsmarttag(?:\d|\b)/.test(v)) return 'прочее'; if (/чехол|стекло|кабель|заряд|адаптер|держател|ремеш|powerbank|пауэрбанк/.test(v)) return 'прочее'; if (/airpods|galaxy\s*buds|\bbuds\b|наушник|headphones?/.test(v)) return 'наушники'; if (/apple\s*watch|galaxy\s*(watch|fit|ring)|\bwatch\b/.test(v)) return 'часы'; if (/ipad|galaxy\s*tab|\btablet\b/.test(v)) return 'айпады'; if (/macbook/.test(v)) return 'макбуки'; if (/\bimac\b/.test(v)) return 'аймаки'; if (/dyson/.test(v)) return 'дайсон'; if (/playstation|\bps[345]\b|xbox/.test(v)) return /gamepad|controller|геймпад|док|подставк|дисковод/.test(v) ? 'прочее' : 'пс'; if (/iphone|samsung|galaxy|pixel|xiaomi|redmi|honor|huawei|oneplus|realme|oppo|vivo/.test(v)) return 'телефоны'; return 'прочее'; }
 const RUS_COUNTRIES = {AE:'ОАЭ',AR:'Аргентина',AT:'Австрия',AU:'Австралия',AZ:'Азербайджан',BE:'Бельгия',BH:'Бахрейн',BR:'Бразилия',BY:'Беларусь',CA:'Канада',CH:'Швейцария',CL:'Чили',CN:'Китай',CO:'Колумбия',CZ:'Чехия',DE:'Германия',DK:'Дания',EE:'Эстония',EG:'Египет',ES:'Испания',EU:'Европа',FI:'Финляндия',FR:'Франция',GB:'Великобритания',GE:'Грузия',GR:'Греция',HK:'Гонконг',HU:'Венгрия',ID:'Индонезия',IE:'Ирландия',IL:'Израиль',IN:'Индия',IS:'Исландия',IT:'Италия',JP:'Япония',KR:'Южная Корея',KW:'Кувейт',KZ:'Казахстан',LT:'Литва',LU:'Люксембург',LV:'Латвия',MA:'Марокко',MX:'Мексика',MY:'Малайзия',NL:'Нидерланды',NO:'Норвегия',NZ:'Новая Зеландия',OM:'Оман',PH:'Филиппины',PL:'Польша',PT:'Португалия',QA:'Катар',RO:'Румыния',RS:'Сербия',RU:'Россия',SA:'Саудовская Аравия',SE:'Швеция',SG:'Сингапур',TH:'Таиланд',TR:'Турция',TW:'Тайвань',UA:'Украина',US:'США',VN:'Вьетнам',ZA:'ЮАР'};
 function rusFlagCode_(flag) { const chars = Array.from(String(flag || '')); return chars.length === 2 ? chars.map(function(c) { return String.fromCharCode(c.codePointAt(0) - 0x1F1E6 + 65); }).join('') : ''; }
 function rusCountry_(value) { const flag = (String(value || '').match(/[\u{1F1E6}-\u{1F1FF}]{2}/gu) || [])[0]; if (!flag) return ''; const code = rusFlagCode_(flag); return (RUS_COUNTRIES[code] || code || 'Неизвестная страна') + ' ' + flag; }

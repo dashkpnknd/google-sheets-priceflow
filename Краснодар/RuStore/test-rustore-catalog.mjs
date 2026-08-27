@@ -82,6 +82,12 @@ test('removes supplier emoji from headphone names and recognizes all supplied co
   assert.equal(api.rusColor_('Watch SE3 Starlight'), 'белый');
   assert.equal(api.rusColor_('AirPods Max Purple'), 'фиолетовый');
 });
+test('excludes SmartTag trackers from the phone catalogue and removes their location marker', () => {
+  const parsed = api.rusParsePost_('📍 Galaxy SmartTag2 — 3 490\n📍 Galaxy SmartTag2 (4 Pack) — 6 990', 'smarttag');
+  assert.deepEqual(Array.from(parsed.rows), []);
+  assert.equal(api.rusCategory_('Galaxy SmartTag2'), 'прочее');
+  assert.equal(api.rusExpand_('', '📍 Galaxy SmartTag2'), 'Galaxy SmartTag2');
+});
 test('uses a price with a supplier article but skips an unconfirmed one', () => {
   const r = api.rusParsePost_('MacBook\n🇺🇸Neo 13 8/256 Citrus-66 990 MHFD4\n🇺🇸Neo 13 8/256 Blush-70 490 MHFH4 ?', 'article').rows;
   assert.equal(r.length, 1); assert.equal(r[0].price, 66990); assert.equal(r[0].name, 'MacBook Neo 13 8/256 Citrus 🇺🇸');
