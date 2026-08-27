@@ -79,7 +79,10 @@ function syncTelegramCatalog_() {
   try {
     const p = PropertiesService.getScriptProperties(), channel = p.getProperty(TC.props.channel);
     if (!channel) throw new Error('Сначала подключите публичный Telegram-канал.');
-    const sourceRows = tcFetchRows_(channel).filter(tcNormalSupplierProduct_);
+    // The complete confirmed current supplier feed is the catalogue.  The
+    // sole city-wide product exclusion is iPhone 13/14 in markup below; do
+    // not remove current iPhone 15/16/17 based on a supplier label.
+    const sourceRows = tcFetchRows_(channel);
     // Remember which source sections were actually received before project
     // exclusions. This lets an intentionally empty section clear old prices,
     // while a Telegram/source failure still leaves the existing tab intact.
@@ -190,7 +193,7 @@ function tcAvitoPricePlan_(products, layout, rows) {
 }
 function tcAvitoSourceIndex_(products) {
   const prices = {}, conflicts = {}, phones = [];
-  products.filter(function(product) { return product.category === 'телефоны' && tcAvitoEligibleProduct_(product) && Number(product.price) > 0; }).forEach(function(product) {
+  products.filter(function(product) { return product.category === 'телефоны' && Number(product.price) > 0; }).forEach(function(product) {
     const phone = product.phone || tcPhone_(tcDisplay_(product)), key = tcAvitoPhoneKey_(phone); if (!key) return;
     const price = Number(product.price);
     phones.push({ model:phone.model, memory:phone.memory, color:phone.color, sim:phone.config || phone.sim || 'Не знаю', ram:phone.ram, price:price });
@@ -236,18 +239,7 @@ function tcAvitoTitlePricePlan_(products, category, layout, rows) {
   });
   return { updates:updates, matched:matched, cleared:cleared, missing:missing, ambiguous:ambiguous };
 }
-function tcAvitoTitleSourceIndex_(products, category) { const prices = {}, items = []; products.filter(function(product) { return product.category === category && tcAvitoEligibleProduct_(product) && Number(product.price) > 0; }).forEach(function(product) { const title = tcDisplay_(product), key = tcAvitoTitleKey_(title), price = Number(product.price); if (!key) return; items.push({ title:title, price:price }); prices[key] = prices[key] ? Math.min(prices[key], price) : price; }); return { prices:prices, items:items }; }
-// ASIS/CPO and discounted stock stay out of ordinary Avito pricing.  «Актив»
-// is a current sellable supplier offer in this city and must remain included.
-function tcAvitoEligibleProduct_(product) { return !/(?:^|\s)\(уценка\)|\b(?:asis|cpo)\b/i.test(tcDisplay_(product)); }
-// Phone sheets have no condition column.  Once an ASIS/Active item is written
-// into Model/SIM/Memory/Color, its service status is irreversibly lost and
-// stage two cannot distinguish it from ordinary stock.  Therefore reject
-// service and discounted stock before rebuilding every standard tab. «Актив»
-// is not a service condition in this supplier feed and remains in the catalog.
-// If the supplier closes the price and exposes only such rows, no category is
-// observed and the last confirmed ordinary snapshot is retained.
-function tcNormalSupplierProduct_(product) { return tcAvitoEligibleProduct_(product); }
+function tcAvitoTitleSourceIndex_(products, category) { const prices = {}, items = []; products.filter(function(product) { return product.category === category && Number(product.price) > 0; }).forEach(function(product) { const title = tcDisplay_(product), key = tcAvitoTitleKey_(title), price = Number(product.price); if (!key) return; items.push({ title:title, price:price }); prices[key] = prices[key] ? Math.min(prices[key], price) : price; }); return { prices:prices, items:items }; }
 function tcAvitoTitleKey_(value) { let text = String(value || '').replace(/[\u{1F1E6}-\u{1F1FF}]{2}/gu, '').replace(/\b(?:19|20)\d{2}\b(?!\s*(?:гб|gb|тб|tb))/giu, '').replace(/\bapple\b/gi, '').replace(/(\d+(?:[.,]\d+)?)\s*(?:тб|tb)(?=$|[^\p{L}\p{N}])/giu, function(_, amount) { return String(Math.round(Number(String(amount).replace(',', '.')) * 1024)) + ' gb'; }).replace(/(\d+(?:[.,]\d+)?)\s*(?:гб|gb)(?=$|[^\p{L}\p{N}])/giu, '$1 gb').replace(/wi[\s\-\u2010-\u2015]?fi/gi, 'wifi').replace(/space\s+gray/gi, 'spacegray').replace(/space\s+black/gi, 'black').replace(/[()\[\],.;:/|]+/g, ' ').toLocaleLowerCase('ru-RU'); return text.split(/\s+/).filter(Boolean).sort().join('|'); }
 function tcAvitoCheapestTitleFallback_(items, category, targetTitle) { const threshold = { 'айпады':0.70, 'дайсон':0.60, 'часы':0.65, 'макбуки':0.65, 'наушники':0.65, 'пс':0.70 }[category] || 0.75; const candidates = items.map(function(item) { return { title:item.title, price:Number(item.price), score:tcAvitoTitleScore_(category, targetTitle, item.title) }; }).filter(function(item) { return item.score >= threshold && item.price > 0; }); if (!candidates.length) return null; const bestScore = Math.max.apply(null, candidates.map(function(item) { return item.score; })); const best = candidates.filter(function(item) { return item.score === bestScore; }); return { price:Math.min.apply(null, best.map(function(item) { return item.price; })), score:bestScore }; }
 function tcAvitoTitleScore_(category, left, right) { const a = tcAvitoTitleWords_(left), b = tcAvitoTitleWords_(right); if (!a.length || !b.length || tcAvitoFamilyConflict_(category, left, right) || tcAvitoColorConflict_(left, right) || tcAvitoHardwareConflict_(category, a, b)) return 0; const set = {}; a.forEach(function(word) { set[word] = true; }); const shared = b.filter(function(word) { return set[word]; }).length; return shared / Math.max(a.length, b.length); }

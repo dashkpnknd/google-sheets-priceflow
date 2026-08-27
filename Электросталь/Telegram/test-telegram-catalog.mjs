@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const source = fs.readFileSync(new URL('./TelegramCatalog.gs', import.meta.url), 'utf8') + `
-globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcColor_,tcLayouts_,tcLayoutFor_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcApplyElektrostalMarkup_,tcElektrostalMarkupAmount_,tcExpand_,tcAvitoLayout_,tcAvitoPricePlan_,tcAvitoTitleLayout_,tcAvitoTitlePricePlan_,tcAvitoSafePhoneFallback_,tcNavigationPostIds_,tcNormalSupplierProduct_};`;
+globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcColor_,tcLayouts_,tcLayoutFor_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcApplyElektrostalMarkup_,tcElektrostalMarkupAmount_,tcExpand_,tcAvitoLayout_,tcAvitoPricePlan_,tcAvitoTitleLayout_,tcAvitoTitlePricePlan_,tcAvitoSafePhoneFallback_,tcNavigationPostIds_};`;
 const parseCsv = (value) => String(value).trim().split(/\r?\n/).map((line) => {
   const cells = []; let current = ''; let quoted = false;
   for (let index = 0; index < line.length; index++) {
@@ -282,15 +282,6 @@ test('plans direct Elektrostal Avito price updates for phones and title-based ta
     { category:'телефоны', name:'Galaxy S26 Ultra 12/256GB Blue 2 SIM', price:84500 }
   ], phoneLayout, [['Samsung', 'Galaxy S26 Ultra', '', 'синий', '2 SIM', '', 84500, '25.09.2026']]);
   assert.deepEqual(JSON.parse(JSON.stringify(incompletePhone.updates)), [{ row:0, price:'' }]);
-  const onlyServicePhone = api.tcAvitoPricePlan_([
-    { category:'телефоны', name:'iPhone 17 512GB Black SIM + eSIM ASIS', price:89500 }
-  ], phoneLayout, [['Apple', 'iPhone 17', '512 ГБ', 'черный', 'SIM + eSIM', '', 95000, '25.09.2026']]);
-  assert.deepEqual(JSON.parse(JSON.stringify(onlyServicePhone.updates)), [{ row:0, price:'' }]);
-  const regularOverService = api.tcAvitoPricePlan_([
-    { category:'телефоны', name:'iPhone 17 512GB Black SIM + eSIM', price:95000 },
-    { category:'телефоны', name:'iPhone 17 512GB Black SIM + eSIM ASIS', price:89500 }
-  ], phoneLayout, [['Apple', 'iPhone 17', '512 ГБ', 'черный', 'SIM + eSIM', '', 89500, '25.09.2026']]);
-  assert.deepEqual(JSON.parse(JSON.stringify(regularOverService.updates)), [{ row:0, price:95000 }]);
 });
 
 test('does not substitute a declared 2 SIM offer for an eSIM listing', () => {
@@ -298,17 +289,4 @@ test('does not substitute a declared 2 SIM offer for an eSIM listing', () => {
   assert.equal(api.tcAvitoSafePhoneFallback_([
     { model:'iPhone 16 Pro', memory:'128 ГБ', color:'белый', sim:'2 SIM', ram:'', price:81900 }
   ], { model:'iPhone 16 Pro', memory:'128 ГБ', color:'белый', sim:'eSIM', ram:'' }), null);
-});
-
-test('removes service stock before standard phone fields discard its status', () => {
-  const rows = [
-    { category:'телефоны', name:'iPhone 17 512GB Black eSIM', price:92000 },
-    { category:'телефоны', name:'iPhone 17 512GB Black eSIM ASIS', price:86500 },
-    { category:'телефоны', name:'(Актив) iPhone 17 Air 1TB White eSIM', price:89500 },
-    { category:'макбуки', name:'(Уценка) MacBook Neo 13 8/256 Blush', price:65000 },
-    { category:'телефоны', name:'Galaxy A56 8/256GB Black', price:32000 }
-  ];
-  assert.deepEqual([...rows.filter(api.tcNormalSupplierProduct_).map((row) => row.name)], [
-    'iPhone 17 512GB Black eSIM', '(Актив) iPhone 17 Air 1TB White eSIM', 'Galaxy A56 8/256GB Black'
-  ]);
 });
