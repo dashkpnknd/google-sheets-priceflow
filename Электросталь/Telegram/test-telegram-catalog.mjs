@@ -309,6 +309,6 @@ test('removes service stock before standard phone fields discard its status', ()
     { category:'телефоны', name:'Galaxy A56 8/256GB Black', price:32000 }
   ];
   assert.deepEqual([...rows.filter(api.tcNormalSupplierProduct_).map((row) => row.name)], [
-    'iPhone 17 512GB Black eSIM', 'Galaxy A56 8/256GB Black'
+    'iPhone 17 512GB Black eSIM', '(Актив) iPhone 17 Air 1TB White eSIM', 'Galaxy A56 8/256GB Black'
   ]);
 });

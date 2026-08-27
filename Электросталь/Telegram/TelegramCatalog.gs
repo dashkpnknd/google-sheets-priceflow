@@ -237,14 +237,14 @@ function tcAvitoTitlePricePlan_(products, category, layout, rows) {
   return { updates:updates, matched:matched, cleared:cleared, missing:missing, ambiguous:ambiguous };
 }
 function tcAvitoTitleSourceIndex_(products, category) { const prices = {}, items = []; products.filter(function(product) { return product.category === category && tcAvitoEligibleProduct_(product) && Number(product.price) > 0; }).forEach(function(product) { const title = tcDisplay_(product), key = tcAvitoTitleKey_(title), price = Number(product.price); if (!key) return; items.push({ title:title, price:price }); prices[key] = prices[key] ? Math.min(prices[key], price) : price; }); return { prices:prices, items:items }; }
-// Service / discounted stock stays visible in the supplier catalogue, but it
-// is not a price source for ordinary Avito ads.  It must never win because it
-// is cheaper than the current regular SKU.
-function tcAvitoEligibleProduct_(product) { return !/(?:^|\s)\((?:актив|уценка)\)|\b(?:active|asis|cpo)\b/i.test(tcDisplay_(product)); }
+// ASIS/CPO and discounted stock stay out of ordinary Avito pricing.  «Актив»
+// is a current sellable supplier offer in this city and must remain included.
+function tcAvitoEligibleProduct_(product) { return !/(?:^|\s)\(уценка\)|\b(?:asis|cpo)\b/i.test(tcDisplay_(product)); }
 // Phone sheets have no condition column.  Once an ASIS/Active item is written
 // into Model/SIM/Memory/Color, its service status is irreversibly lost and
 // stage two cannot distinguish it from ordinary stock.  Therefore reject
-// service, active and discounted stock before rebuilding every standard tab.
+// service and discounted stock before rebuilding every standard tab. «Актив»
+// is not a service condition in this supplier feed and remains in the catalog.
 // If the supplier closes the price and exposes only such rows, no category is
 // observed and the last confirmed ordinary snapshot is retained.
 function tcNormalSupplierProduct_(product) { return tcAvitoEligibleProduct_(product); }
