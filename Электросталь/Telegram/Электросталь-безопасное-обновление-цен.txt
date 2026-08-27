@@ -425,37 +425,46 @@ function tcElektrostalMarkupAmount_(row) {
 }
 
 function tcFetchRows_(channel) {
-  // Supplier sections are updated independently.  Walking the history is
-  // necessary because a current catalogue is split across several posts, but
-  // merging every historical SKU resurrected products that had disappeared
-  // from a newer version of the same section.
-  let url = 'https://t.me/s/' + channel, page = 0; const rows = [];
-  while (url && page++ < 12) {
-    const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
-    if (response.getResponseCode() !== 200) throw new Error('Telegram вернул HTTP ' + response.getResponseCode());
-    const parsed = tcParsePreview_(response.getContentText(), channel);
-    rows.push.apply(rows, parsed.rows);
-    url = parsed.previous ? 'https://t.me' + parsed.previous : '';
-  }
-  if (!rows.length) throw new Error('В Telegram не найдено ни одной подтверждённой цены. Каталог не изменён.');
-  return tcKeepLatestSections_(rows);
+  // This channel keeps its live catalogue in long-lived, edited posts.  The
+  // pinned "Навигация по прайсу" is the source of truth for that complete
+  // catalogue; a limited walk through chronological history is not.
+  const landing = UrlFetchApp.fetch('https://t.me/s/' + channel, { muteHttpExceptions: true });
+  if (landing.getResponseCode() !== 200) throw new Error('Telegram вернул HTTP ' + landing.getResponseCode());
+  const postIds = tcNavigationPostIds_(landing.getContentText(), channel);
+  if (!postIds.length) throw new Error('В закреплённой навигации Telegram не найдены ссылки на прайс. Каталог не изменён.');
+  const responses = UrlFetchApp.fetchAll(postIds.map(function(id) {
+    return { url:'https://t.me/s/' + channel + '/' + id, muteHttpExceptions:true };
+  }));
+  const rows = [];
+  responses.forEach(function(response, index) {
+    if (response.getResponseCode() !== 200) throw new Error('Telegram не открыл прайс-сообщение ' + postIds[index] + ': HTTP ' + response.getResponseCode());
+    rows.push.apply(rows, tcParseDirectPost_(response.getContentText(), channel, postIds[index]));
+  });
+  if (!rows.length) throw new Error('В актуальной навигации Telegram не найдено ни одной подтверждённой цены. Каталог не изменён.');
+  return rows;
 }
 
-/** Keeps the last complete message for each supplier price section. */
-function tcKeepLatestSections_(rows) {
-  const newest = {}, unique = {};
-  rows.forEach(function(row) {
-    const section = row.section || tcNorm_(row.category);
-    newest[section] = Math.max(Number(newest[section] || 0), Number(row.post || 0));
-  });
-  rows.filter(function(row) {
-    const section = row.section || tcNorm_(row.category);
-    return Number(row.post || 0) === newest[section];
-  }).forEach(function(row) {
-    const key = (row.section || tcNorm_(row.category)) + '|' + tcNorm_(row.name).replace(/[^a-zа-я0-9]+/g, ' ') + '|' + tcNorm_(row.variant);
-    if (!unique[key]) unique[key] = row;
-  });
-  return Object.keys(unique).map(function(key) { return unique[key]; });
+/** Extracts the permanent price-post IDs from the current pinned navigation. */
+function tcNavigationPostIds_(html, channel) {
+  const source = String(html || ''), chunks = source.split(/<div class="tgme_widget_message_wrap[^>]*">/i), ids = {}, escaped = String(channel).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  for (let index = 1; index < chunks.length; index++) {
+    const body = /<div class="tgme_widget_message_text[^>]*>([\s\S]*?)<\/div>/i.exec(chunks[index]);
+    if (!body || !/навигация\s+по\s+прайсу/i.test(tcHtml_(body[1]))) continue;
+    const link = new RegExp('(?:https?:)?//t\\.me/' + escaped + '/(\\d+)|/s/' + escaped + '/(\\d+)', 'gi'); let match;
+    while ((match = link.exec(chunks[index]))) ids[match[1] || match[2]] = true;
+  }
+  return Object.keys(ids).map(Number).filter(function(id) { return id > 0; }).sort(function(a, b) { return a - b; });
+}
+
+/** A direct Telegram post URL also contains neighbours; parse only its target. */
+function tcParseDirectPost_(html, channel, targetPost) {
+  const rows = [], chunks = String(html || '').split(/<div class="tgme_widget_message_wrap[^>]*">/i);
+  for (let index = 1; index < chunks.length; index++) {
+    const post = /data-post="[^/]+\/(\d+)"/i.exec(chunks[index]), body = /<div class="tgme_widget_message_text[^>]*>([\s\S]*?)<\/div>/i.exec(chunks[index]);
+    if (!post || !body || String(post[1]) !== String(targetPost)) continue;
+    rows.push.apply(rows, tcParsePost_(tcHtml_(body[1]), channel, post[1]));
+  }
+  return rows;
 }
 
 function tcParsePreview_(html, channel) {

@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const source = fs.readFileSync(new URL('./TelegramCatalog.gs', import.meta.url), 'utf8') + `
-globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcColor_,tcLayouts_,tcLayoutFor_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcApplyElektrostalMarkup_,tcElektrostalMarkupAmount_,tcExpand_,tcAvitoLayout_,tcAvitoPricePlan_,tcAvitoTitleLayout_,tcAvitoTitlePricePlan_,tcAvitoSafePhoneFallback_,tcKeepLatestSections_};`;
+globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcColor_,tcLayouts_,tcLayoutFor_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcApplyElektrostalMarkup_,tcElektrostalMarkupAmount_,tcExpand_,tcAvitoLayout_,tcAvitoPricePlan_,tcAvitoTitleLayout_,tcAvitoTitlePricePlan_,tcAvitoSafePhoneFallback_,tcNavigationPostIds_};`;
 const parseCsv = (value) => String(value).trim().split(/\r?\n/).map((line) => {
   const cells = []; let current = ''; let quoted = false;
   for (let index = 0; index < line.length; index++) {
@@ -139,16 +139,11 @@ test('parses the supplier 1-unit price from the volume-price format without choo
   assert.deepEqual([...rows.map((row) => row.price)], [97400, 100000]);
 });
 
-test('keeps only the newest Telegram message for each independently updated supplier section', () => {
-  const rows = api.tcKeepLatestSections_([
-    { section: 'apple iphone 17', name: 'iPhone 17 256GB Black', variant: '', post: '100', price: 74100 },
-    { section: 'apple iphone 17', name: 'iPhone 17 256GB Black', variant: '', post: '101', price: 75200 },
-    { section: 'apple iphone 17', name: 'iPhone 17 512GB White', variant: '', post: '100', price: 84900 },
-    { section: 'samsung galaxy s25', name: 'Galaxy S25 256GB Blue', variant: '', post: '99', price: 56500 }
-  ]);
-  assert.deepEqual([...rows.map((row) => [row.name, row.price])], [
-    ['iPhone 17 256GB Black', 75200], ['Galaxy S25 256GB Blue', 56500]
-  ]);
+test('uses every permanent price message from the current Telegram navigation', () => {
+  const html = '<div class="tgme_widget_message_wrap"><div class="tgme_widget_message_text">Навигация по прайсу</div>' +
+    '<a href="https://t.me/astoredirectprice/8765">iPhone</a><a href="https://t.me/astoredirectprice/8783">Galaxy S</a>' +
+    '<a href="https://t.me/astoredirectprice/8765">duplicate</a></div>';
+  assert.deepEqual([...api.tcNavigationPostIds_(html, 'astoredirectprice')], [8765, 8783]);
 });
 
 test('does not carry a MacBook heading over to Dyson or Garmin lines in one Telegram post', () => {
