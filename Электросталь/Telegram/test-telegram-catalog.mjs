@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const source = fs.readFileSync(new URL('./TelegramCatalog.gs', import.meta.url), 'utf8') + `
-globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcColor_,tcLayouts_,tcLayoutFor_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcApplyElektrostalMarkup_,tcElektrostalMarkupAmount_,tcExpand_,tcAvitoLayout_,tcAvitoPricePlan_,tcAvitoTitleLayout_,tcAvitoTitlePricePlan_,tcAvitoSafePhoneFallback_,tcNavigationPostIds_,tcParsePreview_};`;
+globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcColor_,tcLayouts_,tcLayoutFor_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcApplyElektrostalMarkup_,tcElektrostalMarkupAmount_,tcExpand_,tcAvitoLayout_,tcAvitoPricePlan_,tcAvitoTitleLayout_,tcAvitoTitlePricePlan_,tcAvitoSafePhoneFallback_,tcAvitoEligiblePhone_,tcNavigationPostIds_,tcParsePreview_};`;
 const parseCsv = (value) => String(value).trim().split(/\r?\n/).map((line) => {
   const cells = []; let current = ''; let quoted = false;
   for (let index = 0; index < line.length; index++) {
@@ -298,4 +298,11 @@ test('does not substitute a declared 2 SIM offer for an eSIM listing', () => {
   assert.equal(api.tcAvitoSafePhoneFallback_([
     { model:'iPhone 16 Pro', memory:'128 ГБ', color:'белый', sim:'2 SIM', ram:'', price:81900 }
   ], { model:'iPhone 16 Pro', memory:'128 ГБ', color:'белый', sim:'eSIM', ram:'' }), null);
+});
+
+
+test('does not let a service-marked phone collapse onto a regular Avito SKU', () => {
+  assert.equal(api.tcAvitoEligiblePhone_({ category:'телефоны', name:'iPhone 17 512GB Black eSIM ASIS' }), false);
+  assert.equal(api.tcAvitoEligiblePhone_({ category:'телефоны', name:'Galaxy S26 12/256GB Blue Актив' }), false);
+  assert.equal(api.tcAvitoEligiblePhone_({ category:'телефоны', name:'iPhone 17 512GB Black eSIM' }), true);
 });

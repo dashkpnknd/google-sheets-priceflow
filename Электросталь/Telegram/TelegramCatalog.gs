@@ -108,7 +108,7 @@ function syncTelegramCatalog_() {
     // Avito, so a Telegram parsing representation can never diverge from the
     // actual price source used by the client.
     SpreadsheetApp.flush();
-    const priceSync = tcSyncAvitoPrices_(tcReadReadyCatalog_(book));
+    const priceSync = tcSyncAvitoPrices_(tcReadReadyCatalog_(book, rows));
     const now = new Date(); p.setProperty(TC.props.last, String(now.getTime()));
     p.setProperty(TC.props.status, 'Каталог обновлён: ' + written + ' позиций.');
     return {
@@ -121,13 +121,21 @@ function syncTelegramCatalog_() {
 }
 
 /** Reads the ready, marked-up catalogue instead of reparsing Telegram. */
-function tcReadReadyCatalog_(book) {
+function tcReadReadyCatalog_(book, sourceRows) {
   const ready = { rows: [], available: {} };
+  const avitoPhones = (sourceRows || []).filter(tcAvitoEligiblePhone_).map(function(row) {
+    return { category:'телефоны', phone:tcPhone_(tcDisplay_(row)), price:Number(row.price) };
+  }).filter(function(row) { return row.price > 0 && tcAvitoPhoneKey_(row.phone); });
   Object.keys(TC.avito.sheets).forEach(function(category) {
     const sheet = book.getSheetByName(category);
     if (!sheet) throw new Error('Нет готового листа «' + category + '» для синхронизации Avito.');
     const width = sheet.getLastColumn(), headers = sheet.getRange(1, 1, 1, width).getValues()[0];
     tcValidateSchema_(sheet, headers);
+    if (category === 'телефоны') {
+      ready.rows.push.apply(ready.rows, avitoPhones);
+      ready.available[category] = true;
+      return;
+    }
     const layouts = tcLayouts_(headers);
     const height = Math.max(sheet.getLastRow() - 1, 0), values = height ? sheet.getRange(2, 1, height, width).getValues() : [];
     layouts.forEach(function(layout) {
@@ -149,6 +157,14 @@ function tcReadReadyCatalog_(book) {
     ready.available[category] = true;
   });
   return ready;
+}
+
+function tcAvitoEligiblePhone_(row) {
+  if (!row || row.category !== 'телефоны') return false;
+  // The Avito telephone schema has no condition column.  Do not let a
+  // service-marked supplier variant collapse onto an ordinary phone SKU.
+  const text = tcNorm_(tcDisplay_(row));
+  return !(text.includes("asis") || text.includes("cpo") || text.includes("актив") || text.includes("active") || text.includes("уценка"));
 }
 
 /** Updates only Price in every existing Avito tab. DateEnd is never changed. */
