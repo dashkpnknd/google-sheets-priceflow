@@ -238,12 +238,15 @@ function tcAvitoDirectSource_(headers, rows) {
 }
 /** Copies prices from the prepared source phone blocks by their full fields. */
 function tcAvitoDirectPhonePlan_(sourceRows, layout, rows) {
+  // ASIS/CPO remains in the supplier catalogue but never prices a normal Avito
+  // listing. Keep this filter here, in the actual direct catalogue → Avito path.
+  const publishableRows = sourceRows.filter(function(row) { return !tcIsAsis_(row.model || row.title); });
   const prices = {}, conflicts = {}, updates = [], missing = [], ambiguous = []; let matched = 0, cleared = 0;
-  sourceRows.forEach(function(row) { const key = tcAvitoPhoneKey_(row), price = Number(row.price); if (!key || !price) return; prices[key] = prices[key] ? Math.min(prices[key], price) : price; });
+  publishableRows.forEach(function(row) { const key = tcAvitoPhoneKey_(row), price = Number(row.price); if (!key || !price) return; prices[key] = prices[key] ? Math.min(prices[key], price) : price; });
   rows.forEach(function(row, rowIndex) {
     const target = { model:row[layout.model], memory:row[layout.memory], color:row[layout.color], sim:row[layout.sim], ram:row[layout.ram] }, key = tcAvitoPhoneKey_(target);
     if (!key) return;
-    const fallback = prices[key] ? null : tcAvitoCheapestPhoneFallback_(sourceRows, target);
+    const fallback = prices[key] ? null : tcAvitoCheapestPhoneFallback_(publishableRows, target);
     const price = prices[key] || (fallback && fallback.price);
     if (!price) { missing.push(tcAvitoLabel_(row, layout)); if (row[layout.price] !== '') { updates.push({ row:rowIndex, price:'' }); cleared++; } return; }
     matched++; if (Number(row[layout.price]) !== price) updates.push({ row:rowIndex, price:price });
@@ -435,8 +438,10 @@ function tcRunUlyanovskRegressionTests() {
   equal(plan.matched, 1, 'существующий SKU должен обновиться'); equal(plan.cleared, 1, 'у отсутствующего SKU очищается только цена'); equal(plan.updates[1].price, '', 'у отсутствующего SKU очищается цена');
   truth(tcIsAsis_('iPhone (ASIS) 16 Pro 128GB'), 'ASIS должен быть распознан');
   equal(tcOutputPhoneModel_(tcPhone_('iPhone (ASIS) 16 Pro 128GB White'), 'iPhone (ASIS) 16 Pro 128GB White', 'fallback'), '(ASIS) iPhone 16 Pro', 'ASIS должен быть виден в модели');
+  const asisPlan = tcAvitoDirectPhonePlan_([{ model:'(ASIS) iPhone 16 Pro', memory:'128 ГБ', color:'белый', sim:'2 SIM', ram:'', price:70000 }], { model:0, memory:1, color:2, sim:3, ram:4, price:5 }, [['iPhone 16 Pro', '128 ГБ', 'белый', '2 SIM', '', '']]);
+  equal(asisPlan.matched, 0, 'ASIS не должен совпадать с обычным объявлением Avito');
   if (failures.length) throw new Error('REGRESSION FAIL (Ульяновск): ' + failures.join(' | '));
-  return { passed:16, message:'Ульяновск: 16/16 защитных проверок пройдено.' };
+  return { passed:17, message:'Ульяновск: 17/17 защитных проверок пройдено.' };
 }
 function tcAssertUlyanovskInvariants_() { return tcRunUlyanovskRegressionTests(); }
 
