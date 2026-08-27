@@ -1,11 +1,16 @@
 /**
- * Telegram supplier → catalogue.
- * A separate product: it treats the public supplier channel as the source of
- * truth and rebuilds rows in the existing client tabs without changing style.
+ * Supplier price sheet → catalogue.
+ * The public channel supplies the current price-sheet link.  The sheet itself
+ * is the source of truth and rebuilds rows in the existing client tabs without
+ * changing their structure or style.
  */
 const TC = {
   sheets: ['телефоны', 'макбуки', 'айпады', 'часы', 'наушники', 'пс', 'дайсон', 'аймаки'],
   everyMinutes: 15,
+  // Current Uniseil price sheet. The synchronizer discovers this link again
+  // from the latest public channel menu before every run, so a supplier link
+  // replacement does not bring back historical Telegram products.
+  supplierSheetId: '1c2-nEGnaoeCxByKI51EYmEOeSEkE8r0h6AaAa7XZGY4',
   // Публичный файл клиента с правилами наценки. Суммы не хранятся в коде:
   // при каждом обновлении читается его актуальная версия.
   markupSheetId: '1DOuNTe2yJcU6h-TK3-xpWqe6zWpNl0NAQfVVYvZ0IpA',
@@ -92,23 +97,18 @@ function syncTelegramCatalog_() {
   try {
     const p = PropertiesService.getScriptProperties(), channel = p.getProperty(TC.props.channel);
     if (!channel) throw new Error('Сначала подключите публичный Telegram-канал.');
-    const sourceRows = tcFetchRows_(channel);
+    const sourceRows = tcFetchSupplierSheetRows_(channel);
     const mirror = tcAddTwoSimMirror_(sourceRows, p.getProperty(TC.props.mirrorTwoSim) === 'true');
     // Одна и та же конфигурация может быть у поставщика из нескольких стран.
     // Для Ульяновска берём только вариант с минимальной закупочной ценой.
     const cheapest = tcChooseCheapestCountry_(mirror.rows);
     const markup = tcApplyUlyanovskMarkup_(cheapest.rows, tcLoadUlyanovskMarkup_());
     const rows = markup.rows, book = SpreadsheetApp.getActiveSpreadsheet();
-    const byCategory = {}, observedCategories = {};
-    cheapest.rows.forEach(function(row) { observedCategories[row.category] = true; });
+    const byCategory = {};
     rows.forEach(function(row) { (byCategory[row.category] = byCategory[row.category] || []).push(row); });
     let written = 0; const skippedSheets = [];
     TC.sheets.forEach(function(name) {
       const entries = byCategory[name] || [], sheet = book.getSheetByName(name);
-      // Do not clear a category Telegram did not yield at all: that can be a
-      // temporary source failure. If it did yield products but none has a
-      // markup rule, clear it rather than retaining a raw supplier price.
-      if (!entries.length && !observedCategories[name]) { skippedSheets.push(name); return; }
       if (!sheet) throw new Error('Нет листа «' + name + '» в стандартной таблице.');
       written += tcWriteSheet_(sheet, entries);
     });
@@ -730,6 +730,67 @@ function tcMarkupKey_(value) {
     .replace(/(?:^|\s)(?:актив|уценка|active)(?=\s|$)/gi, ' ')
     .replace(/(\d+)\s*(?:gb|гб)/gi, '$1gb').replace(/(\d+)\s*(?:tb|тб)/gi, '$1tb')
     .replace(/[^a-zа-я0-9]+/gi, ' ').replace(/ё/g, 'е').replace(/\s+/g, ' ').trim();
+}
+
+// The supplier publishes one complete, editable price sheet in the current
+// channel menu. Its snapshot is authoritative: a successful read always
+// rebuilds every existing product tab, including an empty tab when a section
+// has disappeared. This intentionally never merges historical Telegram posts.
+function tcFetchSupplierSheetRows_(channel) {
+  const sheetId = tcDiscoverSupplierSheetId_(channel);
+  const url = 'https://docs.google.com/spreadsheets/d/' + sheetId + '/export?format=csv&gid=0';
+  const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+  if (response.getResponseCode() !== 200) {
+    throw new Error('Не удалось прочитать актуальный прайс поставщика (HTTP ' + response.getResponseCode() + '). Каталог не изменён.');
+  }
+  const rows = tcParseSupplierSheetCsv_(response.getContentText(), sheetId);
+  if (!rows.length) throw new Error('В актуальном прайсе поставщика не найдено ни одной подтверждённой цены. Каталог не изменён.');
+  return rows;
+}
+
+function tcDiscoverSupplierSheetId_(channel) {
+  const fallback = TC.supplierSheetId;
+  const response = UrlFetchApp.fetch('https://t.me/s/' + channel, { muteHttpExceptions: true });
+  if (response.getResponseCode() !== 200) return fallback;
+  const found = /https:\/\/docs\.google\.com\/spreadsheets\/d\/([A-Za-z0-9_-]+)/i.exec(response.getContentText());
+  return found && found[1] || fallback;
+}
+
+function tcParseSupplierSheetCsv_(csv, sheetId) {
+  const table = Utilities.parseCsv(String(csv || '')), rows = [];
+  let header = '';
+  table.forEach(function(cells) {
+    const item = String(cells[0] || '').trim(), priceText = String(cells[1] || '').trim();
+    if (!item) return;
+    if (!priceText) { header = item; return; }
+    const row = tcLine_(header, item + ' — ' + priceText, 'opt_uniseil', 'supplier-sheet');
+    if (!row) return;
+    const category = tcSupplierCategory_(header, row.name);
+    if (TC.sheets.indexOf(category) < 0) return;
+    rows.push(Object.assign(row, {
+      category: category,
+      section: 'sheet:' + tcNorm_(header),
+      url: 'https://docs.google.com/spreadsheets/d/' + sheetId + '/edit'
+    }));
+  });
+  return rows;
+}
+
+function tcSupplierCategory_(header, name) {
+  const h = tcNorm_(header), item = tcNorm_(name);
+  // Android and Google are supplier section names, not model names. Preserve
+  // every current phone in them (Nothing and Tecno do not contain a legacy
+  // brand recognised by tcCategory_). The other mappings retain the existing
+  // Ulyanovsk category rules.
+  if (h === 'android' || h === 'google') return 'телефоны';
+  if (h === 'naushniki i kolonki' || h === 'airpods') return 'наушники';
+  if (h === 'igrovye pristavki') return 'пс';
+  if (h === 'dyson') return 'дайсон';
+  if (/^macbook/.test(h)) return 'макбуки';
+  if (/^ipad/.test(h)) return 'айпады';
+  if (/watch/.test(h)) return 'часы';
+  if (/imac/.test(h)) return 'аймаки';
+  return tcCategory_(header + ' ' + item);
 }
 
 function tcFetchRows_(channel) {
