@@ -41,10 +41,50 @@ function rusEnsureTrigger_() {
 function syncRuStoreCatalog_() {
   const lock = LockService.getScriptLock(); if (!lock.tryLock(1000)) return { rows: 0, written: 0, skipped: [] };
   try {
-    const snapshot = rusFetchSnapshot_(), result = rusSyncAvitoPrices_(snapshot);
+    const snapshot = rusFetchSnapshot_(), book = SpreadsheetApp.getActiveSpreadsheet(), products = snapshot.rows;
+    const byCategory = {}, skippedSheets = []; products.forEach(function(row) { (byCategory[row.category] = byCategory[row.category] || []).push(row); });
+    let written = 0;
+    // Stage 1: the bound price workbook is rebuilt from the complete live
+    // snapshot.  Only tabs that already exist are used; future categories are
+    // picked up automatically when their standard tab is added by the client.
+    RUS.sheets.forEach(function(category) {
+      const sheet = book.getSheetByName(category);
+      if (!sheet) { if (snapshot.categories[category]) skippedSheets.push(category); return; }
+      // A missing category in the snapshot means source failure, not that the
+      // customer's old tab should be erased.  An observed but empty category
+      // (for example, every row has `?`) is authoritative and is cleared.
+      if (!snapshot.categories[category]) { skippedSheets.push(category); return; }
+      written += rusWriteSheet_(sheet, byCategory[category] || []);
+    });
+    SpreadsheetApp.flush();
+    // Stage 2: Avito reads only the just-written ready phone catalogue, never
+    // an independently parsed Telegram representation.
+    const result = rusSyncAvitoPrices_(rusReadReadyCatalog_(book));
+    result.rows = products.length; result.catalogWritten = written; result.skippedSheets = skippedSheets;
     const p = PropertiesService.getScriptProperties(); p.setProperty(RUS.props.last, String(Date.now())); p.setProperty(RUS.props.status, rusSummary_(result));
     return result;
   } finally { lock.releaseLock(); }
+}
+
+/** Reads the ready catalogue that was written in stage 1 for Avito stage 2. */
+function rusReadReadyCatalog_(book) {
+  const sheet = book.getSheetByName('телефоны');
+  if (!sheet) throw new Error('Нет листа «телефоны» для передачи цен в Avito.');
+  const width = sheet.getLastColumn(), headers = sheet.getRange(1, 1, 1, width).getValues()[0];
+  rusValidateSchema_(sheet, headers);
+  const layouts = rusLayouts_(headers), height = Math.max(sheet.getLastRow() - 1, 0), values = height ? sheet.getRange(2, 1, height, width).getValues() : [], rows = [];
+  layouts.forEach(function(layout) {
+    values.forEach(function(value) {
+      const price = Number(value[layout.price] || 0); if (!price) return;
+      const name = layout.model >= 0 ? value[layout.model] : value[layout.title];
+      if (!name) return;
+      // The key is reconstructed from the actual written columns, including
+      // Krasnodar's technical `Не знаю` value for omitted SIM.
+      rows.push({ category:'телефоны', name:String(name) + ' ' + String(value[layout.memory] || '') + ' ' + String(value[layout.color] || '') + ' ' + String(value[layout.sim] || ''), price:price,
+        phone:{ model:value[layout.model], memory:value[layout.memory], color:value[layout.color], sim:value[layout.sim], ram:value[layout.ram] } });
+    });
+  });
+  return { rows:rows, categories:{ 'телефоны':true } };
 }
 /** Updates only Price in the fixed Krasnodar listing workbook. */
 function rusSyncAvitoPrices_(snapshot) {
@@ -84,7 +124,7 @@ function rusAvitoPricePlan_(products, layout, rows) {
 function rusAvitoSourceIndex_(products) {
   const prices = {}, conflicts = {};
   products.filter(function(product) { return product.category === 'телефоны' && Number(product.price) > 0; }).forEach(function(product) {
-    const phone = rusPhone_(rusDisplay_(product)), key = rusAvitoPhoneKey_(phone); if (!key) return;
+    const phone = product.phone || rusPhone_(rusDisplay_(product)), key = rusAvitoPhoneKey_(phone); if (!key) return;
     if (prices[key] && prices[key] !== Number(product.price)) { conflicts[key] = true; return; }
     prices[key] = Number(product.price);
   });
