@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const source = fs.readFileSync(new URL('./TelegramCatalog.gs', import.meta.url), 'utf8') + `
-globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcColor_,tcLayouts_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcAddTwoSimMirror_,tcChooseCheapestCountry_,tcParseMarkupCsv_,tcApplyUlyanovskMarkup_,tcMarkupAmount_,tcMarkupKey_,tcAvitoLayout_,tcAvitoPricePlan_,tcAvitoTitleLayout_,tcAvitoTitlePricePlan_,tcAvitoDirectSource_,tcAvitoDirectPhonePlan_,tcAvitoDirectTitlePlan_,tcAvitoSafePhoneFallback_,tcAvitoTitleFallback_,tcAvitoTitleScore_};`;
+globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcColor_,tcColorGroup_,tcModel_,tcAndroidTechnicalModifiers_,tcIsAsis_,tcLayouts_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcAddTwoSimMirror_,tcChooseCheapestCountry_,tcParseMarkupCsv_,tcApplyUlyanovskMarkup_,tcMarkupAmount_,tcMarkupKey_,tcAvitoLayout_,tcAvitoPricePlan_,tcAvitoTitleLayout_,tcAvitoTitlePricePlan_,tcAvitoDirectSource_,tcAvitoDirectPhonePlan_,tcAvitoDirectTitlePlan_,tcAvitoSafePhoneFallback_,tcAvitoTitleFallback_,tcAvitoTitleScore_,tcAvitoTitleWithoutConnectivityKey_};`;
 const parseCsv = (value) => String(value).trim().split(/\r?\n/).map((line) => {
   const cells = []; let current = ''; let quoted = false;
   for (let index = 0; index < line.length; index++) {
@@ -236,11 +236,19 @@ test('copies Avito prices from the prepared catalogue fields, not raw Telegram n
   assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row: 0, price: 46800 }, { row: 1, price: 48800 }]);
   const relaxedPhonePlan = api.tcAvitoDirectPhonePlan_([
     { model: 'iPhone 13', memory: '128 ГБ', color: 'белый', sim: '2 SIM', ram: '', price: 52800 },
-    { model: 'iPhone 13', memory: '128 ГБ', color: 'белый', sim: 'SIM + eSIM', ram: '', price: 52800 }
+    { model: 'iPhone 13', memory: '128 ГБ', color: 'белый', sim: 'SIM + eSIM', ram: '', price: 50800 }
   ], layout, [['iPhone 13', '128 ГБ', 'белый', 'Не знаю', '4 ГБ', '', new Date('2099-01-01')]]);
-  assert.deepEqual(JSON.parse(JSON.stringify(relaxedPhonePlan.updates)), []);
+  assert.deepEqual(JSON.parse(JSON.stringify(relaxedPhonePlan.updates)), [{ row: 0, price: 50800 }]);
+  const avitoEsimPlan = api.tcAvitoDirectPhonePlan_([
+    { model: 'iPhone 17 Pro', memory: '256 ГБ', color: 'серебристый', sim: 'eSIM', ram: '', price: 99300 },
+    { model: 'iPhone 17 Pro', memory: '256 ГБ', color: 'серебристый', sim: '2 SIM', ram: '', price: 104800 }
+  ], layout, [['iPhone 17 Pro', '256 ГБ', 'серебристый', 'Только eSIM', '', '']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(avitoEsimPlan.updates)), [{ row: 0, price: 99300 }]);
   const titlePlan = api.tcAvitoDirectTitlePlan_([{ title: 'iPad 11 128GB Wi-Fi Pink', price: 40800 }], 'айпады', api.tcAvitoTitleLayout_(['Title', 'Price', 'DateEnd']), [['Apple iPad 11, 128 ГБ Wi-Fi Pink', '', new Date('2099-01-01')]]);
   assert.deepEqual(JSON.parse(JSON.stringify(titlePlan.updates)), [{ row: 0, price: 40800 }]);
+  const unknownSimTitlePlan = api.tcAvitoDirectTitlePlan_([{ category:'айпады', title: 'iPad Pro 11 M4 2024 256GB Wi-Fi + LTE Black', price: 82400 }], 'айпады', api.tcAvitoTitleLayout_(['Title', 'Price']), [['Apple iPad Pro 11 M4 2024, 256 ГБ Не знаю Black', '']]);
+  assert.equal(api.tcAvitoTitleWithoutConnectivityKey_('iPad Pro 11 M4 2024 256GB Wi-Fi + LTE Black'), api.tcAvitoTitleWithoutConnectivityKey_('Apple iPad Pro 11 M4 2024, 256 ГБ Не знаю Black'));
+  assert.deepEqual(JSON.parse(JSON.stringify(unknownSimTitlePlan.updates)), [{ row: 0, price: 82400 }]);
   const cheapestPhonePlan = api.tcAvitoDirectPhonePlan_([
     { model: 'Galaxy S25', memory: '256 ГБ', color: 'синий', sim: 'SIM + eSIM', ram: '12 ГБ', price: 48800 },
     { model: 'Galaxy S25', memory: '256 ГБ', color: 'синий', sim: 'SIM + eSIM', ram: '12 ГБ', price: 48000 }
@@ -262,13 +270,13 @@ test('never substitutes a different supplier SIM or colour configuration', () =>
   ], { model: 'iPhone 13', memory: '128 ГБ', color: 'черный', sim: 'Не знаю', ram: '4 ГБ' }), null);
 });
 
-test('does not copy a 2 SIM price into an unavailable eSIM listing', () => {
+test('ignores SIM and colour when selecting the lowest ordinary phone price', () => {
   const layout = api.tcAvitoLayout_(['Model', 'MemorySize', 'Color', 'SimConfig', 'RamSize', 'Price']);
   const plan = api.tcAvitoDirectPhonePlan_([
     { model:'iPhone 16 Pro', memory:'128 ГБ', color:'белый', sim:'2 SIM', ram:'', price:81900 }
   ], layout, [['iPhone 16 Pro', '128 ГБ', 'белый', 'eSIM', '', 74600]]);
-  assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row:0, price:'' }]);
-  assert.equal(plan.cleared, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row:0, price:81900 }]);
+  assert.equal(plan.cleared, 0);
 });
 
 test('uses an unambiguous phone price when the supplier omitted only the colour', () => {
@@ -309,6 +317,9 @@ test('matches iPad and Dyson titles by meaningful words but rejects conflicting 
     { title: 'iPad 11 (A16) 2025 256GB Wi-Fi Pink', price: 48100 }
   ], 'айпады', 'Apple iPad 11 (A16, 2025), 128 ГБ Wi-Fi Pink').price, 40800);
   assert.equal(api.tcAvitoTitleFallback_([
+    { title: 'iPad 11 (A16) 2025 128GB Wi-Fi + LTE Pink', price: 50300 }
+  ], 'айпады', 'Apple iPad 11 (A16, 2025), 128 ГБ Wi-Fi Не знаю Pink').price, 50300);
+  assert.equal(api.tcAvitoTitleFallback_([
     { title: 'MacBook Air 13 M5 16/512GB Silver', price: 131800 },
     { title: 'MacBook Air 13 M5 16/1TB Silver', price: 143200 }
   ], 'макбуки', 'MacBook Air 13 (2026, M5) 16/512 Silver').price, 131800);
@@ -320,4 +331,241 @@ test('matches iPad and Dyson titles by meaningful words but rejects conflicting 
     { title: 'Apple Watch SE 2 40mm Silver (M/L)', price: 25000 },
     { title: 'Apple Watch SE 2 40mm Silver (S/M)', price: 27000 }
   ], 'часы', 'Apple Watch SE 2 40mm Silver').ambiguous, true);
+});
+
+test('uses the minimum only among the same non-phone product identity', () => {
+  const layout = api.tcAvitoTitleLayout_(['Title', 'Price']);
+  const ps = api.tcAvitoDirectTitlePlan_([
+    { category:'пс', title:'PS5 Slim Digital 1TB', price:61800 },
+    { category:'пс', title:'PS5 Pro Digital 2TB', price:104300 }
+  ], 'пс', layout, [['PS5 Slim', '']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(ps.updates)), [{ row:0, price:61800 }]);
+  const controller = api.tcAvitoDirectTitlePlan_([
+    { category:'пс', title:'DualSense Black', price:6400 },
+    { category:'пс', title:'DualSense Edge Black', price:17100 }
+  ], 'пс', layout, [['DualSense Black', '']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(controller.updates)), [{ row:0, price:6400 }]);
+  const pods = api.tcAvitoDirectTitlePlan_([
+    { category:'наушники', title:'AirPods 4 Type-C', price:11600 },
+    { category:'наушники', title:'AirPods 4 ANC', price:15100 },
+    { category:'наушники', title:'AirPods 4 ANC Уценка', price:15000 }
+  ], 'наушники', layout, [['AirPods 4 с шумоподавлением', '']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(pods.updates)), [{ row:0, price:15100 }]);
+});
+
+test('updates ordinary MacBook configuration but excludes pre-activated and damaged-box stock', () => {
+  const layout = api.tcAvitoTitleLayout_(['Title', 'Price']);
+  const plan = api.tcAvitoDirectTitlePlan_([
+    { category:'макбуки', title:'MacBook Air 13 M5 16/1TB Silver', price:130800 },
+    { category:'макбуки', title:'MacBook Air 13 M5 16/1TB Silver предактивированный', price:122400 },
+    { category:'макбуки', title:'MacBook Air 13 M5 16/1TB Silver мятая коробка', price:120000 }
+  ], 'макбуки', layout, [['MacBook Air 13 M5 16/1 ТБ Silver', '']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row:0, price:130800 }]);
+});
+
+test('normalises 1TB/1024 and matches MacBook Neo configurations', () => {
+  const layout = api.tcAvitoTitleLayout_(['Title', 'Price']);
+  const plan = api.tcAvitoDirectTitlePlan_([
+    { category:'макбуки', title:'MacBook Neo M4 8/256GB Silver', price:65200 },
+    { category:'макбуки', title:'MacBook Air 13 M5 16/1TB Silver', price:131800 }
+  ], 'макбуки', layout, [
+    ['MacBook Neo M4 8/256 Silver', ''],
+    ['MacBook Air 13 M5 16/1024 GB Silver', '']
+  ]);
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row:0, price:65200 }, { row:1, price:131800 }]);
+});
+
+test('uses strict MacBook identity despite Avito title formatting', () => {
+  const layout = api.tcAvitoTitleLayout_(['Title', 'Price']);
+  const plan = api.tcAvitoDirectTitlePlan_([
+    { category:'макбуки', title:'MacBook Neo M4 8/256GB Indigo', price:65200 },
+    { category:'макбуки', title:'MacBook Air 15 M5 24GB 1TB Midnight', price:186300 },
+    { category:'макбуки', title:'MacBook Pro 14 M5 16/1TB Black', price:177800 },
+    { category:'макбуки', title:'MacBook Pro 14 M5 16/512GB Black', price:173800 }
+  ], 'макбуки', layout, [
+    ['MacBook Neo M4 (2025) 8/256 Silver', ''],
+    ['MacBook Air 15 (2025) M5 24/1024 GB Starlight', ''],
+    ['MacBook Pro 14 M5 16/1024 GB Silver', '']
+  ]);
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row:0, price:65200 }, { row:1, price:186300 }, { row:2, price:177800 }]);
+});
+
+test('uses lowest ordinary MacBook price even when a literal colour title exists', () => {
+  const layout = api.tcAvitoTitleLayout_(['Title', 'Price']);
+  const plan = api.tcAvitoDirectTitlePlan_([
+    { category:'макбуки', title:'MacBook Air 13 M5 16/1TB Silver', price:131800 },
+    { category:'макбуки', title:'MacBook Air 13 M5 16/1TB Sky Blue мятая коробка', price:130800 },
+    { category:'макбуки', title:'MacBook Pro 14 M5 24/1TB Black', price:198800 },
+    { category:'макбуки', title:'MacBook Pro 14 M5 24/1TB Silver', price:194800 }
+  ], 'макбуки', layout, [
+    ['MacBook Air 13 M5 16/1TB Sky Blue', ''],
+    ['MacBook Pro 14 M5 24/1024 GB Black', '']
+  ]);
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row:0, price:131800 }, { row:1, price:194800 }]);
+});
+
+
+test('prices MacBook Neo across Avito colours and rejects a damaged-box MacBook', () => {
+  const layout = api.tcAvitoTitleLayout_(['Title', 'Price']);
+  const rows = [
+    ['MacBook 13 Neo (2026) 8/256 Blush', ''],
+    ['MacBook Air 13 (2026, M5) 16/1024 Sky Blue', '130800']
+  ];
+  const plan = api.tcAvitoDirectTitlePlan_([
+    { title:'MacBook Neo Air MHFD4 Neo Citrus 8/256GB', price:65300 },
+    { title:'MacBook Air 13 Sky Blue M5 16/1TB (Мятая 📦)', price:130800 },
+    { title:'MacBook Air 13 Starlight M5 16/1TB', price:131800 }
+  ], 'макбуки', layout, rows);
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row:0, price:65300 }, { row:1, price:131800 }]);
+  assert.equal(plan.matched, 2);
+});
+
+
+test('uses Ulyanovsk relaxed fields only where the client made them irrelevant', () => {
+  const phoneLayout = api.tcAvitoLayout_(['Model', 'MemorySize', 'Color', 'SimConfig', 'RamSize', 'Price']);
+  const phones = api.tcAvitoDirectPhonePlan_([
+    { model:'iPhone 17 Pro Max', memory:'2 ТБ', color:'черный', sim:'2 SIM', ram:'', price:150000 }
+  ], phoneLayout, [['iPhone 17 Pro Max', '2 ТБ', 'черный', 'SIM + eSIM', '', '']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(phones.updates)), [{ row:0, price:150000 }]);
+  const titles = api.tcAvitoDirectTitlePlan_([
+    { title:'iPad Air 13 M3 256GB Wi-Fi + LTE Blue', price:75000 },
+    { title:'Apple Watch Ultra 3 Black', price:82000 }
+  ], 'айпады', api.tcAvitoTitleLayout_(['Title', 'Price']), [['iPad Air 13 M3 256GB Wi-Fi Blue', '']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(titles.updates)), [{ row:0, price:75000 }]);
+  const watch = api.tcAvitoDirectTitlePlan_([{ title:'Apple Watch Ultra 3 Black', price:82000 }], 'часы', api.tcAvitoTitleLayout_(['Title', 'Price']), [['Apple Watch Ultra 3 Black', '']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(watch.updates)), [{ row:0, price:82000 }]);
+});
+
+
+test('normalises phone TB memory and supplier Watch spelling in live Avito keys', () => {
+  const phoneLayout = api.tcAvitoLayout_(['Model', 'MemorySize', 'Color', 'SimConfig', 'RamSize', 'Price']);
+  const phone = api.tcAvitoDirectPhonePlan_([{ model:'iPhone 17 Pro Max', memory:'2 ТБ', color:'серебристый', sim:'2 SIM', ram:'', price:176800 }], phoneLayout, [['iPhone 17 Pro Max', '2048 ГБ', 'серебристый', 'SIM + eSIM', '', '']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(phone.updates)), [{ row:0, price:176800 }]);
+  const watch = api.tcAvitoDirectTitlePlan_([{ title:'Watch Ultra 3 (2025) 49mm Natural case Ocean Band Blue', price:64100 }], 'часы', api.tcAvitoTitleLayout_(['Title', 'Price']), [['Apple Watch Ultra 3 49mm Natural Ocean Band Blue', '']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(watch.updates)), [{ row:0, price:64100 }]);
+});
+
+test('applies all Ulyanovsk optional-field matching rules', () => {
+  const phoneLayout = api.tcAvitoLayout_(['Model', 'MemorySize', 'Color', 'SimConfig', 'RamSize', 'Price']);
+  const android = api.tcAvitoDirectPhonePlan_([
+    { model:'Galaxy S25', memory:'256 ГБ', color:'синий', sim:'eSIM', ram:'8 ГБ', price:40000 },
+    { model:'Galaxy S25', memory:'256 ГБ', color:'черный', sim:'2 SIM', ram:'', price:42000 },
+    { model:'Galaxy S25', memory:'256 ГБ', color:'белый', sim:'SIM + eSIM', ram:'12 ГБ', price:45000 }
+  ], phoneLayout, [['Galaxy S25', '256 ГБ', 'черный', '2 SIM', '12 ГБ', '']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(android.updates)), [{ row:0, price:42000 }]);
+
+  const titleLayout = api.tcAvitoTitleLayout_(['Title', 'Price']);
+  const ipad = api.tcAvitoDirectTitlePlan_([
+    { title:'iPad Air 11 M3 256GB Wi-Fi Blue', price:75000 },
+    { title:'iPad Air 11 M3 256GB Wi-Fi + LTE Black', price:72000 }
+  ], 'айпады', titleLayout, [['iPad Air 11 M3 256GB Wi-Fi Black', '']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(ipad.updates)), [{ row:0, price:72000 }]);
+
+  const watch = api.tcAvitoDirectTitlePlan_([
+    { title:'Apple Watch Series 10 41mm Black', price:29000 },
+    { title:'Apple Watch Series 10 45mm Silver', price:31000 }
+  ], 'часы', titleLayout, [['Apple Watch Series 10 45mm Silver', '']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(watch.updates)), [{ row:0, price:31000 }]);
+
+  const controller = api.tcAvitoDirectTitlePlan_([
+    { title:'DualSense Black', price:6400 },
+    { title:'DualSense Edge Black', price:17100 },
+    { title:'DualSense White', price:6200 },
+    { title:'PS5 Slim Digital 1TB', price:62000 }
+  ], 'пс', titleLayout, [['DualSense Edge White', '']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(controller.updates)), [{ row:0, price:6200 }]);
+});
+
+test('matches only the approved AirPods Max 2 2026 title variant', () => {
+  const layout = api.tcAvitoTitleLayout_(['Title', 'Price']);
+  const plan = api.tcAvitoDirectTitlePlan_([
+    { title:'AirPods Max 2 2026 Midnight', price:48000 },
+    { title:'AirPods Max 2024 Midnight', price:39000 },
+    { title:'AirPods 4 ANC', price:15000 }
+  ], 'наушники', layout, [['AirPods Max 2026 Midnight', '']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row:0, price:48000 }]);
+});
+
+test('uses filled iPhone colour and Apple Watch case and band characteristics exactly', () => {
+  const phoneLayout = api.tcAvitoLayout_(['Model', 'MemorySize', 'Color', 'SimConfig', 'RamSize', 'Price']);
+  const iphone = api.tcAvitoDirectPhonePlan_([
+    { model:'iPhone 14', memory:'512 ГБ', color:'черный', sim:'eSIM', ram:'', price:56300 },
+    { model:'iPhone 14', memory:'512 ГБ', color:'фиолетовый', sim:'2 SIM', ram:'', price:56800 }
+  ], phoneLayout, [['iPhone 14', '512 GB', 'фиолетовый', 'eSIM', '', 56300]]);
+  assert.deepEqual(JSON.parse(JSON.stringify(iphone.updates)), [{ row:0, price:56800 }]);
+  const absent = api.tcAvitoDirectPhonePlan_([{ model:'iPhone 17 Pro', memory:'1 ТБ', color:'оранжевый', sim:'eSIM', ram:'', price:100000 }], phoneLayout, [['iPhone 17 Pro', '1 TB', 'серебристый', 'eSIM', '', 99000]]);
+  assert.deepEqual(JSON.parse(JSON.stringify(absent.updates)), [{ row:0, price:'' }]);
+
+  const layout = api.tcAvitoTitleLayout_(['Title', 'Price']);
+  const se = api.tcAvitoDirectTitlePlan_([
+    { title:'Apple Watch SE 3 2025 40mm Black', price:22600 },
+    { title:'Apple Watch SE 3 2025 40mm Starlight', price:24300 }
+  ], 'часы', layout, [['Apple Watch SE 3 (2025) 40mm Starlight', 22600]]);
+  assert.deepEqual(JSON.parse(JSON.stringify(se.updates)), [{ row:0, price:24300 }]);
+  const ultra = api.tcAvitoDirectTitlePlan_([
+    { title:'Apple Watch Ultra 3 49mm Black Ocean Band Black', price:61300 },
+    { title:'Apple Watch Ultra 3 49mm Natural Ocean Band Blue', price:64100 }
+  ], 'часы', layout, [['Apple Watch Ultra 3 49mm Natural Ocean Band Blue', 61300]]);
+  assert.deepEqual(JSON.parse(JSON.stringify(ultra.updates)), [{ row:0, price:64100 }]);
+});
+
+test('keeps Galaxy Z Flip distinct from Fold and applies its explicit Fold-level markup', () => {
+  const rules = api.tcParseMarkupCsv_('Модель,Наценка\nS - серии / z-Fold,5000\nA - серия,2000');
+  const flip = { name:'Galaxy Z Flip8 12/256GB Jetblack', price:71300 };
+  assert.equal(api.tcModel_(flip.name), 'Galaxy Z Flip8');
+  assert.equal(api.tcModel_('Galaxy Z Fold8 12/256GB Lavender'), 'Galaxy Z Fold8');
+  assert.equal(api.tcMarkupAmount_(flip, rules), 5000);
+  assert.equal(api.tcColor_(flip.name), 'черный');
+  assert.equal(api.tcColor_('Galaxy S25 12/128GB Icyblue'), 'голубой');
+  assert.equal(api.tcIsAsis_('Galaxy S25 12/256GB (мятая коробка)'), true);
+});
+
+test('uses Android colour groups and retains technical model modifiers', () => {
+  assert.equal(api.tcColorGroup_('Graphite'), 'black');
+  assert.equal(api.tcColorGroup_('Icyblue'), 'blue');
+  assert.equal(api.tcColorGroup_('Lilac'), 'violet');
+  assert.equal(api.tcColorGroup_('Silver'), 'white');
+  assert.equal(api.tcColorGroup_('Violet Shadow'), 'violet');
+  assert.equal(api.tcModel_('Galaxy S26 Plus 12/256GB 5G Sky Blue'), 'Galaxy S26 Plus 5G');
+  assert.equal(api.tcModel_('Galaxy A27 8/256GB (NFC) 4G Black'), 'Galaxy A27 4G NFC');
+  assert.equal(api.tcModel_('Galaxy Z Flip8 12/256GB LTE Cream'), 'Galaxy Z Flip8 LTE');
+});
+
+test('does not split Android supplier candidates by SIM configuration', () => {
+  const selected = api.tcChooseCheapestCountry_([
+    { category:'телефоны', name:'Galaxy S26 12/256GB 2 SIM Sky Blue', price:61800 },
+    { category:'телефоны', name:'Galaxy S26 12/256GB SIM + eSIM Icyblue', price:60300 }
+  ]);
+  assert.equal(selected.rows.length, 1);
+  assert.equal(selected.rows[0].price, 60300);
+});
+
+test('keeps Titanium Silverblue blue and uses one minimum for an empty Android colour', () => {
+  assert.equal(api.tcColor_('Galaxy S25 Ultra Titanium Silverblue'), 'голубой');
+  assert.equal(api.tcColorGroup_(api.tcColor_('Galaxy S25 Ultra Titanium Silverblue')), 'blue');
+  assert.equal(api.tcModel_('Huawei Pura 90S Pro 12/256GB Guava Soda'), 'Huawei Pura 90S Pro');
+  const selected = api.tcChooseCheapestCountry_([
+    { category:'телефоны', name:'Huawei Pura 90S Pro 12/256GB Guava Soda', price:51300 },
+    { category:'телефоны', name:'Huawei Pura 90S Pro 12/256GB Orange Soda', price:51200 }
+  ]);
+  assert.equal(selected.rows.length, 1);
+  assert.equal(selected.rows[0].price, 51200);
+});
+
+test('uses the 17 Pro 1TB markup and never crosses PS or Dyson model identities', () => {
+  const rules = api.tcParseMarkupCsv_('Модель,Наценка\niPhone 13 - 17 Pro max 256,3000\niPhone 17 Pro 512/1тб - 17 Pro Max 512/1тб,4000\nPlayStation 5 Slim Disc 1TB,3000');
+  assert.equal(api.tcMarkupAmount_({ name:'iPhone 17 Pro 1TB Black', price:100000 }, rules), 4000);
+  assert.equal(api.tcMarkupAmount_({ name:'iPhone 17 Pro Max 1TB Black', price:100000 }, rules), 4000);
+  assert.equal(api.tcMarkupAmount_({ name:'PlayStation 5 Slim Disk 1TB', price:66000 }, rules), 3000);
+  const layout = api.tcAvitoTitleLayout_(['Title', 'Price']);
+  const ps = api.tcAvitoDirectTitlePlan_([
+    { category:'пс', title:'PlayStation 5 Slim Digital 825GB', price:59000 },
+    { category:'пс', title:'DualSense Black', price:6400 },
+    { category:'пс', title:'DualSense Charging Station copy Black', price:2200 }
+  ], 'пс', layout, [['PlayStation 5 Slim 1TB', 59000], ['DualSense Black', '']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(ps.updates)), [{ row:0, price:'' }, { row:1, price:6400 }]);
+  const dyson = api.tcAvitoDirectTitlePlan_([
+    { category:'дайсон', title:'Dyson HS08 Ceramic Pink', price:35000 }
+  ], 'дайсон', layout, [['Dyson OnTrac CNC Copper', 2800]]);
+  assert.deepEqual(JSON.parse(JSON.stringify(dyson.updates)), [{ row:0, price:'' }]);
 });
