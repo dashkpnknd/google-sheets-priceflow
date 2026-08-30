@@ -6,6 +6,7 @@
  */
 const TC = {
   sheets: ['телефоны', 'макбуки', 'айпады', 'часы', 'наушники', 'пс', 'дайсон', 'аймаки'],
+  androidLogSheet: 'Лог Android цен',
   everyMinutes: 15,
   // Current Uniseil price sheet. The synchronizer discovers this link again
   // from the latest public channel menu before every run, so a supplier link
@@ -97,13 +98,14 @@ function syncTelegramCatalog_() {
   try {
     const p = PropertiesService.getScriptProperties(), channel = p.getProperty(TC.props.channel);
     if (!channel) throw new Error('Сначала подключите публичный Telegram-канал.');
-    const sourceRows = tcFetchSupplierSheetRows_(channel);
+    const book = SpreadsheetApp.getActiveSpreadsheet();
+    const sourceRows = tcFetchSupplierSheetRows_(channel).filter(function(row) { return !tcIsAsis_(tcDisplay_(row)); });
     const mirror = tcAddTwoSimMirror_(sourceRows, p.getProperty(TC.props.mirrorTwoSim) === 'true');
     // Одна и та же конфигурация может быть у поставщика из нескольких стран.
     // Для Ульяновска берём только вариант с минимальной закупочной ценой.
     const cheapest = tcChooseCheapestCountry_(mirror.rows);
-    const markup = tcApplyUlyanovskMarkup_(cheapest.rows, tcLoadUlyanovskMarkup_());
-    const rows = markup.rows, book = SpreadsheetApp.getActiveSpreadsheet();
+    const rules = tcLoadUlyanovskMarkup_(), markup = tcApplyUlyanovskMarkup_(cheapest.rows, rules);
+    const rows = markup.rows;
     const byCategory = {};
     rows.forEach(function(row) { (byCategory[row.category] = byCategory[row.category] || []).push(row); });
     let written = 0; const skippedSheets = [];
@@ -118,6 +120,7 @@ function syncTelegramCatalog_() {
     // display text a second time.
     SpreadsheetApp.flush();
     const priceSync = tcSyncAvitoPrices_();
+    tcWriteAndroidCalculationLog_(book, rows, markup.withoutMarkupItems);
     const now = new Date(); p.setProperty(TC.props.last, String(now.getTime()));
     p.setProperty(TC.props.status, 'Каталог обновлён: ' + written + ' позиций.');
     return {
@@ -213,10 +216,23 @@ function tcAvitoSafePhoneFallback_(phones, target) {
   const prices = Array.from(new Set(candidates.map(function(item) { return Number(item.price); }).filter(Boolean)));
   return prices.length === 1 ? { price:prices[0], rule:'supplier-omitted-field' } : null;
 }
+function tcAvitoPhoneMemoryKey_(value) {
+  const text = tcNorm_(value), match = /^(\d+)\s*(гб|gb|тб|tb)$/.exec(text);
+  if (!match) return text;
+  return String(Number(match[1]) * (/тб|tb/.test(match[2]) ? 1024 : 1)) + ' gb';
+}
 function tcAvitoPhoneKey_(phone) {
-  const model = tcNorm_(phone.model), memory = tcNorm_(phone.memory), color = tcNorm_(phone.color), sim = tcNorm_(phone.config || phone.sim || 'Не знаю'), ram = tcNorm_(phone.ram);
+  const model = tcNorm_(phone.model), memory = tcAvitoPhoneMemoryKey_(phone.memory), color = tcNorm_(phone.color), sim = tcAvitoSimKey_(phone.config || phone.sim || 'Не знаю'), ram = tcNorm_(phone.ram);
   if (!model || !memory || !color) return '';
   return [model, memory, color, sim, /^iphone\b/.test(model) ? '' : ram].join('|');
+}
+function tcAvitoSimKey_(value) {
+  const text = tcNorm_(value).replace(/[\-–—]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!text || text === 'не знаю') return 'не знаю';
+  // Ульяновск: 2 SIM и SIM + eSIM — один физический SIM-вариант.
+  if (/\b(?:2\s*sim|2\s*сим|dual\s*sim|sim\s*\+\s*e\s*sim)\b/.test(text)) return 'physical sim';
+  if (/\b(?:только\s*)?e\s*sim\b/.test(text)) return 'esim';
+  return text;
 }
 function tcAvitoLabel_(row, layout) { return [row[layout.model], row[layout.memory], row[layout.color], row[layout.sim], row[layout.ram]].map(String).join(' | '); }
 function tcAvitoTitleLayout_(headers) {
@@ -236,18 +252,17 @@ function tcAvitoDirectSource_(headers, rows) {
   });
   return items;
 }
-/** Copies prices from the prepared source phone blocks by their full fields. */
+/** Copies prices under the Ulyanovsk identity: no colour/SIM, Android RAM only when both known. */
 function tcAvitoDirectPhonePlan_(sourceRows, layout, rows) {
   // ASIS/CPO remains in the supplier catalogue but never prices a normal Avito
   // listing. Keep this filter here, in the actual direct catalogue → Avito path.
   const publishableRows = sourceRows.filter(function(row) { return !tcIsAsis_(row.model || row.title); });
-  const prices = {}, conflicts = {}, updates = [], missing = [], ambiguous = []; let matched = 0, cleared = 0;
-  publishableRows.forEach(function(row) { const key = tcAvitoPhoneKey_(row), price = Number(row.price); if (!key || !price) return; prices[key] = prices[key] ? Math.min(prices[key], price) : price; });
+  const updates = [], missing = [], ambiguous = []; let matched = 0, cleared = 0;
   rows.forEach(function(row, rowIndex) {
-    const target = { model:row[layout.model], memory:row[layout.memory], color:row[layout.color], sim:row[layout.sim], ram:row[layout.ram] }, key = tcAvitoPhoneKey_(target);
-    if (!key) return;
-    const fallback = prices[key] ? null : tcAvitoCheapestPhoneFallback_(publishableRows, target);
-    const price = prices[key] || (fallback && fallback.price);
+    const target = { model:row[layout.model], memory:row[layout.memory], color:row[layout.color], sim:row[layout.sim], ram:row[layout.ram] };
+    if (!tcNorm_(target.model) || tcNorm_(target.model) === 'не знаю') return;
+    const match = tcAvitoCheapestPhoneFallback_(publishableRows, target);
+    const price = match && match.price;
     if (!price) { missing.push(tcAvitoLabel_(row, layout)); if (row[layout.price] !== '') { updates.push({ row:rowIndex, price:'' }); cleared++; } return; }
     matched++; if (Number(row[layout.price]) !== price) updates.push({ row:rowIndex, price:price });
   });
@@ -255,36 +270,103 @@ function tcAvitoDirectPhonePlan_(sourceRows, layout, rows) {
 }
 /** Copies non-phone prices from the prepared source catalogue by Title. */
 function tcAvitoDirectTitlePlan_(sourceRows, category, layout, rows) {
-  const prices = {}, conflicts = {}, updates = [], missing = [], ambiguous = []; let matched = 0, cleared = 0;
-  sourceRows.forEach(function(row) { const key = tcAvitoTitleKey_(row.title), price = Number(row.price); if (!key || !price) return; prices[key] = prices[key] ? Math.min(prices[key], price) : price; });
+  const updates = [], missing = [], ambiguous = []; let matched = 0, cleared = 0;
+  const publishableRows = sourceRows.filter(function(row) { return tcAvitoEligibleTitle_(row.title); });
   rows.forEach(function(row, rowIndex) {
     const key = tcAvitoTitleKey_(row[layout.title]); if (!key) return;
-    const fallback = prices[key] ? null : tcAvitoCheapestTitleFallback_(sourceRows, category, row[layout.title]);
-    const price = prices[key] || (fallback && fallback.price);
+    // For MacBook the strict hardware key is authoritative even when one
+    // differently-coloured title happens to match literally: the client rule
+    // takes the lowest ordinary price across colours.
+    const strictMacbook = tcAvitoStrictMacbookFallback_(publishableRows, category, row[layout.title]);
+    const fallback = strictMacbook || tcAvitoCheapestTitleFallback_(publishableRows, category, row[layout.title]);
+    const price = fallback && fallback.price;
     if (!price) { missing.push(String(row[layout.title])); if (row[layout.price] !== '') { updates.push({ row:rowIndex, price:'' }); cleared++; } return; }
     matched++; if (Number(row[layout.price]) !== price) updates.push({ row:rowIndex, price:price });
   });
   return { updates:updates, matched:matched, cleared:cleared, missing:missing, ambiguous:ambiguous };
 }
+function tcAvitoEligibleTitle_(value) {
+  // Avito has no state field we may write.  Do not let a pre-activated or
+  // damaged-box offer set the price of an ordinary listing.
+  return !/(?:\b(?:asis|cpo|open\s*box|refurb(?:ished)?)\b|уцен|витрин|демо|предактив|пред\s*актив|мят(?:ая|ый|ой|ую|ые|ых)?\s*(?:короб|упаков|📦))/iu.test(String(value || ''));
+}
 /**
- * A price may be reused only for a field that the supplier omitted.  A
- * different colour or SIM is a different sellable SKU, even when its price
- * happens to be the same today.  This prevents a disappeared eSIM offer from
- * receiving the price of a current 2 SIM offer.
+ * Exact MacBook identity independent of editorial title form. It is purposely
+ * narrower than word scoring: a different chip, RAM/SSD or screen can never
+ * become a candidate. Neo does not require a screen value when it is absent.
+ */
+function tcAvitoStrictMacbookFallback_(items, category, targetTitle) {
+  if (category !== 'макбуки') return null;
+  const targetKey = tcAvitoMacbookKey_(targetTitle);
+  if (!targetKey) return null;
+  const prices = items.filter(function(item) { return tcAvitoMacbookKey_(item.title) === targetKey; })
+    .map(function(item) { return Number(item.price); }).filter(Boolean);
+  return prices.length ? { price:Math.min.apply(null, prices), rule:'strict-macbook-key' } : null;
+}
+function tcAvitoMacbookKey_(value) {
+  const text = String(value || '').toLocaleLowerCase('ru-RU').replace(/ё/g, 'е');
+  const family = /macbook\s+(?:\d+\s+)?neo\b/.test(text) ? 'neo' : /macbook\s+air\b/.test(text) ? 'air' : /macbook\s+pro\b/.test(text) ? 'pro' : '';
+  const chip = /\bm\s*(\d+)\b/i.exec(text);
+  const config = tcAvitoMacbookConfig_(text);
+  // Neo currently uses A18 Pro and the Avito title does not expose that chip.
+  // Its own family plus RAM/SSD is therefore the complete safe hardware key.
+  if (!family || (!chip && family !== 'neo') || !config) return '';
+  const screen = /\b(13|14|15|16)\s*(?:[″”\"]|inch|дюйм)?\b/.exec(text);
+  // Product names for Neo may omit its 13-inch display; do not invent it.
+  if (family !== 'neo' && !screen) return '';
+  return [family, family === 'neo' ? '' : screen[1], chip ? 'm' + chip[1] : '', config].join('|');
+}
+function tcAvitoMacbookConfig_(value) {
+  const compact = String(value || '').replace(/\s+/g, ' ');
+  let match = /\b(8|16|24|32|36|48|64)\s*(?:\/|gb\s*\/|гб\s*\/|gb\s+|гб\s+)(256|512|1024|2048|1|2)\s*(gb|гб|tb|тб)?\b/i.exec(compact);
+  if (!match) return '';
+  const ram = match[1], storage = Number(match[2]), tb = /^(tb|тб)$/i.test(match[3] || '') || storage === 1024 || storage === 2048;
+  return ram + 'x' + (storage === 1024 ? '1' : storage === 2048 ? '2' : String(storage)) + (tb ? 'tb' : 'gb');
+}
+/**
+ * Avito sometimes stores a technical "Не знаю" instead of the iPad's
+ * connectivity.  It is not a configuration to match.  Accept it only when
+ * every remaining canonical title token is identical, and then retain the
+ * client rule of using the lowest current price.  Explicit Wi-Fi/LTE values
+ * never enter this fallback.
+ */
+function tcAvitoUnknownSimTitleFallback_(items, category, targetTitle) {
+  if (!tcAvitoHasUnknownTitleConfig_(targetTitle)) return null;
+  const targetKey = tcAvitoTitleWithoutConnectivityKey_(targetTitle);
+  if (!targetKey) return null;
+  const prices = items.filter(function(item) {
+    return (!item.category || item.category === category) && tcAvitoTitleWithoutConnectivityKey_(item.title) === targetKey;
+  }).map(function(item) { return Number(item.price); }).filter(Boolean);
+  return prices.length ? { price:Math.min.apply(null, prices), rule:'target-unknown-connectivity' } : null;
+}
+function tcAvitoTitleWithoutConnectivityKey_(value) {
+  return tcAvitoTitleKey_(String(value || '')
+    .replace(/\bwi[\s\-\u2010-\u2015\u2011]?fi\b/giu, ' ')
+    .replace(/\b(?:lte|cellular)\b/giu, ' ')
+    .replace(/(?:^|[^\p{L}\p{N}])(?:не\s+знаю|unknown)(?=$|[^\p{L}\p{N}])/giu, ' '));
+}
+function tcAvitoHasUnknownTitleConfig_(value) {
+  return /(?:^|[^\p{L}\p{N}])(?:не\s+знаю|unknown)(?=$|[^\p{L}\p{N}])/iu.test(String(value || ''));
+}
+/**
+ * Phone matching follows the Ulyanovsk rules for its own category.  A blank
+ * Avito field is unrestricted; Android RAM restricts only when both sides
+ * declare it.
  */
 function tcAvitoCheapestPhoneFallback_(phones, target) {
-  const model = tcNorm_(target.model), memory = tcNorm_(target.memory), color = tcNorm_(target.color), sim = tcNorm_(target.sim || target.config || 'Не знаю'), ram = tcNorm_(target.ram);
-  if (!model || !memory || !color) return null;
+  const model = tcNorm_(target.model), memory = tcAvitoPhoneMemoryKey_(target.memory), color = tcNorm_(target.color), ram = tcNorm_(target.ram);
+  if (!model || model === 'не знаю') return null;
   const unknown = function(value) { return !value || value === 'не знаю'; };
+  const targetUnknownMemory = unknown(memory), targetUnknownColor = unknown(color), targetUnknownRam = unknown(ram), android = !/^iphone\b/.test(model), targetColorGroup = tcColorGroup_(target.color);
   const candidates = phones.filter(function(phone) {
-    const phoneColor = tcNorm_(phone.color), phoneSim = tcNorm_(phone.sim || phone.config || 'Не знаю');
-    return tcNorm_(phone.model) === model && tcNorm_(phone.memory) === memory &&
-      (/^iphone\b/.test(model) || tcNorm_(phone.ram) === ram) &&
-      (unknown(phoneColor) || phoneColor === color) && (unknown(phoneSim) || phoneSim === sim) &&
-      (unknown(phoneColor) || unknown(phoneSim));
+    const sourceRam = tcNorm_(phone.ram);
+    return tcNorm_(phone.model) === model &&
+      (targetUnknownMemory || tcAvitoPhoneMemoryKey_(phone.memory) === memory) &&
+      (targetUnknownColor || (android ? Boolean(targetColorGroup) && tcColorGroup_(phone.color) === targetColorGroup : tcNorm_(phone.color) === color)) &&
+      (!android || targetUnknownRam || unknown(sourceRam) || sourceRam === ram);
   });
-  const prices = Array.from(new Set(candidates.map(function(item) { return Number(item.price); }).filter(Boolean)));
-  return prices.length === 1 ? { price:prices[0], rule:'supplier-omitted-field' } : null;
+  const prices = candidates.map(function(item) { return Number(item.price); }).filter(Boolean);
+  return prices.length ? { price:Math.min.apply(null, prices), rule:'ulyanovsk-phone-identity' } : null;
 }
 function tcAvitoTitlePricePlan_(products, category, layout, rows) {
   const source = tcAvitoTitleSourceIndex_(products, category), updates = [], missing = [], ambiguous = []; let matched = 0;
@@ -317,11 +399,15 @@ function tcAvitoTitleKey_(value) {
     .replace(/\((?:актив|уценка|active)\)|\b(?:актив|уценка|active)\b/gi, ' ')
     .replace(/\b(?:19|20)\d{2}\b(?!\s*(?:гб|gb|тб|tb))/giu, '')
     .replace(/\bapple\b/gi, '')
+    // "Не знаю" is a technical placeholder in existing Avito rows, not a
+    // sellable iPad/MacBook/etc. configuration.  Keep real Wi-Fi/LTE terms
+    // below: they remain part of the SKU and are checked for conflicts.
+    .replace(/(?:^|[^\p{L}\p{N}])(?:не\s+знаю|unknown)(?=$|[^\p{L}\p{N}])/giu, ' ')
     .replace(/(\d+(?:[.,]\d+)?)\s*(?:тб|tb)(?=$|[^\p{L}\p{N}])/giu, function(_, amount) { return String(Math.round(Number(String(amount).replace(',', '.')) * 1024)) + ' gb'; })
     .replace(/(\d+(?:[.,]\d+)?)\s*(?:гб|gb)(?=$|[^\p{L}\p{N}])/giu, '$1 gb')
-    .replace(/wi[\s\-\u2010-\u2015\u2011]?fi/gi, 'wifi').replace(/e[\s\-\u2010-\u2015\u2011]?sim/gi, 'esim')
+    .replace(/(?:wi[\s\-\u2010-\u2015\u2011]?fi|\b(?:lte|cellular)\b)/gi, ' ').replace(/e[\s\-\u2010-\u2015\u2011]?sim/gi, 'esim')
     .replace(/space\s+gray/gi, 'spacegray').replace(/space\s+black/gi, 'black')
-    .replace(/[()\[\],.;:/|]+/g, ' ').toLocaleLowerCase('ru-RU');
+    .replace(/[()\[\],.;:/|+]+/g, ' ').toLocaleLowerCase('ru-RU');
   return text.split(/\s+/).filter(Boolean).sort().join('|');
 }
 /**
@@ -341,12 +427,112 @@ function tcAvitoTitleFallback_(items, category, targetTitle) {
   return prices.length === 1 ? { price:prices[0], score:bestScore } : { ambiguous:true };
 }
 function tcAvitoCheapestTitleFallback_(items, category, targetTitle) {
-  const threshold = { 'айпады':0.70, 'дайсон':0.60, 'часы':0.65, 'макбуки':0.65, 'наушники':0.65, 'пс':0.70 }[category] || 0.75;
-  const candidates = items.map(function(item) { return { title:item.title, price:item.price, score:tcAvitoTitleScore_(category, targetTitle, item.title) }; }).filter(function(item) { return item.score >= threshold; });
+  const candidates = items.map(function(item) { return { title:item.title, price:item.price, score:tcAvitoTitleScore_(category, targetTitle, item.title) }; }).filter(function(item) { return tcAvitoRequiredTitleMatch_(category, targetTitle, item.title); });
   if (!candidates.length) return null;
-  const bestScore = Math.max.apply(null, candidates.map(function(item) { return item.score; })), best = candidates.filter(function(item) { return item.score === bestScore; });
-  return { price:Math.min.apply(null, best.map(function(item) { return Number(item.price); }).filter(Boolean)), score:bestScore };
+  return { price:Math.min.apply(null, candidates.map(function(item) { return Number(item.price); }).filter(Boolean)), score:Math.max.apply(null, candidates.map(function(item) { return item.score; })) };
 }
+function tcAvitoRequiredTitleMatch_(category, targetTitle, candidateTitle) {
+  if (category === 'пс') return tcAvitoPlaystationMatches_(targetTitle, candidateTitle);
+  if (category === 'дайсон') return tcAvitoDysonMatches_(targetTitle, candidateTitle);
+  if (category === 'наушники' && tcAvitoAirPodsMax2026_(targetTitle)) return tcAvitoAirPodsMaxMatches_(targetTitle, candidateTitle);
+  const required = tcAvitoRequiredTitleTokens_(category, targetTitle), candidate = tcAvitoTitleWords_(candidateTitle);
+  if (!required.every(function(token) { return candidate.indexOf(token) >= 0; })) return false;
+  const target = String(targetTitle || ''), source = String(candidateTitle || '');
+  if (category === 'часы') {
+    const variant = tcAvitoRequiredVariantTokens_(target);
+    if (!variant.every(function(token) { return candidate.indexOf(token) >= 0; })) return false;
+  }
+  if (category === 'наушники') return tcAvitoHasAnc_(target) === tcAvitoHasAnc_(source);
+  if (category === 'часы') {
+    const size = function(value) { const hit = /\b(40|41|42|44|45|46|49)\s*mm\b/i.exec(String(value || '')); return hit ? hit[1] : ''; };
+    const targetSize = size(target), sourceSize = size(source);
+    if (targetSize && targetSize !== sourceSize) return false;
+  }
+  return true;
+}
+function tcAvitoDysonModelKey_(value) {
+  const text = tcNorm_(value);
+  if (/\bon\s*trac\b/.test(text)) return 'ontrac';
+  const match = /\b(hs|hd|ht)\s*(\d{2})\b/i.exec(text);
+  return match ? (match[1].toLowerCase() + match[2]) : '';
+}
+/**
+ * A Dyson code alone is not a saleable SKU in Ulyanovsk: one HS08/HD16 code
+ * can have several colours and kits with different purchase prices.  Compare
+ * the complete published variant after removing only editorial product words.
+ */
+function tcAvitoDysonSkuKey_(value) {
+  const text = tcNorm_(value).replace(/cooper/g, 'copper').replace(/[🇦-🇿]{2}/gu, ' ');
+  const model = tcAvitoDysonModelKey_(text); if (!model) return '';
+  const variant = text
+    .replace(/\bdyson\b|\bairwrap\b|\bстайлер\b|\bфен\b|\bhair\b|\bcare\b/gi, ' ')
+    .replace(/\b(?:hs|hd|ht)\s*\d{2}\b/gi, ' ')
+    .replace(/[^a-zа-я0-9]+/gi, ' ').replace(/\s+/g, ' ').trim();
+  // A title with a code but no variant is not enough to choose one of several
+  // differently priced country/kit rows.
+  return variant ? model + '|' + variant.split(' ').sort().join('|') : '';
+}
+function tcAvitoDysonMatches_(targetTitle, candidateTitle) {
+  const target = tcAvitoDysonSkuKey_(targetTitle), candidate = tcAvitoDysonSkuKey_(candidateTitle);
+  return Boolean(target && candidate && target === candidate);
+}
+function tcAvitoAirPodsMax2026_(value) { return /\bairpods\s+max\s+(?:2\s+)?2026\b/i.test(String(value || '')); }
+function tcAvitoAirPodsMaxMatches_(targetTitle, candidateTitle) {
+  if (!tcAvitoAirPodsMax2026_(candidateTitle)) return false;
+  // Every filled Avito colour is a real variant here: Blue, Purple, Starlight,
+  // Midnight and Orange must not share the cheapest price with one another.
+  const targetColor = tcColorGroup_(tcColor_(targetTitle));
+  const candidateColor = tcColorGroup_(tcColor_(candidateTitle));
+  return !targetColor || Boolean(candidateColor && targetColor === candidateColor);
+}
+function tcAvitoPlaystationIdentity_(value) {
+  const text = tcNorm_(value).replace(/playstation/g, 'ps');
+  if (/dual\s*sense/.test(text)) {
+    // Chargers, docks and stands are accessories, not controllers. They must
+    // never set a DualSense price just because their supplier title includes
+    // the word "DualSense".
+    const accessory = /charg(?:ing|er)?\b|\bdock\b|\bstand\b|\bstation\b|заряд|док|подстав/.test(text);
+    return { family:accessory ? 'dualsense-accessory' : 'dualsense', edge:/\bedge\b/.test(text), color:tcColorGroup_(tcColor_(value)) };
+  }
+  const generation = /\bps\s*([345])\b/.exec(text);
+  if (!generation) return null;
+  const form = /\bpro\b/.test(text) ? 'pro' : /\bslim\b/.test(text) ? 'slim' : 'standard';
+  const media = /\bdigital\b/.test(text) ? 'digital' : /\b(?:disc|disk|diskdrive)\b|диск(?:овод\w*|ов\w*)?/i.test(text) ? 'disc' : '';
+  const memory = /\b(825|1000|1024|2000|2048)\s*(?:gb|гб)|\b([12])\s*(?:tb|тб)\b/i.exec(text);
+  const memoryGb = memory ? Number(memory[1] || Number(memory[2]) * 1024) : 0;
+  return { family:'ps' + generation[1], form:form, media:media, memory:memoryGb };
+}
+function tcAvitoPlaystationMatches_(targetTitle, candidateTitle) {
+  const target = tcAvitoPlaystationIdentity_(targetTitle), candidate = tcAvitoPlaystationIdentity_(candidateTitle);
+  if (!target || !candidate || target.family !== candidate.family) return false;
+  if (target.family === 'dualsense') {
+    if (candidate.family === 'dualsense-accessory') return false;
+    // Edge is mandatory only when Avito explicitly says Edge.  A plain
+    // "DualSense" is allowed to consider controller variants, never docks.
+    return (!target.edge || candidate.edge) && (!target.color || target.color === candidate.color);
+  }
+  // Bare "PlayStation 5" has no selected SKU.  Do not turn a disc drive,
+  // Digital or arbitrary standard-console price into its price.
+  if (target.form === 'standard' && !target.media && !target.memory) return false;
+  return target.form === candidate.form && (!target.media || target.media === candidate.media) && (!target.memory || target.memory === candidate.memory);
+}
+function tcAvitoRequiredVariantTokens_(value) {
+  const variants = /^(?:black|white|blue|green|pink|yellow|red|orange|purple|violet|silver|gold|gray|grey|natural|desert|starlight|midnight|graphite|titanium|spacegray|spaceblack|ultramarine|teal|indigo|coral|lavender|фиолетовый|черный|белый|синий|голубой|зеленый|розовый|желтый|красный|оранжевый|серебристый|золотистый|серый|натуральный|пустынный|ocean|alpine|trail|sport|milanese|link|loop|rubber|woven)$/;
+  return tcAvitoTitleWords_(value).filter(function(word) { return variants.test(word); });
+}
+function tcAvitoRequiredTitleTokens_(category, value) {
+  const words = tcAvitoTitleWords_(value);
+  const take = function(pattern) { return words.filter(function(word) { return pattern.test(word); }); };
+  if (category === 'айпады') return take(/^(?:ipad|air|pro|mini|(?:m|a)\d+|\d+(?:gb|tb)|11|13|nano|texture)$/);
+  if (category === 'макбуки') return take(/^(?:macbook|air|pro|neo|m\d+|\d+x\d+(?:gb|tb)|13|14|15|16)$/);
+  if (category === 'часы') return take(/^(?:watch|(?:se|ultra|s)\d+)$/);
+  if (category === 'дайсон') return take(/^(?:hs|hd|ht)\d+$/);
+  if (category === 'пс' && /dualsense/i.test(String(value || ''))) return take(/^dualsense$/);
+  if (category === 'пс') return take(/^(?:ps\d|slim|pro|digital|disc|\d+(?:gb|tb))$/);
+  if (category === 'наушники') return take(/^(?:airpods\d+|airpodsmax\d+|pro\d+)$/);
+  return take(/^(?:dualsense)$/);
+}
+function tcAvitoHasAnc_(value) { return /\banc\b|шумоподав/i.test(String(value || '')); }
 function tcAvitoTitleScore_(category, left, right) {
   const a = tcAvitoTitleWords_(left), b = tcAvitoTitleWords_(right);
   if (!a.length || !b.length || tcAvitoFamilyConflict_(category, left, right) || tcAvitoColorConflict_(left, right) || tcAvitoHardwareConflict_(category, a, b)) return 0;
@@ -355,13 +541,20 @@ function tcAvitoTitleScore_(category, left, right) {
   return shared / Math.max(a.length, b.length);
 }
 function tcAvitoTitleWords_(value) {
-  const ignored = { apple:true, samsung:true, sony:true, стайлер:true, гарантия:true, рассрочка:true, active:true, актив:true, уценка:true, новый:true, оригинал:true, товар:true, sale:true, loop:true, milanese:true, wifi:true };
+  const ignored = { apple:true, samsung:true, sony:true, стайлер:true, гарантия:true, рассрочка:true, active:true, актив:true, уценка:true, новый:true, оригинал:true, товар:true, sale:true, loop:true, milanese:true, wifi:true, не:true, знаю:true, unknown:true };
   const text = String(value || '').replace(/[\u{1F1E6}-\u{1F1FF}]{2}/gu, '').toLocaleLowerCase('ru-RU').replace(/ё/g, 'е')
-    .replace(/ipad\s+(\d+)\s+mini/g, 'ipad mini $1').replace(/apple\s+watch\s+(?:series\s+)?(se|ultra)\s+(\d+)/g, 'watch $1$2').replace(/apple\s+watch\s+series\s+(\d+)/g, 'watch s$1')
-    .replace(/playstation/g, 'ps').replace(/\bps\s+(\d)\b/g, 'ps$1').replace(/airpods\s+pro\s+(\d+)/g, 'airpods pro$1').replace(/airpods\s+(\d+)\b/g, 'airpods$1').replace(/\b([hsdt])\s*(\d{2})\b/g, '$1$2')
-    .replace(/(\d+)\s*\/\s*(\d+)(?:\s*(gb|гб|tb|тб))?/g, function(all, ram, storage, unit) { return ram + 'x' + storage + (/^(tb|тб)$/i.test(unit || '') ? 'tb' : 'gb'); }).replace(/(\d+)\s*(?:gb|гб)/g, '$1gb').replace(/(\d+)\s*(?:tb|тб)/g, '$1tb')
+    .replace(/ipad\s+(\d+)\s+mini/g, 'ipad mini $1').replace(/(?:apple\s+)?watch\s+(?:series\s+)?(se|ultra)\s+(\d+)/g, 'watch $1$2').replace(/(?:apple\s+)?watch\s+series\s+(\d+)/g, 'watch s$1')
+    .replace(/playstation/g, 'ps').replace(/\bps\s+(\d)\b/g, 'ps$1').replace(/airpods\s+max\s+(?:2\s+)?2026\b/g, 'airpodsmax2').replace(/airpods\s+pro\s+(\d+)/g, 'airpods pro$1').replace(/airpods\s+(\d+)\b/g, 'airpods$1').replace(/\b([hsdt])\s*(\d{2})\b/g, '$1$2')
+    .replace(/(\d+)\s*\/\s*(\d+)(?:\s*(gb|гб|tb|тб))?/g, tcAvitoRamStorageWord_)
+    .replace(/\b(8|16|24|32|36|48|64)\s*(?:gb|гб)\s+(256|512|1024|2048|1|2)\s*(gb|гб|tb|тб)\b/gi, tcAvitoRamStorageWord_)
+    .replace(/\b1024\s*(?:gb|гб)\b/gi, '1tb').replace(/\b2048\s*(?:gb|гб)\b/gi, '2tb')
+    .replace(/(\d+)\s*(?:gb|гб)/g, '$1gb').replace(/(\d+)\s*(?:tb|тб)/g, '$1tb')
     .replace(/(\d+)\s*mm\b/g, '$1mm').replace(/wi[\s\-\u2010-\u2015\u2011]*fi/g, 'wifi').replace(/[()\[\],.;:+/\\-]+/g, ' ').replace(/\s+/g, ' ').trim();
   return Array.from(new Set(text.split(' ').filter(function(word) { return (word.length > 1 || /^\d{1,2}$/.test(word)) && !ignored[word] && !/^\d{4}$/.test(word) && !/^[a-zа-я]{1,2}\d{3,}[a-zа-я0-9-]*$/i.test(word); })));
+}
+function tcAvitoRamStorageWord_(all, ram, storage, unit) {
+  const amount = Number(storage), isTb = /^(tb|тб)$/i.test(unit || '') || amount === 1024 || amount === 2048;
+  return String(ram) + 'x' + (amount === 1024 ? '1' : amount === 2048 ? '2' : storage) + (isTb ? 'tb' : 'gb');
 }
 function tcAvitoFamilyConflict_(category, left, right) {
   const family = function(value) { const text = tcNorm_(value);
@@ -385,9 +578,9 @@ function tcAvitoHardwareConflict_(category, left, right) {
   const onlyOneHas = function(word) { return (left.indexOf(word) >= 0) !== (right.indexOf(word) >= 0); };
   if (tcAvitoScreenSize_(category, left, right)) return true;
   if (category === 'макбуки' && (differs(/^m\d+$/) || differs(/^\d+x\d+(?:gb|tb)$/))) return true;
-  if (category === 'айпады' && (differs(/^m\d+$/) || differs(/^a\d+$/) || differs(/^\d+(?:gb|tb)$/) || onlyOneHas('lte') || onlyOneHas('nano') || onlyOneHas('texture'))) return true;
+  if (category === 'айпады' && (differs(/^m\d+$/) || differs(/^a\d+$/) || differs(/^\d+(?:gb|tb)$/) || onlyOneHas('nano') || onlyOneHas('texture'))) return true;
   if (category === 'дайсон' && differs(/^(?:hs|hd|ht)\d+$/)) return true;
-  if (category === 'часы' && (differs(/^\d+mm$/) || differs(/^(?:se|ultra|s)\d+$/))) return true;
+  if (category === 'часы' && differs(/^(?:se|ultra|s)\d+$/)) return true;
   if (category === 'наушники' && (differs(/^pro\d+$/) || differs(/^airpods\d+$/))) return true;
   if (category === 'пс' && differs(/^ps\d+$/)) return true;
   return false;
@@ -430,7 +623,7 @@ function tcRunUlyanovskRegressionTests() {
   equal(tcAvitoTitleScore_('макбуки', 'MacBook Air 13 M5 16/512 Blue', 'MacBook Air 15 M5 16/512 Blue'), 0, 'MacBook 13 и 15 нельзя смешивать');
   equal(tcAvitoTitleScore_('дайсон', 'Dyson HS08 Blue', 'Dyson HT01 Blue'), 0, 'Dyson HS и HT нельзя смешивать');
   equal(tcAvitoCheapestTitleFallback_([{ title:'iPad Mini 7 A17 128 GB Wi-Fi Blue', price:49000 }], 'айпады', 'iPad 7 mini (2024), 128 ГБ Wi‑Fi Blue').price, 49000, 'безопасное различие названий должно находиться');
-  equal(tcAvitoCheapestTitleFallback_([{ title:'iPad Mini 7 A17 128 GB Wi-Fi Blue', price:49000 }], 'айпады', 'iPad 7 mini (2024), 128 ГБ Wi‑Fi Purple'), null, 'разные цвета нельзя смешивать');
+  equal(tcAvitoCheapestTitleFallback_([{ title:'iPad Mini 7 A17 128 GB Wi-Fi Blue', price:49000 }], 'айпады', 'iPad 7 mini (2024), 128 ГБ Wi‑Fi Purple').price, 49000, 'цвет временно не блокирует одинаковый SKU');
   truth(tcAvitoLayout_(['Model','MemorySize','Color','SimConfig','RamSize','Price']), 'телефонный лист обязан иметь поля для цены');
   truth(tcAvitoTitleLayout_(['Title','Price']), 'Title-лист обязан иметь поля для цены');
   equal(tcParseMarkupCsv_('Модель,Наценка\niPhone,\nMacBook,3000').length, 1, 'пустая наценка не равна нулевой');
@@ -460,7 +653,7 @@ function tcWriteSheet_(sheet, products) {
   buckets.forEach(function(bucket) { bucket.sort(tcProductSort_); });
   let written = 0;
   layouts.forEach(function(layout, index) {
-    const data = buckets[index].map(function(product) { return tcTargetRow_(headers, layout, product); });
+    const data = buckets[index].map(function(product, rowIndex) { product.outputRow = rowIndex + 2; product.outputSheet = sheet.getName(); return tcTargetRow_(headers, layout, product); });
     // Apps Script does not expand a sheet automatically when setValues reaches
     // beyond its current grid. Large supplier catalogues must work on a blank
     // standard tab as well as on a previously filled one.
@@ -586,9 +779,31 @@ function tcSummary_(result) {
     (withoutMarkup ? '. Без правила наценки: ' + withoutMarkup : '') +
     '. Далее обновляется автоматически каждые 15 минут.';
 }
+function tcWriteAndroidCalculationLog_(book, rows, missingMarkup) {
+  let sheet = book.getSheetByName(TC.androidLogSheet);
+  if (!sheet) sheet = book.insertSheet(TC.androidLogSheet);
+  const headers = ['Итоговая строка', 'Строка поставщика', 'Товар поставщика', 'Закупочная цена', 'Цветовая группа', 'Правило наценки', 'Наценка', 'Итог', 'Статус'];
+  const log = rows.filter(function(row) { const phone = tcPhone_(tcDisplay_(row)); return row.category === 'телефоны' && !/^iphone\b/i.test(phone.model); }).map(function(row) {
+    const phone = tcPhone_(tcDisplay_(row));
+    return [String(row.outputSheet || 'телефоны') + '!L' + String(row.outputRow || ''), 'Лист1!A' + String(row.sourceRow || ''), tcDisplay_(row), row.supplierPrice || '', tcColorGroup_(phone.color) || 'не указан', tcAndroidMarkupRule_(row), row.markup || '', row.price || '', 'CALCULATED'];
+  });
+  (missingMarkup || []).forEach(function(item) { log.push(['', '', item, '', '', '', '', '', 'MISSING_MARKUP_RULE']); });
+  sheet.clearContents(); sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  if (log.length) sheet.getRange(2, 1, log.length, headers.length).setValues(log);
+  sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
+  if (log.length) sheet.getRange(2, 4, log.length, 1).setNumberFormat('0');
+  if (log.length) sheet.getRange(2, 7, log.length, 2).setNumberFormat('0');
+}
+function tcAndroidMarkupRule_(row) {
+  const name = tcNorm_(tcDisplay_(row));
+  if (/galaxy\s+z\s*(?:flip|fold)/.test(name)) return 'Samsung Foldables';
+  if (/galaxy\s+s/.test(name)) return 'Samsung Galaxy S';
+  if (/galaxy\s+a\d/.test(name)) return 'Samsung Galaxy A';
+  return 'Точное правило таблицы';
+}
 function tcNorm_(value) { return String(value || '').trim().toLocaleLowerCase('ru-RU'); }
 function tcDisplay_(product) { return [product.name, product.variant].filter(Boolean).join(' ').replace(/[\u{1F1E6}-\u{1F1FF}]{2}/gu, '').replace(/\s+/g, ' ').trim(); }
-function tcIsAsis_(value) { return /\(\s*asis(?:[^)]*)\)|\bcpo\b/i.test(String(value || '')); }
+function tcIsAsis_(value) { return /(?:\(\s*asis(?:[^)]*)\)|\bcpo\b|open\s*box|refurb(?:ished)?|уцен|витрин|предактив|пред\s*актив|мят(?:ая|ый|ой|ую|ые|ых)?\s*(?:короб|упаков)|вскрыт[а-я]*\s*(?:короб|упаков))/iu.test(String(value || '')); }
 function tcOutputPhoneModel_(phone, full, fallback) {
   const model = phone.model || fallback;
   return tcIsAsis_(full) && !/^\(asis\)\s*/i.test(model) ? '(ASIS) ' + model : model;
@@ -639,7 +854,13 @@ function tcChooseCheapestCountry_(rows) {
     const phone = tcPhone_(tcDisplay_(row));
     const fallback = tcNorm_(tcDisplay_(row))
       .replace(/[\u{1F1E6}-\u{1F1FF}]/gu, '').replace(/\s+/g, ' ').trim();
-    const key = [row.category, tcIsAsis_(tcDisplay_(row)) ? 'asis' : 'new', phone.model || fallback, phone.config, phone.memory, phone.ram, phone.color]
+    // An Android item without a recognised Avito colour is published with an
+    // empty Colour field. Such a field must not split the price candidates.
+    const colorKey = /^iphone\b/i.test(String(phone.model || '')) ? tcNorm_(phone.color) : tcColorGroup_(phone.color);
+    // SIM and country do not make Android phones different price candidates.
+    // iPhone keeps its configuration because its destination grid publishes it.
+    const configKey = /^iphone\b/i.test(String(phone.model || '')) ? phone.config : '';
+    const key = [row.category, tcIsAsis_(tcDisplay_(row)) ? 'asis' : 'new', phone.model || fallback, configKey, phone.memory, phone.ram, colorKey]
       .map(tcNorm_).join('|');
     const current = selected[key];
     const currentPhone = current && tcPhone_(tcDisplay_(current));
@@ -650,6 +871,11 @@ function tcChooseCheapestCountry_(rows) {
   });
   const kept = Object.keys(selected).map(function(key) { return selected[key]; });
   return { rows: kept, removed: Math.max(0, rows.length - kept.length) };
+}
+// Unknown supplier finishes must never collapse into one "no colour" SKU.
+function tcSupplierColorKey_(value, phone) {
+  if (phone && phone.color) return tcNorm_(phone.color);
+  return tcNorm_(value).replace(/[\u{1F1E6}-\u{1F1FF}]{2}/gu, ' ').replace(/(?:galaxy\s+(?:s|a|m)\d+(?:\s+(?:fe|ultra|plus))?|galaxy\s+z\s+(?:flip|fold)\d+(?:\s+ultra)?|iphone\s+[^\s]+|\d+\s*\/\s*\d+\s*(?:gb|гб|tb|тб)?|\d+\s*(?:gb|гб|tb|тб)|sim\s*\+\s*e\s*-?sim|e\s*-?sim|2\s*sim|dual\s*-?sim)/giu, ' ').replace(/\s+/g, ' ').trim();
 }
 
 function tcLoadUlyanovskMarkup_() {
@@ -721,12 +947,13 @@ function tcMarkupAmount_(row, rules) {
     if (/galaxy\s*watch/.test(name)) return find(/galaxy\s*watch/);
     if (/galaxy\s*tab\s*s/.test(name)) return find(/galaxy\s*tab\s*s.*сер/);
     if (/galaxy\s*tab\s*a/.test(name)) return find(/galaxy\s*tab\s*a.*сер/);
-    if (/galaxy\s*(?:s|z\s*fold)/.test(name)) return find(/s\s*-\s*сер|z\s*-?fold/);
+    if (/galaxy\s*(?:s|z\s*(?:fold|flip))/.test(name)) return find(/s\s*-\s*сер|z\s*-?fold/);
     if (/galaxy\s*a\d/.test(name)) return find(/a\s*-\s*сер/);
     return null;
   }
 
-  const memoryGb = Number(String(phone.memory || '').replace(/[^\d]/g, ''));
+  const memoryMatch = /^(\d+)\s*(ГБ|GB|ТБ|TB)$/i.exec(String(phone.memory || '').trim());
+  const memoryGb = memoryMatch ? Number(memoryMatch[1]) * (/тб|tb/i.test(memoryMatch[2]) ? 1024 : 1) : 0;
   const premium = /^iphone\s+17\s+(?:pro|max|pro\s+max)\b/.test(name) && memoryGb >= 512;
   if (premium) {
     const amount = find(/iphone\s+17\s+pro.*512.*17\s+pro\s+max.*512/);
@@ -742,6 +969,7 @@ function tcMarkupKey_(value) {
     .replace(/[\u{1F1E6}-\u{1F1FF}]{2}/gu, ' ')
     .replace(/[()\[\],.;:]+/g, ' ')
     .replace(/(?:^|\s)(?:актив|уценка|active)(?=\s|$)/gi, ' ')
+    .replace(/\bdisk(?:drive)?\b/gi, 'disc')
     .replace(/(\d+)\s*(?:gb|гб)/gi, '$1gb').replace(/(\d+)\s*(?:tb|тб)/gi, '$1tb')
     .replace(/[^a-zа-я0-9]+/gi, ' ').replace(/ё/g, 'е').replace(/\s+/g, ' ').trim();
 }
@@ -773,7 +1001,7 @@ function tcDiscoverSupplierSheetId_(channel) {
 function tcParseSupplierSheetCsv_(csv, sheetId) {
   const table = Utilities.parseCsv(String(csv || '')), rows = [];
   let header = '';
-  table.forEach(function(cells) {
+  table.forEach(function(cells, rowIndex) {
     const item = String(cells[0] || '').trim(), priceText = String(cells[1] || '').trim();
     if (!item) return;
     if (!priceText) { header = item; return; }
@@ -784,6 +1012,7 @@ function tcParseSupplierSheetCsv_(csv, sheetId) {
     rows.push(Object.assign(row, {
       category: category,
       section: 'sheet:' + tcNorm_(header),
+      sourceRow: rowIndex + 1,
       url: 'https://docs.google.com/spreadsheets/d/' + sheetId + '/edit'
     }));
   });
@@ -898,7 +1127,23 @@ function tcPhone_(value) {
   const sim = /\b(?:2\s*(?:sim|сим)|dual\s*-?\s*sim)\b/i.test(text) ? '2 SIM' : /sim\s*\+\s*e\s*-?sim/i.test(text) ? 'SIM + eSIM' : /e\s*-?sim/i.test(text) ? 'eSIM' : /\bsim\b/i.test(text) ? 'SIM' : '';
   return { model: tcModel_(text), memory: specs ? unit(specs[2], specs[3]) : memory ? unit(memory[1], memory[2]) : '', ram: specs ? unit(specs[1], 'GB') : '', color: tcColor_(text), config: sim, country: tcCountry_(text) };
 }
-function tcModel_(value) { const text = String(value || '').replace(/\(\s*asis\s*\)/gi, ' ').replace(/\s+/g, ' ').trim(); const iphone = /\biphone\s+(\d+(?:e)?(?:\s+(?:air|pro\s*max|pro|plus|mini))?)/i.exec(text); if (iphone) return 'iPhone ' + iphone[1].replace(/\s+/g, ' ').trim(); const other = /\b(galaxy\s+(?:s|a|z|m)\d+(?:\+|\s+(?:ultra|fe|plus))?|pixel\s+\d+(?:[a-z])?(?:\s+(?:pro|xl))?|honor\s+[\w-]+(?:\s+(?:pro|lite|x\d+d?))?)/i.exec(text); return other ? other[1].replace(/\s+/g, ' ').trim() : ''; }
+function tcModel_(value) {
+  const text = String(value || '').replace(/\(\s*asis\s*\)/gi, ' ').replace(/\s+/g, ' ').trim();
+  const iphone = /\biphone\s+(\d+(?:e)?(?:\s+(?:air|pro\s*max|pro|plus|mini))?)/i.exec(text);
+  if (iphone) return 'iPhone ' + iphone[1].replace(/\s+/g, ' ').trim();
+  const other = /\b(galaxy\s+(?:(?:s|a|m)\d+(?:\+|\s+(?:ultra|fe|plus))?|z\s+(?:flip|fold)\d+(?:\s+ultra)?)|pixel\s+\d+(?:[a-z])?(?:\s+(?:pro|xl))?|honor\s+[\w-]+(?:\s+(?:pro|lite|x\d+d?))?|huawei\s+(?:nova\s+\d+(?:\s+(?:pro|i|se))?|pura\s+[\w-]+(?:\s+(?:pro(?:\s+max)?|ultra|plus))?)|(?:xiaomi|redmi|poco)\s+(?:note\s+)?[\w-]+(?:\s+(?:pro\+?|plus|ultra|max|t))?|oneplus\s+[\w-]+(?:\s+(?:pro|r|t))?|realme\s+[\w-]+(?:\s+(?:pro|plus))?|nothing\s+phone\s*\(?[\w-]+\)?(?:\s+(?:pro|plus))?)/i.exec(text);
+  if (!other) return '';
+  const modifiers = tcAndroidTechnicalModifiers_(text);
+  return other[1].replace(/\s+/g, ' ').trim() + (modifiers ? ' ' + modifiers : '');
+}
+function tcAndroidTechnicalModifiers_(value) {
+  const text = tcNorm_(value), modifiers = [];
+  if (/\b4\s*g\b/.test(text)) modifiers.push('4G');
+  if (/\b5\s*g\b/.test(text)) modifiers.push('5G');
+  if (/\bnfc\b/.test(text)) modifiers.push('NFC');
+  if (/\blte\b/.test(text)) modifiers.push('LTE');
+  return modifiers.join(' ');
+}
 function tcCountry_(value) { const flag = /(🇺🇸|🇯🇵|🇭🇰|🇰🇷|🇮🇳|🇨🇦|🇸🇬|🇦🇪|🇷🇺|🇨🇳|🇪🇺|🇦🇺|🇰🇼|🇮🇩|🇧🇷)/u.exec(String(value || '')); const names = {'🇺🇸':'США','🇯🇵':'Япония','🇭🇰':'Гонконг','🇰🇷':'Корея','🇮🇳':'Индия','🇨🇦':'Канада','🇸🇬':'Сингапур','🇦🇪':'ОАЭ','🇷🇺':'Россия','🇨🇳':'Китай','🇪🇺':'Европа','🇦🇺':'Австралия','🇰🇼':'Кувейт','🇮🇩':'Индонезия','🇧🇷':'Бразилия'}; return flag ? names[flag[1]] + ' ' + flag[1] : ''; }
 // Цвет из Telegram может стоять в любом месте строки и быть отделён скобками,
 // тире или флагом страны. Это не подставляет цвет, которого нет у поставщика.
@@ -910,14 +1155,29 @@ function tcColor_(value) {
     ['deep purple','темно-фиолетовый'],['sierra blue','голубой'],['pacific blue','голубой'],['sky blue','голубой'],['alpine green','темно-зеленый'],['midnight green','темно-зеленый'],
     ['space gray','серый'],['rose gold','розовое золото'],['cosmic orange','оранжевый'],['product red','красный'],
     ['сияющая звезда','сияющая звезда'],['розовое золото','розовое золото'],['темно фиолетовый','темно-фиолетовый'],['темно зеленый','темно-зеленый'],
-    ['ultramarine','ультрамарин'],['graphite','графитовый'],['coral','коралловый'],['teal','бирюзовый'],['lavender','лавандовый'],['violet','фиолетовый'],['indigo','индиго'],['titanium','титан'],['porcelain','фарфоровый'],['hazel','ореховый'],['aloe','алоэ'],['peony','пионовый'],['wintergreen','зимний зеленый'],['charcoal','угольный'],['sage','шалфейный'],['mint','мятный'],['cream','кремовый'],
-    ['lemongrass','лимонный'],['obsidian','обсидиан'],['snow','белый'],['bay','голубой'],['fog','серый'],['midnight','полночный'],['starlight','сияющая звезда'],['natural','натуральный'],['desert','пустынный'],
+    ['ultramarine','ультрамарин'],['graphite','графитовый'],['coral','коралловый'],['teal','бирюзовый'],['lavender','лавандовый'],['lilac','фиолетовый'],['violet','фиолетовый'],['indigo','индиго'],['porcelain','фарфоровый'],['hazel','ореховый'],['aloe','алоэ'],['peony','пионовый'],['wintergreen','зимний зеленый'],['charcoal','угольный'],['sage','шалфейный'],['mint','мятный'],['cream','кремовый'],
+    // Supplier shade names are intentionally grouped into the closest Avito
+    // colour rather than blocking a sale over a cosmetic naming difference.
+    ['jetblack','черный'],['jet black','черный'],['black','черный'],['graphite','черный'],['charcoal','черный'],['midnight','черный'],['silver shadow','серый'],['silvershadow','серый'],['lightgray','серый'],['light gray','серый'],['graygreen','зеленый'],['gray green','зеленый'],['whitesilver','белый'],['white silver','белый'],['cobalt violet','фиолетовый'],['cobaltviolet','фиолетовый'],['violet shadow','фиолетовый'],['violetshadow','фиолетовый'],['navy','синий'],['cobalt blue','синий'],['cobaltblue','синий'],['sky blue','голубой'],['skyblue','голубой'],['icy blue','голубой'],['icyblue','голубой'],['silver blue','голубой'],['silverblue','голубой'],['titanium','титан'],['lemongrass','лимонный'],['obsidian','черный'],['snow','белый'],['bay','голубой'],['fog','серый'],['starlight','сияющая звезда'],['natural','натуральный'],['desert','пустынный'],
     ['черный','черный'],['белый','белый'],['синий','синий'],['голубой','голубой'],['зеленый','зеленый'],['розовый','розовый'],['желтый','желтый'],['серебристый','серебристый'],['серебряный','серебристый'],['серый','серый'],['оранжевый','оранжевый'],['фиолетовый','фиолетовый'],['лавандовый','лавандовый'],['бирюзовый','бирюзовый'],['графитовый','графитовый'],['коралловый','коралловый'],['красный','красный'],['золотистый','золотистый'],
     ['black','черный'],['white','белый'],['blue','синий'],['green','зеленый'],['pink','розовый'],['yellow','желтый'],['silver','серебристый'],['gray','серый'],['grey','серый'],['orange','оранжевый'],['purple','фиолетовый'],['violet','фиолетовый'],['red','красный'],['gold','золотистый']
   ];
   const padded = ' ' + v + ' ';
   const hit = colors.find(function(pair) { return padded.indexOf(' ' + pair[0] + ' ') >= 0; });
   return hit ? tcAvitoColor_(v, hit[1]) : '';
+}
+function tcColorGroup_(value) {
+  const color = tcNorm_(value).replace(/ё/g, 'е');
+  if (!color || color === 'не знаю') return '';
+  if (/черн|сер|графит|graphite|gray|grey|charcoal|jet\s*black/.test(color)) return 'black';
+  if (/син|голуб|небес|icy|sky|silverblue|silver\s*blue|navy|cobalt\s*blue/.test(color)) return 'blue';
+  if (/бел|silver|white/.test(color)) return 'white';
+  if (/зелен|mint|olive/.test(color)) return 'green';
+  if (/фиолет|lavender|lilac|cobalt\s*violet|violet\s*shadow/.test(color)) return 'violet';
+  if (/розов|pink/.test(color)) return 'pink';
+  if (/беж|cream/.test(color)) return 'beige';
+  if (/золот|gold/.test(color)) return 'gold';
+  return '';
 }
 // Значения Color сверяются с эталонной автозагрузкой Avito. Фирменное имя
 // сохраняется в названии товара, а в отдельную колонку попадает только цвет

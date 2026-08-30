@@ -140,3 +140,17 @@ test('accepts the known Krasnodar listing display variants', () => {
   assert.equal(JSON.stringify(plan.updates), JSON.stringify([{ row: 0, price: 100001 }, { row: 1, price: 100002 }]));
   assert.equal(plan.matched, 2);
 });
+
+
+test('uses the safe Krasnodar fallback only for technical unknown SIM and colour', () => {
+  const layout = api.rusAvitoLayout_(['Model', 'MemorySize', 'Color', 'SimConfig', 'RamSize', 'Price']);
+  const plan = api.rusAvitoPricePlan_([
+    { category:'телефоны', name:'iPhone 16 128GB Black eSIM', price:70000 },
+    { category:'телефоны', name:'iPhone 16 128GB Blue 2 SIM', price:72000 }
+  ], layout, [['iPhone 16', '128 ГБ', 'белый', 'Не знаю', '', '']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row:0, price:70000 }]);
+  const explicit = api.rusAvitoPricePlan_([
+    { category:'телефоны', name:'iPhone 16 128GB Black 2 SIM', price:72000 }
+  ], layout, [['iPhone 16', '128 ГБ', 'белый', 'eSIM', '', 70000]]);
+  assert.deepEqual(JSON.parse(JSON.stringify(explicit.updates)), [{ row:0, price:'' }]);
+});

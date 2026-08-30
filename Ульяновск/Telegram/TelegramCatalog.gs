@@ -349,8 +349,9 @@ function tcAvitoHasUnknownTitleConfig_(value) {
   return /(?:^|[^\p{L}\p{N}])(?:не\s+знаю|unknown)(?=$|[^\p{L}\p{N}])/iu.test(String(value || ''));
 }
 /**
- * Colour and SIM never restrict the match. A blank Avito field is also
- * unrestricted; Android RAM restricts only when both sides declare it.
+ * Phone matching follows the Ulyanovsk rules for its own category.  A blank
+ * Avito field is unrestricted; Android RAM restricts only when both sides
+ * declare it.
  */
 function tcAvitoCheapestPhoneFallback_(phones, target) {
   const model = tcNorm_(target.model), memory = tcAvitoPhoneMemoryKey_(target.memory), color = tcNorm_(target.color), ram = tcNorm_(target.ram);
@@ -432,10 +433,8 @@ function tcAvitoCheapestTitleFallback_(items, category, targetTitle) {
 }
 function tcAvitoRequiredTitleMatch_(category, targetTitle, candidateTitle) {
   if (category === 'пс') return tcAvitoPlaystationMatches_(targetTitle, candidateTitle);
-  if (category === 'дайсон') {
-    const targetDyson = tcAvitoDysonModelKey_(targetTitle), candidateDyson = tcAvitoDysonModelKey_(candidateTitle);
-    return Boolean(targetDyson && candidateDyson && targetDyson === candidateDyson);
-  }
+  if (category === 'дайсон') return tcAvitoDysonMatches_(targetTitle, candidateTitle);
+  if (category === 'наушники' && tcAvitoAirPodsMax2026_(targetTitle)) return tcAvitoAirPodsMaxMatches_(targetTitle, candidateTitle);
   const required = tcAvitoRequiredTitleTokens_(category, targetTitle), candidate = tcAvitoTitleWords_(candidateTitle);
   if (!required.every(function(token) { return candidate.indexOf(token) >= 0; })) return false;
   const target = String(targetTitle || ''), source = String(candidateTitle || '');
@@ -457,18 +456,48 @@ function tcAvitoDysonModelKey_(value) {
   const match = /\b(hs|hd|ht)\s*(\d{2})\b/i.exec(text);
   return match ? (match[1].toLowerCase() + match[2]) : '';
 }
+/**
+ * A Dyson code alone is not a saleable SKU in Ulyanovsk: one HS08/HD16 code
+ * can have several colours and kits with different purchase prices.  Compare
+ * the complete published variant after removing only editorial product words.
+ */
+function tcAvitoDysonSkuKey_(value) {
+  const text = tcNorm_(value).replace(/cooper/g, 'copper').replace(/[🇦-🇿]{2}/gu, ' ');
+  const model = tcAvitoDysonModelKey_(text); if (!model) return '';
+  const variant = text
+    .replace(/\bdyson\b|\bairwrap\b|\bстайлер\b|\bфен\b|\bhair\b|\bcare\b/gi, ' ')
+    .replace(/\b(?:hs|hd|ht)\s*\d{2}\b/gi, ' ')
+    .replace(/[^a-zа-я0-9]+/gi, ' ').replace(/\s+/g, ' ').trim();
+  // A title with a code but no variant is not enough to choose one of several
+  // differently priced country/kit rows.
+  return variant ? model + '|' + variant.split(' ').sort().join('|') : '';
+}
+function tcAvitoDysonMatches_(targetTitle, candidateTitle) {
+  const target = tcAvitoDysonSkuKey_(targetTitle), candidate = tcAvitoDysonSkuKey_(candidateTitle);
+  return Boolean(target && candidate && target === candidate);
+}
+function tcAvitoAirPodsMax2026_(value) { return /\bairpods\s+max\s+(?:2\s+)?2026\b/i.test(String(value || '')); }
+function tcAvitoAirPodsMaxMatches_(targetTitle, candidateTitle) {
+  if (!tcAvitoAirPodsMax2026_(candidateTitle)) return false;
+  // Every filled Avito colour is a real variant here: Blue, Purple, Starlight,
+  // Midnight and Orange must not share the cheapest price with one another.
+  const targetColor = tcColorGroup_(tcColor_(targetTitle));
+  const candidateColor = tcColorGroup_(tcColor_(candidateTitle));
+  return !targetColor || Boolean(candidateColor && targetColor === candidateColor);
+}
 function tcAvitoPlaystationIdentity_(value) {
   const text = tcNorm_(value).replace(/playstation/g, 'ps');
   if (/dual\s*sense/.test(text)) {
-    // A charging dock is an accessory, not a controller. It must never set
-    // the price of a DualSense listing merely because its title says DualSense.
-    const charging = /charg(?:ing)?\s*station|зарядн(?:ая|ое)?\s*станц/.test(text);
-    return { family:charging ? 'dualsense-charging' : 'dualsense', color:tcColorGroup_(tcColor_(value)) };
+    // Chargers, docks and stands are accessories, not controllers. They must
+    // never set a DualSense price just because their supplier title includes
+    // the word "DualSense".
+    const accessory = /charg(?:ing|er)?\b|\bdock\b|\bstand\b|\bstation\b|заряд|док|подстав/.test(text);
+    return { family:accessory ? 'dualsense-accessory' : 'dualsense', edge:/\bedge\b/.test(text), color:tcColorGroup_(tcColor_(value)) };
   }
   const generation = /\bps\s*([345])\b/.exec(text);
   if (!generation) return null;
   const form = /\bpro\b/.test(text) ? 'pro' : /\bslim\b/.test(text) ? 'slim' : 'standard';
-  const media = /\bdigital\b/.test(text) ? 'digital' : /\b(?:disc|disk|diskdrive|диск(?:овая|овый|овод)?)\b/.test(text) ? 'disc' : '';
+  const media = /\bdigital\b/.test(text) ? 'digital' : /\b(?:disc|disk|diskdrive)\b|диск(?:овод\w*|ов\w*)?/i.test(text) ? 'disc' : '';
   const memory = /\b(825|1000|1024|2000|2048)\s*(?:gb|гб)|\b([12])\s*(?:tb|тб)\b/i.exec(text);
   const memoryGb = memory ? Number(memory[1] || Number(memory[2]) * 1024) : 0;
   return { family:'ps' + generation[1], form:form, media:media, memory:memoryGb };
@@ -476,7 +505,15 @@ function tcAvitoPlaystationIdentity_(value) {
 function tcAvitoPlaystationMatches_(targetTitle, candidateTitle) {
   const target = tcAvitoPlaystationIdentity_(targetTitle), candidate = tcAvitoPlaystationIdentity_(candidateTitle);
   if (!target || !candidate || target.family !== candidate.family) return false;
-  if (target.family === 'dualsense') return !target.color || target.color === candidate.color; // Regular and Edge are an approved shared group, not a different colour.
+  if (target.family === 'dualsense') {
+    if (candidate.family === 'dualsense-accessory') return false;
+    // Edge is mandatory only when Avito explicitly says Edge.  A plain
+    // "DualSense" is allowed to consider controller variants, never docks.
+    return (!target.edge || candidate.edge) && (!target.color || target.color === candidate.color);
+  }
+  // Bare "PlayStation 5" has no selected SKU.  Do not turn a disc drive,
+  // Digital or arbitrary standard-console price into its price.
+  if (target.form === 'standard' && !target.media && !target.memory) return false;
   return target.form === candidate.form && (!target.media || target.media === candidate.media) && (!target.memory || target.memory === candidate.memory);
 }
 function tcAvitoRequiredVariantTokens_(value) {

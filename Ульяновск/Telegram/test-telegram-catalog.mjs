@@ -472,8 +472,8 @@ test('applies all Ulyanovsk optional-field matching rules', () => {
     { title:'DualSense Edge Black', price:17100 },
     { title:'DualSense White', price:6200 },
     { title:'PS5 Slim Digital 1TB', price:62000 }
-  ], 'пс', titleLayout, [['DualSense Edge White', '']]);
-  assert.deepEqual(JSON.parse(JSON.stringify(controller.updates)), [{ row:0, price:6200 }]);
+  ], 'пс', titleLayout, [['DualSense Edge White', 2200]]);
+  assert.deepEqual(JSON.parse(JSON.stringify(controller.updates)), [{ row:0, price:'' }]);
 });
 
 test('matches only the approved AirPods Max 2 2026 title variant', () => {
@@ -568,4 +568,63 @@ test('uses the 17 Pro 1TB markup and never crosses PS or Dyson model identities'
     { category:'дайсон', title:'Dyson HS08 Ceramic Pink', price:35000 }
   ], 'дайсон', layout, [['Dyson OnTrac CNC Copper', 2800]]);
   assert.deepEqual(JSON.parse(JSON.stringify(dyson.updates)), [{ row:0, price:'' }]);
+});
+
+test('keeps every AirPods Max 2026 colour on its own prepared price', () => {
+  const layout = api.tcAvitoTitleLayout_(['Title', 'Price']);
+  const source = [
+    { category:'наушники', title:'AirPods Max 2 2026 Blue', price:42100 },
+    { category:'наушники', title:'AirPods Max 2 2026 Purple', price:42100 },
+    { category:'наушники', title:'AirPods Max 2 2026 Starlight', price:42100 },
+    { category:'наушники', title:'AirPods Max 2 2026 Midnight', price:41800 },
+    { category:'наушники', title:'AirPods Max 2 2026 Orange', price:40800 }
+  ];
+  const plan = api.tcAvitoDirectTitlePlan_(source, 'наушники', layout, [
+    ['AirPods Max 2026 Blue', 40800], ['AirPods Max 2026 Purple', 40800],
+    ['AirPods Max 2026 Starlight', 40800], ['AirPods Max 2026 Midnight', 40800],
+    ['AirPods Max 2026 Orange', 40800]
+  ]);
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [
+    { row:0, price:42100 }, { row:1, price:42100 }, { row:2, price:42100 }, { row:3, price:41800 }
+  ]);
+});
+
+test('requires a selected PS5 SKU and never prices controllers from accessories', () => {
+  const layout = api.tcAvitoTitleLayout_(['Title', 'Price']);
+  const source = [
+    { category:'пс', title:'PlayStation 5 Disc Drive', price:2200 },
+    { category:'пс', title:'PlayStation 5 Slim Digital 1TB', price:59000 },
+    { category:'пс', title:'PlayStation 5 Slim с дисководом 1TB', price:69000 },
+    { category:'пс', title:'PlayStation 5 Pro 2TB', price:104800 },
+    { category:'пс', title:'DualSense Charging Dock Black', price:2200 },
+    { category:'пс', title:'DualSense Black', price:6400 },
+    { category:'пс', title:'DualSense White', price:6200 }
+  ];
+  const plan = api.tcAvitoDirectTitlePlan_(source, 'пс', layout, [
+    ['PlayStation 5', 2200], ['PlayStation 5 Slim + дисковод', 59000],
+    ['PlayStation 5 Slim Digital', ''], ['PlayStation 5 Pro', ''],
+    ['DualSense Black', 2200], ['DualSense White', 2200]
+  ]);
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [
+    { row:0, price:'' }, { row:1, price:69000 }, { row:2, price:59000 },
+    { row:3, price:104800 }, { row:4, price:6400 }, { row:5, price:6200 }
+  ]);
+});
+
+test('does not assign one Dyson code price to different colours or OnTrac', () => {
+  const layout = api.tcAvitoTitleLayout_(['Title', 'Price']);
+  const source = [
+    { category:'дайсон', title:'Dyson HS08 Ceramic Pink', price:42100 },
+    { category:'дайсон', title:'Dyson HS08 Vinca Blue', price:43500 },
+    { category:'дайсон', title:'Dyson HD16 Red Velvet', price:45100 },
+    { category:'дайсон', title:'Dyson HD17 R-Pro Jasper Plum', price:46800 }
+  ];
+  const plan = api.tcAvitoDirectTitlePlan_(source, 'дайсон', layout, [
+    ['Dyson HS08 Ceramic Pink', 42100], ['Dyson HS08 Vinca Blue', 42100],
+    ['Dyson HD16 Red Velvet', 42100], ['Dyson HD17 R-Pro Jasper Plum', 42100],
+    ['Dyson OnTrac CNC Copper', 2800]
+  ]);
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [
+    { row:1, price:43500 }, { row:2, price:45100 }, { row:3, price:46800 }, { row:4, price:'' }
+  ]);
 });

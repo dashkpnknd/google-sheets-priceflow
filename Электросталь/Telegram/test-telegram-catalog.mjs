@@ -306,3 +306,20 @@ test('does not let a service-marked phone collapse onto a regular Avito SKU', ()
   assert.equal(api.tcAvitoEligiblePhone_({ category:'телефоны', name:'Galaxy S26 12/256GB Blue Актив' }), false);
   assert.equal(api.tcAvitoEligiblePhone_({ category:'телефоны', name:'iPhone 17 512GB Black eSIM' }), true);
 });
+
+
+test('uses Ulyanovsk-safe Avito fallbacks in Elektrostal', () => {
+  const phoneLayout = api.tcAvitoLayout_(['Model', 'MemorySize', 'Color', 'SimConfig', 'RamSize', 'Price']);
+  const phonePlan = api.tcAvitoPricePlan_([
+    { category:'телефоны', name:'iPhone 16 128GB Black eSIM', price:70000 },
+    { category:'телефоны', name:'iPhone 16 128GB Blue 2 SIM', price:72000 }
+  ], phoneLayout, [['iPhone 16', '128 ГБ', 'белый', 'Не знаю', '', '']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(phonePlan.updates)), [{ row:0, price:70000 }]);
+  const titleLayout = api.tcAvitoTitleLayout_(['Title', 'Price']);
+  const macPlan = api.tcAvitoTitlePricePlan_([
+    { category:'макбуки', name:'MacBook Neo Air Neo Citrus 8/256GB', price:65300 },
+    { category:'макбуки', name:'MacBook Air 13 M5 16/1TB Sky Blue (Мятая 📦)', price:130800 },
+    { category:'макбуки', name:'MacBook Air 13 M5 16/1TB Silver', price:131800 }
+  ], 'макбуки', titleLayout, [['MacBook 13 Neo 8/256 Blush', ''], ['MacBook Air 13 M5 16/1024 Sky Blue', '']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(macPlan.updates)), [{ row:0, price:65300 }, { row:1, price:131800 }]);
+});

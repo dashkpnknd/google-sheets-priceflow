@@ -113,8 +113,9 @@ function rusAvitoPricePlan_(products, layout, rows) {
   const source = rusAvitoSourceIndex_(products), updates = [], missing = [], ambiguous = []; let matched = 0, cleared = 0;
   rows.forEach(function(row, rowIndex) {
     const target = rusAvitoTargetKey_(row, layout); if (!target) return;
-    if (source.conflicts[target]) { ambiguous.push(rusAvitoLabel_(row, layout)); if (row[layout.price] !== '') { updates.push({ row:rowIndex, price:'' }); cleared++; } return; }
-    const price = source.prices[target];
+    const phone = { model:row[layout.model], memory:row[layout.memory], color:row[layout.color], sim:row[layout.sim], ram:row[layout.ram] };
+    const fallback = rusAvitoCheapestPhoneFallback_(source.phones, phone);
+    const price = (fallback && fallback.price) || source.prices[target];
     if (!price) { missing.push(rusAvitoLabel_(row, layout)); if (row[layout.price] !== '') { updates.push({ row:rowIndex, price:'' }); cleared++; } return; }
     matched++;
     if (Number(row[layout.price]) !== price) updates.push({ row:rowIndex, price:price });
@@ -122,13 +123,14 @@ function rusAvitoPricePlan_(products, layout, rows) {
   return { updates:updates, matched:matched, cleared:cleared, missing:missing, ambiguous:ambiguous };
 }
 function rusAvitoSourceIndex_(products) {
-  const prices = {}, conflicts = {};
+  const prices = {}, phones = [];
   products.filter(function(product) { return product.category === 'телефоны' && Number(product.price) > 0; }).forEach(function(product) {
     const phone = product.phone || rusPhone_(rusDisplay_(product)), key = rusAvitoPhoneKey_(phone); if (!key) return;
-    if (prices[key] && prices[key] !== Number(product.price)) { conflicts[key] = true; return; }
-    prices[key] = Number(product.price);
+    const price = Number(product.price);
+    phones.push({ model:phone.model, memory:phone.memory, color:phone.color, sim:phone.sim || 'Не знаю', ram:phone.ram, price:price });
+    prices[key] = prices[key] ? Math.min(prices[key], price) : price;
   });
-  return { prices:prices, conflicts:conflicts };
+  return { prices:prices, phones:phones };
 }
 function rusAvitoTargetKey_(row, layout) { return rusAvitoPhoneKey_({ model:row[layout.model], memory:row[layout.memory], color:row[layout.color], sim:row[layout.sim], ram:row[layout.ram] }); }
 function rusAvitoPhoneKey_(phone) {
@@ -151,6 +153,20 @@ function rusAvitoSim_(value, model) {
   // The supplier omits SIM only for the current Galaxy S26 rows; all matching
   // Krasnodar listings are explicitly SIM + eSIM.
   return sim === 'не знаю' && /^galaxy\s+s26(?:\+|\s+ultra)?$/.test(rusAvitoModel_(model)) ? 'sim + esim' : sim || 'не знаю';
+}
+function rusAvitoCheapestPhoneFallback_(phones, target) {
+  const model = rusAvitoModel_(target.model), memory = rusAvitoMemory_(target.memory), sim = rusAvitoSim_(target.sim, target.model), ram = rusNorm_(target.ram);
+  if (!model || !memory) return null;
+  const unknown = function(value) { return !value || value === 'не знаю'; };
+  const targetUnknownSim = unknown(sim);
+  const candidates = phones.filter(function(phone) {
+    const phoneSim = rusAvitoSim_(phone.sim, phone.model);
+    return rusAvitoModel_(phone.model) === model && rusAvitoMemory_(phone.memory) === memory &&
+      (/^iphone\b/.test(model) || rusNorm_(phone.ram) === ram) &&
+      (targetUnknownSim || unknown(phoneSim) || phoneSim === sim);
+  });
+  const prices = candidates.map(function(item) { return Number(item.price); }).filter(Boolean);
+  return prices.length ? { price:Math.min.apply(null, prices), rule:targetUnknownSim ? 'target-unknown-sim' : 'supplier-omitted-field' } : null;
 }
 function rusAvitoLabel_(row, layout) { return [row[layout.model], row[layout.memory], row[layout.color], row[layout.sim], row[layout.ram]].map(String).join(' | '); }
 /** Endpoint contract: {posts:[{id:"123", text:"...", updatedAt:"ISO"}]}. */
