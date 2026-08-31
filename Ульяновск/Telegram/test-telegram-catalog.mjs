@@ -212,7 +212,7 @@ test('shared matcher preserves Ulyanovsk title safety and only plans Price', () 
   const layout = matcher.titleLayout(['Title', 'Price', 'DateEnd']);
   const plan = matcher.planTitle([{ title:'MacBook Air 13 M5 16/512 Blue', price:120000 }], 'макбуки', layout, [['MacBook Air 15 M5 16/512 Blue', 90000, '2099-01-01']]);
   assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row:0, price:'' }]);
-  assert.equal(matcher.runRegressionTests().passed, 8);
+  assert.equal(matcher.runRegressionTests().passed, 10);
 });
 
 test('shared matcher keeps iPad mini generations separate', () => {
