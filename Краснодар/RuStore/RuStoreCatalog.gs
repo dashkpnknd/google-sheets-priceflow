@@ -8,9 +8,8 @@ const RUS = {
   everyMinutes: 15,
   project: 'ru:Store | Краснодар',
   endpoint: 'https://api.pricemasterapp.ru/krasnodar/snapshot',
-  snapshotSecret: 'e02840249d79ec99f0317780d4b76b3ca0a91a6f2d08df376ce221566bb606a8',
   avito: { spreadsheetId: '1eSWzXG5_bWWZLvBW3YSkYTPPM7oi45O8TUVt1uwZUvs', sheetId: 942473127, headerRow: 2, firstDataRow: 3 },
-  props: { connected: 'RUS_CONNECTED', last: 'RUS_LAST', status: 'RUS_STATUS' }
+  props: { connected: 'RUS_CONNECTED', last: 'RUS_LAST', status: 'RUS_STATUS', snapshotSecret: 'RUS_SNAPSHOT_SECRET' }
 };
 
 function onOpen() {
@@ -59,147 +58,23 @@ function syncRuStoreCatalog_() {
     SpreadsheetApp.flush();
     // Stage 2: Avito reads only the just-written ready phone catalogue, never
     // an independently parsed Telegram representation.
-    const result = rusSyncAvitoPrices_(rusReadReadyCatalog_(book));
+    const result = rusSyncAvitoPrices_();
     result.rows = products.length; result.catalogWritten = written; result.skippedSheets = skippedSheets;
     const p = PropertiesService.getScriptProperties(); p.setProperty(RUS.props.last, String(Date.now())); p.setProperty(RUS.props.status, rusSummary_(result));
     return result;
   } finally { lock.releaseLock(); }
 }
 
-/** Reads the ready catalogue that was written in stage 1 for Avito stage 2. */
-function rusReadReadyCatalog_(book) {
-  const sheet = book.getSheetByName('телефоны');
-  if (!sheet) throw new Error('Нет листа «телефоны» для передачи цен в Avito.');
-  const width = sheet.getLastColumn(), headers = sheet.getRange(1, 1, 1, width).getValues()[0];
-  rusValidateSchema_(sheet, headers);
-  const layouts = rusLayouts_(headers), height = Math.max(sheet.getLastRow() - 1, 0), values = height ? sheet.getRange(2, 1, height, width).getValues() : [], rows = [];
-  layouts.forEach(function(layout) {
-    values.forEach(function(value) {
-      const price = Number(value[layout.price] || 0); if (!price) return;
-      const name = layout.model >= 0 ? value[layout.model] : value[layout.title];
-      if (!name) return;
-      // The key is reconstructed from the actual written columns, including
-      // Krasnodar's technical `Не знаю` value for omitted SIM.
-      rows.push({ category:'телефоны', name:String(name) + ' ' + String(value[layout.memory] || '') + ' ' + String(value[layout.color] || '') + ' ' + String(value[layout.sim] || ''), price:price,
-        phone:{ model:value[layout.model], memory:value[layout.memory], color:value[layout.color], sim:value[layout.sim], ram:value[layout.ram] } });
-    });
-  });
-  return { rows:rows, categories:{ 'телефоны':true } };
-}
-/** Updates only Price in the fixed Krasnodar listing workbook. */
-function rusSyncAvitoPrices_(snapshot) {
-  const products = Array.isArray(snapshot) ? snapshot : snapshot.rows;
-  // A source response without the phone category can be a temporary parsing
-  // failure. It must never clear the whole Avito price list. When the category
-  // is present, however, an absent individual SKU has its stale Price cleared.
-  const phonesObserved = Array.isArray(snapshot) || Boolean(snapshot.categories && snapshot.categories['телефоны']);
-  if (!phonesObserved) return { rows: products.length, written:0, matched:0, cleared:0, skipped:['Источник не вернул категорию «телефоны»; цены сохранены.'], ambiguous:[] };
-  const book = SpreadsheetApp.openById(RUS.avito.spreadsheetId), sheet = book.getSheets().find(function(s) { return s.getSheetId() === RUS.avito.sheetId; });
-  if (!sheet) throw new Error('Не найден лист объявлений Краснодара по сохранённому ID.');
-  const lastColumn = sheet.getLastColumn(), headers = sheet.getRange(RUS.avito.headerRow, 1, 1, lastColumn).getValues()[0], layout = rusAvitoLayout_(headers);
-  if (!layout) throw new Error('Неверная шапка листа объявлений Краснодара: нужны Model, MemorySize, Color, SimConfig, RamSize и Price.');
-  const height = Math.max(sheet.getLastRow() - RUS.avito.headerRow, 0), values = height ? sheet.getRange(RUS.avito.firstDataRow, 1, height, lastColumn).getValues() : [];
-  const plan = rusAvitoPricePlan_(products, layout, values);
-  rusWriteAvitoPrices_(sheet, layout.price, plan.updates);
-  PropertiesService.getScriptProperties().setProperty('RUS_LAST_REPORT', JSON.stringify({ at: new Date().toISOString(), sourceRows: products.length, matched: plan.matched, updated: plan.updates.length, cleared:plan.cleared, missing: plan.missing.slice(0, 200), ambiguous: plan.ambiguous.slice(0, 200) }));
-  return { rows: products.length, written: plan.updates.length, matched: plan.matched, cleared:plan.cleared, skipped: plan.missing, ambiguous: plan.ambiguous };
-}
-function rusAvitoLayout_(headers) {
-  const index = {}; headers.forEach(function(value, column) { index[rusAvitoHeaderKey_(value)] = column; });
-  const need = ['model', 'memorysize', 'color', 'simconfig', 'ramsize', 'price'];
-  return need.every(function(name) { return index[name] >= 0; }) ? { model:index.model, memory:index.memorysize, color:index.color, sim:index.simconfig, ram:index.ramsize, price:index.price, vendor:index.vendor } : null;
-}
-function rusAvitoPricePlan_(products, layout, rows) {
-  const source = rusAvitoSourceIndex_(products), updates = [], missing = [], ambiguous = []; let matched = 0, cleared = 0;
-  rows.forEach(function(row, rowIndex) {
-    const phone = { model:row[layout.model], memory:row[layout.memory], color:row[layout.color], sim:row[layout.sim], ram:row[layout.ram] };
-    const target = rusAvitoPhoneKey_(phone);
-    // A listing without a known model or a complete safe key cannot retain an
-    // old price.  Only Price is cleared; the listing itself stays untouched.
-    if (rusAvitoUnknown_(phone.model)) {
-      missing.push(rusAvitoLabel_(row, layout) + ' (неизвестная модель)');
-      if (row[layout.price] !== '') { updates.push({ row:rowIndex, price:'' }); cleared++; }
-      return;
-    }
-    const fallback = rusAvitoCheapestPhoneFallback_(source.phones, phone);
-    const price = (fallback && fallback.price) || (target && source.prices[target]);
-    if (!price) { missing.push(rusAvitoLabel_(row, layout)); if (row[layout.price] !== '') { updates.push({ row:rowIndex, price:'' }); cleared++; } return; }
-    matched++;
-    if (Number(row[layout.price]) !== price) updates.push({ row:rowIndex, price:price });
-  });
-  return { updates:updates, matched:matched, cleared:cleared, missing:missing, ambiguous:ambiguous };
-}
-function rusAvitoSourceIndex_(products) {
-  const prices = {}, phones = [];
-  products.filter(function(product) { return product.category === 'телефоны' && Number(product.price) > 0; }).forEach(function(product) {
-    const phone = product.phone || rusPhone_(rusDisplay_(product)), key = rusAvitoPhoneKey_(phone); if (!key) return;
-    const price = Number(product.price);
-    phones.push({ model:phone.model, memory:phone.memory, color:phone.color, sim:phone.sim || 'Не знаю', ram:phone.ram, price:price });
-    prices[key] = prices[key] ? Math.min(prices[key], price) : price;
-  });
-  return { prices:prices, phones:phones };
-}
-function rusAvitoPhoneKey_(phone) {
-  const model = rusAvitoModel_(phone.model), memory = rusAvitoMemory_(phone.memory), color = rusAvitoColorKey_(phone.color), sim = rusAvitoSim_(phone.sim, phone.model), ram = rusNorm_(phone.ram);
-  if (!model || !memory || !color) return '';
-  // ru:Store does not provide iPhone RAM; Android RAM remains part of the key.
-  return [model, memory, color, sim, /^iphone\b/.test(model) ? '' : ram].join('|');
-}
-/** Known display variants in the Krasnodar listing sheet are one SKU. */
-function rusAvitoModel_(value) { return rusNorm_(value).replace(/^galaxy\s+(s\d+)\s+plus$/, 'galaxy $1+'); }
-function rusAvitoMemory_(value) {
-  const match = /^(\d+)\s*(гб|gb|тб|tb)$/i.exec(String(value || '').trim());
-  if (!match) return rusNorm_(value);
-  const size = Number(match[1]) * (/тб|tb/i.test(match[2]) ? 1024 : 1);
-  return size + ' гб';
-}
-function rusAvitoColorKey_(value) { return rusNorm_(value).replace(/голубой/g, 'синий'); }
-function rusAvitoUnknown_(value) { const text = rusNorm_(value); return !text || text === 'не знаю' || text === 'n/a' || text === 'unknown'; }
-function rusAvitoHeaderKey_(value) {
-  const key = rusNorm_(value).replace(/\s+/g, ' ');
-  const aliases = { 'модель':'model', 'встроенная память':'memorysize', 'память':'memorysize', 'цвет':'color', 'sim конфигурация':'simconfig', 'сим конфигурация':'simconfig', 'оперативная память':'ramsize', 'озу':'ramsize', 'цена':'price', 'цена продажи':'price', 'актуальная цена':'price' };
-  return aliases[key] || key.replace(/\s+/g, '');
-}
-function rusAvitoSim_(value, model) {
-  const sim = rusNorm_(value || 'Не знаю').replace(/^только\s+/, '');
-  // The supplier omits SIM only for the current Galaxy S26 rows; all matching
-  // Krasnodar listings are explicitly SIM + eSIM.
-  return sim === 'не знаю' && /^galaxy\s+s26(?:\+|\s+ultra)?$/.test(rusAvitoModel_(model)) ? 'sim + esim' : sim || 'не знаю';
-}
-function rusAvitoCheapestPhoneFallback_(phones, target) {
-  const model = rusAvitoModel_(target.model), memory = rusAvitoMemory_(target.memory), color = rusAvitoColorKey_(target.color), sim = rusAvitoSim_(target.sim, target.model), ram = rusNorm_(target.ram);
-  if (!model || !memory) return null;
-  const targetUnknownSim = rusAvitoUnknown_(target.sim);
-  const targetUnknownColor = rusAvitoUnknown_(target.color);
-  // A fallback is allowed only for a technical unknown in the Avito listing.
-  // A missing supplier field must not bridge explicit eSIM/2 SIM variants.
-  if (!targetUnknownSim && !targetUnknownColor) return null;
-  const candidates = phones.filter(function(phone) {
-    const phoneSim = rusAvitoSim_(phone.sim, phone.model);
-    return rusAvitoModel_(phone.model) === model && rusAvitoMemory_(phone.memory) === memory &&
-      (/^iphone\b/.test(model) || rusNorm_(phone.ram) === ram) &&
-      (targetUnknownSim || phoneSim === sim) &&
-      // Краснодарское подтверждённое исключение: при техническом «Не знаю»
-      // в SIM цвет также не ограничивает цену. При известной SIM цвет
-      // ослабляется только когда именно цвет технически неизвестен.
-      (targetUnknownSim || targetUnknownColor || rusAvitoColorKey_(phone.color) === color);
-  });
-  const prices = candidates.map(function(item) { return Number(item.price); }).filter(Boolean);
-  return prices.length ? { price:Math.min.apply(null, prices), rule:targetUnknownSim ? 'target-unknown-sim' : 'target-unknown-color' } : null;
-}
-function rusAvitoLabel_(row, layout) { return [row[layout.model], row[layout.memory], row[layout.color], row[layout.sim], row[layout.ram]].map(String).join(' | '); }
-function rusWriteAvitoPrices_(sheet, priceColumn, updates) {
-  updates.sort(function(a, b) { return a.row - b.row; });
-  for (let start = 0; start < updates.length;) {
-    let end = start + 1;
-    while (end < updates.length && updates[end].row === updates[end - 1].row + 1) end++;
-    sheet.getRange(RUS.avito.firstDataRow + updates[start].row, priceColumn + 1, end - start, 1).setValues(updates.slice(start, end).map(function(item) { return [item.price]; }));
-    start = end;
-  }
-}
 /** Endpoint contract: {posts:[{id:"123", text:"...", updatedAt:"ISO"}]}. */
+/** Краснодар intentionally exposes only phones to stage 2. */
+function rusSyncAvitoPrices_() {
+  return PriceFlowAvitoMatcher.sync({ city:'krasnodar', sourceSpreadsheet:SpreadsheetApp.getActiveSpreadsheet(), avitoSpreadsheetId:RUS.avito.spreadsheetId, headerRow:RUS.avito.headerRow, firstDataRow:RUS.avito.firstDataRow, sheets:{ 'телефоны': { sheetId:RUS.avito.sheetId, kind:'phone' } } });
+}
+
 function rusFetchSnapshot_() {
-  const response = UrlFetchApp.fetch(RUS.endpoint, { headers: { 'X-PriceFlow-Secret': RUS.snapshotSecret }, muteHttpExceptions: true });
+  const secret = PropertiesService.getScriptProperties().getProperty(RUS.props.snapshotSecret);
+  if (!secret) throw new Error('Не задано Script Property RUS_SNAPSHOT_SECRET.');
+  const response = UrlFetchApp.fetch(RUS.endpoint, { headers: { 'X-PriceFlow-Secret': secret }, muteHttpExceptions: true });
   if (response.getResponseCode() !== 200) throw new Error('Сервис снимков вернул HTTP ' + response.getResponseCode());
   const payload = JSON.parse(response.getContentText());
   if (!payload || !Array.isArray(payload.posts)) throw new Error('Сервис вернул неверный формат снимка: ожидается posts[].');
@@ -244,8 +119,11 @@ function rusLayouts_(headers) {
 function rusLayoutFor_(layouts, product) { return layouts.length === 1 ? 0 : product.category === 'телефоны' && /^iphone\b/i.test(product.name) ? 0 : layouts.length - 1; }
 function rusTargetRow_(layout, product) {
   const row = Array(layout.price - layout.start + 1).fill(''), phone = rusPhone_(rusDisplay_(product)), put = function(col, value) { if (col >= layout.start && col <= layout.price) row[col - layout.start] = value; };
-  put(layout.title, rusDisplay_(product)); put(layout.model, phone.model || product.name); put(layout.memory, phone.memory); put(layout.ram, phone.ram); put(layout.color, phone.color); put(layout.sim, phone.sim || 'Не знаю'); put(layout.price, product.price); return row;
+  put(layout.title, rusDisplay_(product)); put(layout.model, phone.model || product.name); put(layout.memory, phone.memory); put(layout.ram, phone.ram); put(layout.color, phone.color); put(layout.sim, rusReadySim_(phone)); put(layout.price, product.price); return row;
 }
+// First-stage normalization: an omitted supplier SIM for Galaxy S26 is a
+// confirmed physical-SIM variant before the shared matcher sees the row.
+function rusReadySim_(phone) { return phone.sim || (/^galaxy\s+s26(?:\+|\s+(?:ultra|plus))?$/i.test(String(phone.model || '')) ? 'SIM + eSIM' : 'Не знаю'); }
 function rusParsePost_(text, postId) {
   const lines = String(text || '').replace(/\r/g, '').split('\n').map(function(x) { return x.trim(); }).filter(Boolean), rows = [], skipped = [], categories = {}; let context = '';
   const seen = function(value) { const category = rusCategory_(value); if (category !== 'прочее') categories[category] = true; };

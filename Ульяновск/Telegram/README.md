@@ -6,10 +6,11 @@
 
 ## Установка в Apps Script
 
-Скопировать в связанный с таблицей Apps Script **только** два файла из этой папки:
+Скопировать в связанный с таблицей Apps Script три файла:
 
 1. `TelegramCatalog.gs` — файл типа **Script**.
-2. `TelegramCatalogSidebar.html` — файл типа **HTML**.
+2. `../../PriceFlowAvitoMatcher.gs` — файл типа **Script** (его содержимое вставляется отдельным файлом с именем `PriceFlowAvitoMatcher`).
+3. `TelegramCatalogSidebar.html` — файл типа **HTML**.
 
 Затем обновить Google Таблицу, открыть меню **«Каталог поставщика»**, указать магазин/город и `@opt_uniseil`, нажать **«Подключить Telegram-канал»**.
 

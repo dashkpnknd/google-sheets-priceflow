@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
-const src = fs.readFileSync(new URL('./RuStoreCatalog.gs', import.meta.url), 'utf8') + '\nglobalThis.API={rusParsePost_,rusCategory_,rusPhone_,rusExpand_,rusCountry_,rusColor_,rusLayoutFor_,rusAvitoLayout_,rusAvitoPricePlan_};';
+const src = fs.readFileSync(new URL('../../PriceFlowAvitoMatcher.gs', import.meta.url), 'utf8') + '\n' + fs.readFileSync(new URL('./RuStoreCatalog.gs', import.meta.url), 'utf8') + '\nglobalThis.API={rusParsePost_,rusCategory_,rusPhone_,rusExpand_,rusCountry_,rusColor_,rusLayoutFor_,rusReadySim_,PriceFlowAvitoMatcher};';
 const ctx = { console }; vm.createContext(ctx); vm.runInContext(src, ctx); const api = ctx.API;
 
 test('uses the channel price exactly as written, without markup', () => {
@@ -102,69 +102,9 @@ test('keeps iPhone Air and fills the remaining supplier colors', () => {
   assert.equal(api.rusColor_('iPhone 17 Lavender'), 'фиолетовый');
   assert.equal(api.rusColor_('iPhone 17 Sage'), 'зеленый');
 });
-test('plans direct Krasnodar Avito price updates without changing product fields', () => {
-  const layout = api.rusAvitoLayout_(['Vendor', 'Model', 'MemorySize', 'Color', 'SimConfig', 'RamSize', 'Price']);
-  const products = [
-    { category: 'телефоны', name: 'iPhone 15 128GB Black', price: 55490 },
-    { category: 'телефоны', name: 'SAMSUNG S26 12/256 Black', price: 63990 }
-  ];
-  const rows = [
-    ['Apple', 'iPhone 15', '128 ГБ', 'черный', 'Не знаю', '6 ГБ', ''],
-    ['Samsung', 'Galaxy S26', '256 ГБ', 'черный', 'SIM + eSIM', '12 ГБ', '']
-  ];
-  const plan = api.rusAvitoPricePlan_(products, layout, rows);
-  assert.equal(JSON.stringify(plan.updates), JSON.stringify([{ row: 0, price: 55490 }, { row: 1, price: 63990 }]));
-  assert.equal(plan.matched, 2);
-  assert.deepEqual(Array.from(plan.missing), []);
-});
-test('clears a stale Avito price when its current phone SKU is absent', () => {
-  const layout = api.rusAvitoLayout_(['Vendor', 'Model', 'MemorySize', 'Color', 'SimConfig', 'RamSize', 'Price']);
-  const plan = api.rusAvitoPricePlan_([
-    { category:'телефоны', name:'iPhone 16 Pro 128GB White 2 SIM', price:81900 }
-  ], layout, [['Apple', 'iPhone 16 Pro', '128 ГБ', 'белый', 'eSIM', '', 74600]]);
-  assert.equal(JSON.stringify(plan.updates), JSON.stringify([{ row:0, price:'' }]));
-  assert.equal(plan.cleared, 1);
-  assert.equal(api.rusPhone_('iPhone 16 Pro 128GB White Dual-SIM').sim, '2 SIM');
-});
-test('accepts the known Krasnodar listing display variants', () => {
-  const layout = api.rusAvitoLayout_(['Vendor', 'Model', 'MemorySize', 'Color', 'SimConfig', 'RamSize', 'Price']);
-  const products = [
-    { category: 'телефоны', name: 'iPhone 17 Pro 1TB Blue (eSIM)', price: 100001 },
-    { category: 'телефоны', name: 'SAMSUNG S26 Plus 12/256 Blue', price: 100002 }
-  ];
-  const rows = [
-    ['Apple', 'iPhone 17 Pro', '1024 ГБ', 'голубой', 'Только eSIM', '12 ГБ', ''],
-    ['Samsung', 'Galaxy S26+', '256 ГБ', 'голубой', 'SIM + eSIM', '12 ГБ', '']
-  ];
-  const plan = api.rusAvitoPricePlan_(products, layout, rows);
-  assert.equal(JSON.stringify(plan.updates), JSON.stringify([{ row: 0, price: 100001 }, { row: 1, price: 100002 }]));
-  assert.equal(plan.matched, 2);
-});
 
-
-test('uses the safe Krasnodar fallback only for technical unknown SIM and colour', () => {
-  const layout = api.rusAvitoLayout_(['Model', 'MemorySize', 'Color', 'SimConfig', 'RamSize', 'Price']);
-  const plan = api.rusAvitoPricePlan_([
-    { category:'телефоны', name:'iPhone 16 128GB Black eSIM', price:70000 },
-    { category:'телефоны', name:'iPhone 16 128GB Blue 2 SIM', price:72000 }
-  ], layout, [['iPhone 16', '128 ГБ', 'белый', 'Не знаю', '', '']]);
-  assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row:0, price:70000 }]);
-  const explicit = api.rusAvitoPricePlan_([
-    { category:'телефоны', name:'iPhone 16 128GB Black 2 SIM', price:72000 }
-  ], layout, [['iPhone 16', '128 ГБ', 'белый', 'eSIM', '', 70000]]);
-  assert.deepEqual(JSON.parse(JSON.stringify(explicit.updates)), [{ row:0, price:'' }]);
-});
-test('accepts Russian Avito headers under the common contract', () => {
-  const layout = api.rusAvitoLayout_(['Модель', 'Встроенная память', 'Цвет', 'Сим конфигурация', 'ОЗУ', 'Актуальная цена']);
-  assert.deepEqual(JSON.parse(JSON.stringify(layout)), { model:0, memory:1, color:2, sim:3, ram:4, price:5 });
-});
-test('does not bridge an explicit Avito SIM to a supplier row with omitted SIM', () => {
-  const layout = api.rusAvitoLayout_(['Model', 'MemorySize', 'Color', 'SimConfig', 'RamSize', 'Price']);
-  const plan = api.rusAvitoPricePlan_([{ category:'телефоны', name:'iPhone 16 128GB Black', price:70000 }], layout, [['iPhone 16', '128 ГБ', 'черный', 'eSIM', '', 65000]]);
-  assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row:0, price:'' }]);
-});
-test('clears only Price for an Avito row with an unknown model', () => {
-  const layout = api.rusAvitoLayout_(['Model', 'MemorySize', 'Color', 'SimConfig', 'RamSize', 'Price']);
-  const plan = api.rusAvitoPricePlan_([{ category:'телефоны', name:'iPhone 16 128GB Black', price:70000 }], layout, [['Не знаю', '128 ГБ', 'черный', 'eSIM', '', 65000]]);
-  assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row:0, price:'' }]);
+test('normalizes Galaxy S26 SIM before the shared matcher and exposes phones only', () => {
+  assert.equal(api.rusReadySim_({ model:'Galaxy S26', sim:'' }), 'SIM + eSIM');
+  assert.match(src, /sheets:\{ 'телефоны'/);
+  assert.match(src, /getProperty\(RUS\.props\.snapshotSecret\)/);
 });

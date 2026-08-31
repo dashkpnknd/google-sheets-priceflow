@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
-const source = fs.readFileSync(new URL('./TelegramCatalog.gs', import.meta.url), 'utf8') + `
-globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcModel_,tcColor_,tcLayouts_,tcLayoutFor_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcApplyElektrostalMarkup_,tcElektrostalMarkupAmount_,tcExpand_,tcAvitoLayout_,tcAvitoPricePlan_,tcAvitoTitleLayout_,tcAvitoTitlePricePlan_,tcAvitoSafePhoneFallback_,tcAvitoEligible_,tcAvitoEligiblePhone_,tcNavigationPostIds_,tcParsePreview_};`;
+const source = fs.readFileSync(new URL('../../PriceFlowAvitoMatcher.gs', import.meta.url), 'utf8') + '\n' + fs.readFileSync(new URL('./TelegramCatalog.gs', import.meta.url), 'utf8') + `
+globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcModel_,tcColor_,tcLayouts_,tcLayoutFor_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcApplyElektrostalMarkup_,tcElektrostalMarkupAmount_,tcExpand_,tcNavigationPostIds_,tcParsePreview_,tcEligibleForCatalogue_,PriceFlowAvitoMatcher};`;
 const parseCsv = (value) => String(value).trim().split(/\r?\n/).map((line) => {
   const cells = []; let current = ''; let quoted = false;
   for (let index = 0; index < line.length; index++) {
@@ -258,106 +258,9 @@ test('supports a title/price template and reports concise outcome', () => {
   assert.match(summary, /Без правила наценки: 20/);
 });
 
-test('plans direct Elektrostal Avito price updates for phones and title-based tabs', () => {
-  const phoneLayout = api.tcAvitoLayout_(['Vendor', 'Model', 'MemorySize', 'Color', 'SimConfig', 'RamSize', 'Price', 'DateEnd']);
-  const phonePlan = api.tcAvitoPricePlan_([{ category: 'телефоны', name: 'iPhone 13 128GB 2 SIM Black', price: 46800 }], phoneLayout, [['Apple', 'iPhone 13', '128 ГБ', 'черный', '2 SIM', '4 ГБ', '', '25.09.2026']]);
-  assert.deepEqual(JSON.parse(JSON.stringify(phonePlan.updates)), [{ row: 0, price: 46800 }]);
-  const readyPhonePlan = api.tcAvitoPricePlan_([{ category: 'телефоны', phone: { model: 'iPhone 13', memory: '128 ГБ', color: 'черный', sim: '2 SIM', ram: '' }, price: 46800 }], phoneLayout, [['Apple', 'iPhone 13', '128 ГБ', 'черный', '2 SIM', '4 ГБ', '', '25.09.2026']]);
-  assert.deepEqual(JSON.parse(JSON.stringify(readyPhonePlan.updates)), [{ row: 0, price: 46800 }]);
-  const titleLayout = api.tcAvitoTitleLayout_(['id', 'Title', 'Price', 'DateEnd']);
-  const titlePlan = api.tcAvitoTitlePricePlan_([{ category: 'дайсон', name: 'Dyson HS 09 Amber Silk', price: 53500 }], 'дайсон', titleLayout, [['1', 'Dyson HS 09 Amber Silk', 50000, '25.09.2026']]);
-  assert.deepEqual(JSON.parse(JSON.stringify(titlePlan.updates)), [{ row: 0, price: 53500 }]);
-  const ipadPlan = api.tcAvitoTitlePricePlan_([{ category: 'айпады', name: 'iPad Air 13 M3 128 ГБ Wi-Fi Blue', price: 73000 }], 'айпады', titleLayout, [['1', 'iPad Air 13 M3 (2025), 128 ГБ Wi-Fi Blue', 72500, '25.09.2026']]);
-  assert.deepEqual(JSON.parse(JSON.stringify(ipadPlan.updates)), [{ row: 0, price: 73000 }]);
-  const unavailableIpad = api.tcAvitoTitlePricePlan_([], 'айпады', titleLayout, [['1', 'iPad Air 13 M3 (2025), 256 ГБ Wi-Fi Starlight', 60500, '25.09.2026']]);
-  assert.deepEqual(JSON.parse(JSON.stringify(unavailableIpad.updates)), [{ row: 0, price: '' }]);
-  assert.equal(unavailableIpad.cleared, 1);
-  assert.equal(unavailableIpad.dateUpdates, undefined);
-  const onlyDiscountedMacBook = api.tcAvitoTitlePricePlan_([
-    { category:'макбуки', name:'(Уценка) MacBook Neo 13 8/256 Blush', price:65000 }
-  ], 'макбуки', titleLayout, [['1', 'MacBook Neo 13 8/256 Blush', 64000, '25.09.2026']]);
-  assert.deepEqual(JSON.parse(JSON.stringify(onlyDiscountedMacBook.updates)), [{ row:0, price:'' }]);
-  const similarIpad = api.tcAvitoTitlePricePlan_([
-    { category:'айпады', name:'iPad Air 13 M3 256 ГБ Wi-Fi Blue', price:76000 }
-  ], 'айпады', titleLayout, [['1', 'iPad Air 13 M3 128 ГБ Wi-Fi Blue', 75000, '25.09.2026']]);
-  assert.deepEqual(JSON.parse(JSON.stringify(similarIpad.updates)), [{ row:0, price:'' }]);
-  const lowestPhone = api.tcAvitoPricePlan_([
-    { category: 'телефоны', name: 'Galaxy S25 12/256GB Blue SIM + eSIM', price: 57500 },
-    { category: 'телефоны', name: 'Galaxy S25 12/256GB Blue SIM + eSIM', price: 56500 }
-  ], phoneLayout, [['Samsung', 'Galaxy S25', '256 ГБ', 'синий', 'SIM + eSIM', '12 ГБ', '', '25.09.2026']]);
-  assert.deepEqual(JSON.parse(JSON.stringify(lowestPhone.updates)), [{ row: 0, price: 56500 }]);
-  const unavailablePhone = api.tcAvitoPricePlan_([
-    { category: 'телефоны', name: 'iPhone 15 128GB Black eSIM', price: 65000 },
-    { category: 'телефоны', name: 'iPhone 15 128GB Blue 2 SIM', price: 63000 }
-  ], phoneLayout, [['Apple', 'iPhone 15', '128 ГБ', 'белый', 'SIM + eSIM', '6 ГБ', 62000, '25.09.2026']]);
-  assert.deepEqual(JSON.parse(JSON.stringify(unavailablePhone.updates)), [{ row: 0, price: '' }]);
-  const incompletePhone = api.tcAvitoPricePlan_([
-    { category:'телефоны', phone:{ model:'Galaxy S26 Ultra', memory:'256 ГБ', color:'синий', sim:'2 SIM', ram:'12 ГБ' }, price:84500 }
-  ], phoneLayout, [['Samsung', 'Galaxy S26 Ultra', '', 'синий', '2 SIM', '', 84500, '25.09.2026']]);
-  assert.deepEqual(JSON.parse(JSON.stringify(incompletePhone.updates)), []);
-  assert.equal(incompletePhone.matched, 1);
-});
-
-test('treats SIM as non-restricting city metadata when phone identity is otherwise known', () => {
-  assert.equal(api.tcPhone_('iPhone 16 Pro 128GB White (Dual-SIM)').config, '2 SIM');
-  assert.equal(api.tcAvitoSafePhoneFallback_([
-    { model:'iPhone 16 Pro', memory:'128 ГБ', color:'белый', sim:'2 SIM', ram:'', price:81900 }
-  ], { model:'iPhone 16 Pro', memory:'128 ГБ', color:'белый', sim:'eSIM', ram:'' }).price, 81900);
-});
-
-
-test('does not let a service-marked phone collapse onto a regular Avito SKU', () => {
-  assert.equal(api.tcAvitoEligiblePhone_({ category:'телефоны', name:'iPhone 17 512GB Black eSIM ASIS' }), false);
-  assert.equal(api.tcAvitoEligiblePhone_({ category:'телефоны', name:'Galaxy S26 12/256GB Blue Актив' }), true);
-  assert.equal(api.tcAvitoEligiblePhone_({ category:'телефоны', name:'iPhone 17 512GB Black eSIM' }), true);
-});
-
-
-test('uses Ulyanovsk-safe Avito fallbacks in Elektrostal', () => {
-  const phoneLayout = api.tcAvitoLayout_(['Model', 'MemorySize', 'Color', 'SimConfig', 'RamSize', 'Price']);
-  const phonePlan = api.tcAvitoPricePlan_([
-    { category:'телефоны', name:'iPhone 16 128GB Black eSIM', price:70000 },
-    { category:'телефоны', name:'iPhone 16 128GB Blue 2 SIM', price:72000 }
-  ], phoneLayout, [['iPhone 16', '128 ГБ', 'белый', 'Не знаю', '', '']]);
-  assert.deepEqual(JSON.parse(JSON.stringify(phonePlan.updates)), []);
-  const titleLayout = api.tcAvitoTitleLayout_(['Title', 'Price']);
-  const macPlan = api.tcAvitoTitlePricePlan_([
-    { category:'макбуки', name:'MacBook Neo Air Neo Citrus 8/256GB', price:65300 },
-    { category:'макбуки', name:'MacBook Air 13 M5 16/1TB Sky Blue (Мятая 📦)', price:130800 },
-    { category:'макбуки', name:'MacBook Air 13 M5 16/1TB Silver', price:131800 }
-  ], 'макбуки', titleLayout, [['MacBook 13 Neo 8/256 Blush', ''], ['MacBook Air 13 M5 16/1024 Sky Blue', '']]);
-  assert.deepEqual(JSON.parse(JSON.stringify(macPlan.updates)), [{ row:1, price:131800 }]);
-});
-
-test('requires a filled phone colour while allowing an unknown colour to use the lowest current variant', () => {
-  const layout = api.tcAvitoLayout_(['Model','MemorySize','Color','SimConfig','RamSize','Price']);
-  const sourceRows = [
-    { category:'телефоны', name:'iPhone 16 128GB White eSIM', price:70000 },
-    { category:'телефоны', name:'iPhone 16 128GB Black 2 SIM', price:68000 }
-  ];
-  assert.deepEqual(JSON.parse(JSON.stringify(api.tcAvitoPricePlan_(sourceRows, layout, [['iPhone 16','128 ГБ','белый','Не знаю','',0]]).updates)), [{row:0,price:70000}]);
-  assert.deepEqual(JSON.parse(JSON.stringify(api.tcAvitoPricePlan_(sourceRows, layout, [['iPhone 16','128 ГБ','Не знаю','Не знаю','',0]]).updates)), [{row:0,price:68000}]);
-});
-
-test('keeps Android radio, model family, RAM and colour-group identities separate', () => {
-  assert.notEqual(api.tcModel_('Galaxy Z Fold 6 12/256GB Blue 5G'), api.tcModel_('Galaxy Z Flip 6 12/256GB Blue 5G'));
-  assert.notEqual(api.tcModel_('Xiaomi 14 Pro 12/256GB NFC 5G'), api.tcModel_('Xiaomi 14 Pro+ 12/256GB NFC 5G'));
-  assert.notEqual(api.tcModel_('Redmi Note 14 8/256GB NFC 4G'), api.tcModel_('Redmi Note 14 8/256GB NFC 5G'));
-});
-
-test('matches iPad across Wi-Fi and LTE, but protects AirPods Max and Dyson OnTrac identities', () => {
-  const layout = api.tcAvitoTitleLayout_(['Title','Price']);
-  assert.deepEqual(JSON.parse(JSON.stringify(api.tcAvitoTitlePricePlan_([{category:'айпады',name:'iPad Air 11 M3 256GB LTE Blue',price:72000}], 'айпады', layout, [['iPad Air 11 M3 256GB Wi-Fi Black',0]]).updates)), [{row:0,price:72000}]);
-  assert.deepEqual(JSON.parse(JSON.stringify(api.tcAvitoTitlePricePlan_([{category:'наушники',name:'AirPods Pro 3 ANC',price:20000}], 'наушники', layout, [['AirPods Max 2 2026 Blue',100]]).updates)), [{row:0,price:''}]);
-  assert.deepEqual(JSON.parse(JSON.stringify(api.tcAvitoTitlePricePlan_([{category:'дайсон',name:'Dyson HS08 Blue',price:40000}], 'дайсон', layout, [['Dyson OnTrac CNC Copper',100]]).updates)), [{row:0,price:''}]);
-});
-
-test('removes ASIS and Open-Box before Elektrostal markup, while Galaxy Buds have no city price rule', () => {
-  const priced = api.tcApplyElektrostalMarkup_([
-    {category:'телефоны',name:'iPhone 16 128GB ASIS',price:70000},
-    {category:'телефоны',name:'iPhone 16 128GB Open-Box',price:70000},
-    {category:'наушники',name:'Galaxy Buds 3 Pro',price:12000}
-  ].filter(api.tcAvitoEligible_));
-  assert.equal(priced.rows.length, 0);
-  assert.equal(api.tcApplyElektrostalMarkup_([{category:'наушники',name:'Galaxy Buds 3 Pro',price:12000}]).rows.length, 0);
+test('Electrostal passes only the ready catalogue contract to shared matcher', () => {
+  assert.match(source, /PriceFlowAvitoMatcher\.sync/);
+  assert.doesNotMatch(source, /tcReadReadyCatalog_/);
+  assert.equal(api.tcEligibleForCatalogue_({ name:'Galaxy S26 12/256 Blue Актив' }), true);
+  assert.equal(api.tcEligibleForCatalogue_({ name:'iPhone 17 CPO' }), false);
 });
