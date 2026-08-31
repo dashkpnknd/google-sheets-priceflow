@@ -601,7 +601,7 @@ test('requires a selected PS5 SKU and never prices controllers from accessories'
     { category:'пс', title:'DualSense White', price:6200 }
   ];
   const plan = api.tcAvitoDirectTitlePlan_(source, 'пс', layout, [
-    ['PlayStation 5', 2200], ['PlayStation 5 Slim + дисковод', 59000],
+    ['PlayStation 5', 2200], ['PlayStation 5 Slim 1TB', 59000],
     ['PlayStation 5 Slim Digital', ''], ['PlayStation 5 Pro', ''],
     ['DualSense Black', 2200], ['DualSense White', 2200]
   ]);
@@ -611,7 +611,7 @@ test('requires a selected PS5 SKU and never prices controllers from accessories'
   ]);
 });
 
-test('does not assign one Dyson code price to different colours or OnTrac', () => {
+test('uses one minimum per Dyson HS/HD/HT code and leaves OnTrac empty', () => {
   const layout = api.tcAvitoTitleLayout_(['Title', 'Price']);
   const source = [
     { category:'дайсон', title:'Dyson HS08 Ceramic Pink', price:42100 },
@@ -620,11 +620,11 @@ test('does not assign one Dyson code price to different colours or OnTrac', () =
     { category:'дайсон', title:'Dyson HD17 R-Pro Jasper Plum', price:46800 }
   ];
   const plan = api.tcAvitoDirectTitlePlan_(source, 'дайсон', layout, [
-    ['Dyson HS08 Ceramic Pink', 42100], ['Dyson HS08 Vinca Blue', 42100],
+    ['Dyson HS08 Ceramic Pink', 42100], ['Dyson HS08 Vinca Blue', 43500],
     ['Dyson HD16 Red Velvet', 42100], ['Dyson HD17 R-Pro Jasper Plum', 42100],
     ['Dyson OnTrac CNC Copper', 2800]
   ]);
   assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [
-    { row:1, price:43500 }, { row:2, price:45100 }, { row:3, price:46800 }, { row:4, price:'' }
+    { row:1, price:42100 }, { row:2, price:45100 }, { row:3, price:46800 }, { row:4, price:'' }
   ]);
 });

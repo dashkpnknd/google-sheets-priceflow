@@ -456,24 +456,10 @@ function tcAvitoDysonModelKey_(value) {
   const match = /\b(hs|hd|ht)\s*(\d{2})\b/i.exec(text);
   return match ? (match[1].toLowerCase() + match[2]) : '';
 }
-/**
- * A Dyson code alone is not a saleable SKU in Ulyanovsk: one HS08/HD16 code
- * can have several colours and kits with different purchase prices.  Compare
- * the complete published variant after removing only editorial product words.
- */
-function tcAvitoDysonSkuKey_(value) {
-  const text = tcNorm_(value).replace(/cooper/g, 'copper').replace(/[🇦-🇿]{2}/gu, ' ');
-  const model = tcAvitoDysonModelKey_(text); if (!model) return '';
-  const variant = text
-    .replace(/\bdyson\b|\bairwrap\b|\bстайлер\b|\bфен\b|\bhair\b|\bcare\b/gi, ' ')
-    .replace(/\b(?:hs|hd|ht)\s*\d{2}\b/gi, ' ')
-    .replace(/[^a-zа-я0-9]+/gi, ' ').replace(/\s+/g, ' ').trim();
-  // A title with a code but no variant is not enough to choose one of several
-  // differently priced country/kit rows.
-  return variant ? model + '|' + variant.split(' ').sort().join('|') : '';
-}
 function tcAvitoDysonMatches_(targetTitle, candidateTitle) {
-  const target = tcAvitoDysonSkuKey_(targetTitle), candidate = tcAvitoDysonSkuKey_(candidateTitle);
+  // Approved Ulyanovsk rule: colour, country and kit do not restrict HS/HD/HT.
+  // OnTrac has its own key and cannot borrow a styling-tool price.
+  const target = tcAvitoDysonModelKey_(targetTitle), candidate = tcAvitoDysonModelKey_(candidateTitle);
   return Boolean(target && candidate && target === candidate);
 }
 function tcAvitoAirPodsMax2026_(value) { return /\bairpods\s+max\s+(?:2\s+)?2026\b/i.test(String(value || '')); }
@@ -514,7 +500,10 @@ function tcAvitoPlaystationMatches_(targetTitle, candidateTitle) {
   // Bare "PlayStation 5" has no selected SKU.  Do not turn a disc drive,
   // Digital or arbitrary standard-console price into its price.
   if (target.form === 'standard' && !target.media && !target.memory) return false;
-  return target.form === candidate.form && (!target.media || target.media === candidate.media) && (!target.memory || target.memory === candidate.memory);
+  // The existing Ulyanovsk Avito title "PS5 Slim 1 TB" is the Slim Disc SKU;
+  // Digital is written explicitly and must not become the cheaper fallback.
+  const requiredMedia = target.media || (target.form === 'slim' && target.memory ? 'disc' : '');
+  return target.form === candidate.form && (!requiredMedia || requiredMedia === candidate.media) && (!target.memory || target.memory === candidate.memory);
 }
 function tcAvitoRequiredVariantTokens_(value) {
   const variants = /^(?:black|white|blue|green|pink|yellow|red|orange|purple|violet|silver|gold|gray|grey|natural|desert|starlight|midnight|graphite|titanium|spacegray|spaceblack|ultramarine|teal|indigo|coral|lavender|фиолетовый|черный|белый|синий|голубой|зеленый|розовый|желтый|красный|оранжевый|серебристый|золотистый|серый|натуральный|пустынный|ocean|alpine|trail|sport|milanese|link|loop|rubber|woven)$/;
