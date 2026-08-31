@@ -6,7 +6,7 @@
 const RUS = {
   sheets: ['телефоны', 'макбуки', 'аймаки', 'айпады', 'часы', 'наушники', 'пс', 'дайсон'],
   everyMinutes: 15,
-  project: 'ru:Store | Краснонедар',
+  project: 'ru:Store | Краснодар',
   endpoint: 'https://api.pricemasterapp.ru/krasnodar/snapshot',
   snapshotSecret: 'e02840249d79ec99f0317780d4b76b3ca0a91a6f2d08df376ce221566bb606a8',
   avito: { spreadsheetId: '1eSWzXG5_bWWZLvBW3YSkYTPPM7oi45O8TUVt1uwZUvs', sheetId: 942473127, headerRow: 2, firstDataRow: 3 },
@@ -100,22 +100,29 @@ function rusSyncAvitoPrices_(snapshot) {
   if (!layout) throw new Error('Неверная шапка листа объявлений Краснодара: нужны Model, MemorySize, Color, SimConfig, RamSize и Price.');
   const height = Math.max(sheet.getLastRow() - RUS.avito.headerRow, 0), values = height ? sheet.getRange(RUS.avito.firstDataRow, 1, height, lastColumn).getValues() : [];
   const plan = rusAvitoPricePlan_(products, layout, values);
-  plan.updates.forEach(function(update) { sheet.getRange(RUS.avito.firstDataRow + update.row, layout.price + 1).setValue(update.price); });
+  rusWriteAvitoPrices_(sheet, layout.price, plan.updates);
   PropertiesService.getScriptProperties().setProperty('RUS_LAST_REPORT', JSON.stringify({ at: new Date().toISOString(), sourceRows: products.length, matched: plan.matched, updated: plan.updates.length, cleared:plan.cleared, missing: plan.missing.slice(0, 200), ambiguous: plan.ambiguous.slice(0, 200) }));
   return { rows: products.length, written: plan.updates.length, matched: plan.matched, cleared:plan.cleared, skipped: plan.missing, ambiguous: plan.ambiguous };
 }
 function rusAvitoLayout_(headers) {
-  const index = {}; headers.forEach(function(value, column) { index[rusNorm_(value)] = column; });
+  const index = {}; headers.forEach(function(value, column) { index[rusAvitoHeaderKey_(value)] = column; });
   const need = ['model', 'memorysize', 'color', 'simconfig', 'ramsize', 'price'];
   return need.every(function(name) { return index[name] >= 0; }) ? { model:index.model, memory:index.memorysize, color:index.color, sim:index.simconfig, ram:index.ramsize, price:index.price, vendor:index.vendor } : null;
 }
 function rusAvitoPricePlan_(products, layout, rows) {
   const source = rusAvitoSourceIndex_(products), updates = [], missing = [], ambiguous = []; let matched = 0, cleared = 0;
   rows.forEach(function(row, rowIndex) {
-    const target = rusAvitoTargetKey_(row, layout); if (!target) return;
     const phone = { model:row[layout.model], memory:row[layout.memory], color:row[layout.color], sim:row[layout.sim], ram:row[layout.ram] };
+    const target = rusAvitoPhoneKey_(phone);
+    // A listing without a known model or a complete safe key cannot retain an
+    // old price.  Only Price is cleared; the listing itself stays untouched.
+    if (rusAvitoUnknown_(phone.model)) {
+      missing.push(rusAvitoLabel_(row, layout) + ' (неизвестная модель)');
+      if (row[layout.price] !== '') { updates.push({ row:rowIndex, price:'' }); cleared++; }
+      return;
+    }
     const fallback = rusAvitoCheapestPhoneFallback_(source.phones, phone);
-    const price = (fallback && fallback.price) || source.prices[target];
+    const price = (fallback && fallback.price) || (target && source.prices[target]);
     if (!price) { missing.push(rusAvitoLabel_(row, layout)); if (row[layout.price] !== '') { updates.push({ row:rowIndex, price:'' }); cleared++; } return; }
     matched++;
     if (Number(row[layout.price]) !== price) updates.push({ row:rowIndex, price:price });
@@ -132,7 +139,6 @@ function rusAvitoSourceIndex_(products) {
   });
   return { prices:prices, phones:phones };
 }
-function rusAvitoTargetKey_(row, layout) { return rusAvitoPhoneKey_({ model:row[layout.model], memory:row[layout.memory], color:row[layout.color], sim:row[layout.sim], ram:row[layout.ram] }); }
 function rusAvitoPhoneKey_(phone) {
   const model = rusAvitoModel_(phone.model), memory = rusAvitoMemory_(phone.memory), color = rusAvitoColorKey_(phone.color), sim = rusAvitoSim_(phone.sim, phone.model), ram = rusNorm_(phone.ram);
   if (!model || !memory || !color) return '';
@@ -148,6 +154,12 @@ function rusAvitoMemory_(value) {
   return size + ' гб';
 }
 function rusAvitoColorKey_(value) { return rusNorm_(value).replace(/голубой/g, 'синий'); }
+function rusAvitoUnknown_(value) { const text = rusNorm_(value); return !text || text === 'не знаю' || text === 'n/a' || text === 'unknown'; }
+function rusAvitoHeaderKey_(value) {
+  const key = rusNorm_(value).replace(/\s+/g, ' ');
+  const aliases = { 'модель':'model', 'встроенная память':'memorysize', 'память':'memorysize', 'цвет':'color', 'sim конфигурация':'simconfig', 'сим конфигурация':'simconfig', 'оперативная память':'ramsize', 'озу':'ramsize', 'цена':'price', 'цена продажи':'price', 'актуальная цена':'price' };
+  return aliases[key] || key.replace(/\s+/g, '');
+}
 function rusAvitoSim_(value, model) {
   const sim = rusNorm_(value || 'Не знаю').replace(/^только\s+/, '');
   // The supplier omits SIM only for the current Galaxy S26 rows; all matching
@@ -155,20 +167,36 @@ function rusAvitoSim_(value, model) {
   return sim === 'не знаю' && /^galaxy\s+s26(?:\+|\s+ultra)?$/.test(rusAvitoModel_(model)) ? 'sim + esim' : sim || 'не знаю';
 }
 function rusAvitoCheapestPhoneFallback_(phones, target) {
-  const model = rusAvitoModel_(target.model), memory = rusAvitoMemory_(target.memory), sim = rusAvitoSim_(target.sim, target.model), ram = rusNorm_(target.ram);
+  const model = rusAvitoModel_(target.model), memory = rusAvitoMemory_(target.memory), color = rusAvitoColorKey_(target.color), sim = rusAvitoSim_(target.sim, target.model), ram = rusNorm_(target.ram);
   if (!model || !memory) return null;
-  const unknown = function(value) { return !value || value === 'не знаю'; };
-  const targetUnknownSim = unknown(sim);
+  const targetUnknownSim = rusAvitoUnknown_(target.sim);
+  const targetUnknownColor = rusAvitoUnknown_(target.color);
+  // A fallback is allowed only for a technical unknown in the Avito listing.
+  // A missing supplier field must not bridge explicit eSIM/2 SIM variants.
+  if (!targetUnknownSim && !targetUnknownColor) return null;
   const candidates = phones.filter(function(phone) {
     const phoneSim = rusAvitoSim_(phone.sim, phone.model);
     return rusAvitoModel_(phone.model) === model && rusAvitoMemory_(phone.memory) === memory &&
       (/^iphone\b/.test(model) || rusNorm_(phone.ram) === ram) &&
-      (targetUnknownSim || unknown(phoneSim) || phoneSim === sim);
+      (targetUnknownSim || phoneSim === sim) &&
+      // Краснодарское подтверждённое исключение: при техническом «Не знаю»
+      // в SIM цвет также не ограничивает цену. При известной SIM цвет
+      // ослабляется только когда именно цвет технически неизвестен.
+      (targetUnknownSim || targetUnknownColor || rusAvitoColorKey_(phone.color) === color);
   });
   const prices = candidates.map(function(item) { return Number(item.price); }).filter(Boolean);
-  return prices.length ? { price:Math.min.apply(null, prices), rule:targetUnknownSim ? 'target-unknown-sim' : 'supplier-omitted-field' } : null;
+  return prices.length ? { price:Math.min.apply(null, prices), rule:targetUnknownSim ? 'target-unknown-sim' : 'target-unknown-color' } : null;
 }
 function rusAvitoLabel_(row, layout) { return [row[layout.model], row[layout.memory], row[layout.color], row[layout.sim], row[layout.ram]].map(String).join(' | '); }
+function rusWriteAvitoPrices_(sheet, priceColumn, updates) {
+  updates.sort(function(a, b) { return a.row - b.row; });
+  for (let start = 0; start < updates.length;) {
+    let end = start + 1;
+    while (end < updates.length && updates[end].row === updates[end - 1].row + 1) end++;
+    sheet.getRange(RUS.avito.firstDataRow + updates[start].row, priceColumn + 1, end - start, 1).setValues(updates.slice(start, end).map(function(item) { return [item.price]; }));
+    start = end;
+  }
+}
 /** Endpoint contract: {posts:[{id:"123", text:"...", updatedAt:"ISO"}]}. */
 function rusFetchSnapshot_() {
   const response = UrlFetchApp.fetch(RUS.endpoint, { headers: { 'X-PriceFlow-Secret': RUS.snapshotSecret }, muteHttpExceptions: true });

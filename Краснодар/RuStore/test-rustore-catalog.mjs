@@ -154,3 +154,17 @@ test('uses the safe Krasnodar fallback only for technical unknown SIM and colour
   ], layout, [['iPhone 16', '128 ГБ', 'белый', 'eSIM', '', 70000]]);
   assert.deepEqual(JSON.parse(JSON.stringify(explicit.updates)), [{ row:0, price:'' }]);
 });
+test('accepts Russian Avito headers under the common contract', () => {
+  const layout = api.rusAvitoLayout_(['Модель', 'Встроенная память', 'Цвет', 'Сим конфигурация', 'ОЗУ', 'Актуальная цена']);
+  assert.deepEqual(JSON.parse(JSON.stringify(layout)), { model:0, memory:1, color:2, sim:3, ram:4, price:5 });
+});
+test('does not bridge an explicit Avito SIM to a supplier row with omitted SIM', () => {
+  const layout = api.rusAvitoLayout_(['Model', 'MemorySize', 'Color', 'SimConfig', 'RamSize', 'Price']);
+  const plan = api.rusAvitoPricePlan_([{ category:'телефоны', name:'iPhone 16 128GB Black', price:70000 }], layout, [['iPhone 16', '128 ГБ', 'черный', 'eSIM', '', 65000]]);
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row:0, price:'' }]);
+});
+test('clears only Price for an Avito row with an unknown model', () => {
+  const layout = api.rusAvitoLayout_(['Model', 'MemorySize', 'Color', 'SimConfig', 'RamSize', 'Price']);
+  const plan = api.rusAvitoPricePlan_([{ category:'телефоны', name:'iPhone 16 128GB Black', price:70000 }], layout, [['Не знаю', '128 ГБ', 'черный', 'eSIM', '', 65000]]);
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row:0, price:'' }]);
+});
