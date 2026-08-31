@@ -354,15 +354,16 @@ function tcAvitoHasUnknownTitleConfig_(value) {
  * declare it.
  */
 function tcAvitoCheapestPhoneFallback_(phones, target) {
-  const model = tcNorm_(target.model), memory = tcAvitoPhoneMemoryKey_(target.memory), color = tcNorm_(target.color), ram = tcNorm_(target.ram);
+  const model = tcNorm_(target.model), memory = tcAvitoPhoneMemoryKey_(target.memory), color = tcNorm_(target.color), sim = tcAvitoSimKey_(target.sim || target.config || 'Не знаю'), ram = tcNorm_(target.ram);
   if (!model || model === 'не знаю') return null;
   const unknown = function(value) { return !value || value === 'не знаю'; };
-  const targetUnknownMemory = unknown(memory), targetUnknownColor = unknown(color), targetUnknownRam = unknown(ram), android = !/^iphone\b/.test(model), targetColorGroup = tcColorGroup_(target.color);
+  const targetUnknownMemory = unknown(memory), targetUnknownColor = unknown(color), targetUnknownSim = unknown(sim), targetUnknownRam = unknown(ram), android = !/^iphone\b/.test(model), targetColorGroup = tcColorGroup_(target.color);
   const candidates = phones.filter(function(phone) {
-    const sourceRam = tcNorm_(phone.ram);
+    const sourceRam = tcNorm_(phone.ram), sourceSim = tcAvitoSimKey_(phone.sim || phone.config || 'Не знаю');
     return tcNorm_(phone.model) === model &&
       (targetUnknownMemory || tcAvitoPhoneMemoryKey_(phone.memory) === memory) &&
       (targetUnknownColor || (android ? Boolean(targetColorGroup) && tcColorGroup_(phone.color) === targetColorGroup : tcNorm_(phone.color) === color)) &&
+      (targetUnknownSim || sourceSim === sim) &&
       (!android || targetUnknownRam || unknown(sourceRam) || sourceRam === ram);
   });
   const prices = candidates.map(function(item) { return Number(item.price); }).filter(Boolean);
@@ -434,6 +435,10 @@ function tcAvitoCheapestTitleFallback_(items, category, targetTitle) {
 function tcAvitoRequiredTitleMatch_(category, targetTitle, candidateTitle) {
   if (category === 'пс') return tcAvitoPlaystationMatches_(targetTitle, candidateTitle);
   if (category === 'дайсон') return tcAvitoDysonMatches_(targetTitle, candidateTitle);
+  // OnTrac is listed in Avito's headphones tab, but is not interchangeable
+  // with ordinary headphones.  A title with no AirPods token used to pass an
+  // empty token set and borrow the cheapest non-ANC headphone price.
+  if (category === 'наушники' && tcAvitoDysonModelKey_(targetTitle) === 'ontrac') return tcAvitoDysonModelKey_(candidateTitle) === 'ontrac';
   if (category === 'наушники' && tcAvitoAirPodsMax2026_(targetTitle)) return tcAvitoAirPodsMaxMatches_(targetTitle, candidateTitle);
   const required = tcAvitoRequiredTitleTokens_(category, targetTitle), candidate = tcAvitoTitleWords_(candidateTitle);
   if (!required.every(function(token) { return candidate.indexOf(token) >= 0; })) return false;
@@ -500,6 +505,9 @@ function tcAvitoPlaystationMatches_(targetTitle, candidateTitle) {
   // Bare "PlayStation 5" has no selected SKU.  Do not turn a disc drive,
   // Digital or arbitrary standard-console price into its price.
   if (target.form === 'standard' && !target.media && !target.memory) return false;
+  // A Slim row without storage and disc/digital information has no selected
+  // SKU.  Never choose a console price from an arbitrary Slim variant.
+  if (target.form === 'slim' && !target.media && !target.memory) return false;
   // The existing Ulyanovsk Avito title "PS5 Slim 1 TB" is the Slim Disc SKU;
   // Digital is written explicitly and must not become the cheaper fallback.
   const requiredMedia = target.media || (target.form === 'slim' && target.memory ? 'disc' : '');

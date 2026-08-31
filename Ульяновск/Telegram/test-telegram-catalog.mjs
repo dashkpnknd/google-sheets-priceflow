@@ -270,13 +270,13 @@ test('never substitutes a different supplier SIM or colour configuration', () =>
   ], { model: 'iPhone 13', memory: '128 ГБ', color: 'черный', sim: 'Не знаю', ram: '4 ГБ' }), null);
 });
 
-test('ignores SIM and colour when selecting the lowest ordinary phone price', () => {
+test('clears a phone price instead of crossing an explicit SIM variant', () => {
   const layout = api.tcAvitoLayout_(['Model', 'MemorySize', 'Color', 'SimConfig', 'RamSize', 'Price']);
   const plan = api.tcAvitoDirectPhonePlan_([
     { model:'iPhone 16 Pro', memory:'128 ГБ', color:'белый', sim:'2 SIM', ram:'', price:81900 }
   ], layout, [['iPhone 16 Pro', '128 ГБ', 'белый', 'eSIM', '', 74600]]);
-  assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row:0, price:81900 }]);
-  assert.equal(plan.cleared, 0);
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row:0, price:'' }]);
+  assert.equal(plan.cleared, 1);
 });
 
 test('uses an unambiguous phone price when the supplier omitted only the colour', () => {
@@ -333,13 +333,13 @@ test('matches iPad and Dyson titles by meaningful words but rejects conflicting 
   ], 'часы', 'Apple Watch SE 2 40mm Silver').ambiguous, true);
 });
 
-test('uses the minimum only among the same non-phone product identity', () => {
+test('uses the minimum only among an explicitly selected non-phone SKU', () => {
   const layout = api.tcAvitoTitleLayout_(['Title', 'Price']);
   const ps = api.tcAvitoDirectTitlePlan_([
     { category:'пс', title:'PS5 Slim Digital 1TB', price:61800 },
     { category:'пс', title:'PS5 Pro Digital 2TB', price:104300 }
   ], 'пс', layout, [['PS5 Slim', '']]);
-  assert.deepEqual(JSON.parse(JSON.stringify(ps.updates)), [{ row:0, price:61800 }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(ps.updates)), []);
   const controller = api.tcAvitoDirectTitlePlan_([
     { category:'пс', title:'DualSense Black', price:6400 },
     { category:'пс', title:'DualSense Edge Black', price:17100 }
@@ -436,6 +436,18 @@ test('uses Ulyanovsk relaxed fields only where the client made them irrelevant',
   assert.deepEqual(JSON.parse(JSON.stringify(watch.updates)), [{ row:0, price:82000 }]);
 });
 
+test('never transfers an eSIM iPhone price to a physical-SIM listing', () => {
+  const layout = api.tcAvitoLayout_(['Model', 'MemorySize', 'Color', 'SimConfig', 'RamSize', 'Price']);
+  const plan = api.tcAvitoDirectPhonePlan_([
+    { model:'iPhone 17 Pro Max', memory:'2 ТБ', color:'оранжевый', sim:'eSIM', ram:'', price:152300 },
+    { model:'iPhone 17 Pro Max', memory:'2 ТБ', color:'оранжевый', sim:'SIM + eSIM', ram:'', price:171600 }
+  ], layout, [
+    ['iPhone 17 Pro Max', '2048 ГБ', 'оранжевый', 'Только eSIM', '', ''],
+    ['iPhone 17 Pro Max', '2048 ГБ', 'оранжевый', '2 SIM', '', '']
+  ]);
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row:0, price:152300 }, { row:1, price:171600 }]);
+});
+
 
 test('normalises phone TB memory and supplier Watch spelling in live Avito keys', () => {
   const phoneLayout = api.tcAvitoLayout_(['Model', 'MemorySize', 'Color', 'SimConfig', 'RamSize', 'Price']);
@@ -486,13 +498,13 @@ test('matches only the approved AirPods Max 2 2026 title variant', () => {
   assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row:0, price:48000 }]);
 });
 
-test('uses filled iPhone colour and Apple Watch case and band characteristics exactly', () => {
+test('requires filled iPhone colour and SIM together, plus exact Watch characteristics', () => {
   const phoneLayout = api.tcAvitoLayout_(['Model', 'MemorySize', 'Color', 'SimConfig', 'RamSize', 'Price']);
   const iphone = api.tcAvitoDirectPhonePlan_([
     { model:'iPhone 14', memory:'512 ГБ', color:'черный', sim:'eSIM', ram:'', price:56300 },
     { model:'iPhone 14', memory:'512 ГБ', color:'фиолетовый', sim:'2 SIM', ram:'', price:56800 }
   ], phoneLayout, [['iPhone 14', '512 GB', 'фиолетовый', 'eSIM', '', 56300]]);
-  assert.deepEqual(JSON.parse(JSON.stringify(iphone.updates)), [{ row:0, price:56800 }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(iphone.updates)), [{ row:0, price:'' }]);
   const absent = api.tcAvitoDirectPhonePlan_([{ model:'iPhone 17 Pro', memory:'1 ТБ', color:'оранжевый', sim:'eSIM', ram:'', price:100000 }], phoneLayout, [['iPhone 17 Pro', '1 TB', 'серебристый', 'eSIM', '', 99000]]);
   assert.deepEqual(JSON.parse(JSON.stringify(absent.updates)), [{ row:0, price:'' }]);
 
@@ -601,13 +613,13 @@ test('requires a selected PS5 SKU and never prices controllers from accessories'
     { category:'пс', title:'DualSense White', price:6200 }
   ];
   const plan = api.tcAvitoDirectTitlePlan_(source, 'пс', layout, [
-    ['PlayStation 5', 2200], ['PlayStation 5 Slim 1TB', 59000],
+    ['PlayStation 5', 2200], ['PlayStation 5 Slim', 59300], ['PlayStation 5 Slim 1TB', 59000],
     ['PlayStation 5 Slim Digital', ''], ['PlayStation 5 Pro', ''],
     ['DualSense Black', 2200], ['DualSense White', 2200]
   ]);
   assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [
-    { row:0, price:'' }, { row:1, price:69000 }, { row:2, price:59000 },
-    { row:3, price:104800 }, { row:4, price:6400 }, { row:5, price:6200 }
+    { row:0, price:'' }, { row:1, price:'' }, { row:2, price:69000 }, { row:3, price:59000 },
+    { row:4, price:104800 }, { row:5, price:6400 }, { row:6, price:6200 }
   ]);
 });
 
@@ -627,4 +639,13 @@ test('uses one minimum per Dyson HS/HD/HT code and leaves OnTrac empty', () => {
   assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [
     { row:1, price:42100 }, { row:2, price:45100 }, { row:3, price:46800 }, { row:4, price:'' }
   ]);
+});
+
+test('does not treat Dyson OnTrac as a generic non-ANC headphone', () => {
+  const layout = api.tcAvitoTitleLayout_(['Title', 'Price']);
+  const plan = api.tcAvitoDirectTitlePlan_([
+    { category:'наушники', title:'Marshall Major V Black', price:3000 },
+    { category:'наушники', title:'AirPods 4', price:12000 }
+  ], 'наушники', layout, [['Dyson OnTrac CNC Copper', 3000]]);
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row:0, price:'' }]);
 });
