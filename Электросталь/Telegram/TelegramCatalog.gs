@@ -110,7 +110,7 @@ function syncTelegramCatalog_() {
     // Avito, so a Telegram parsing representation can never diverge from the
     // actual price source used by the client.
     SpreadsheetApp.flush();
-    const priceSync = tcSyncAvitoPrices_(tcReadReadyCatalog_(book, rows));
+    const priceSync = tcSyncAvitoPrices_(tcReadReadyCatalog_(book));
     const now = new Date(); p.setProperty(TC.props.last, String(now.getTime()));
     p.setProperty(TC.props.status, 'Каталог обновлён: ' + written + ' позиций.');
     return {
@@ -123,21 +123,13 @@ function syncTelegramCatalog_() {
 }
 
 /** Reads the ready, marked-up catalogue instead of reparsing Telegram. */
-function tcReadReadyCatalog_(book, sourceRows) {
+function tcReadReadyCatalog_(book) {
   const ready = { rows: [], available: {} };
-  const avitoPhones = (sourceRows || []).filter(tcAvitoEligible_).map(function(row) {
-    return { category:'телефоны', phone:tcPhone_(tcDisplay_(row)), price:Number(row.price) };
-  }).filter(function(row) { return row.price > 0 && tcAvitoPhoneKey_(row.phone); });
   Object.keys(TC.avito.sheets).forEach(function(category) {
     const sheet = book.getSheetByName(category);
     if (!sheet) throw new Error('Нет готового листа «' + category + '» для синхронизации Avito.');
     const width = sheet.getLastColumn(), headers = sheet.getRange(1, 1, 1, width).getValues()[0];
     tcValidateSchema_(sheet, headers);
-    if (category === 'телефоны') {
-      ready.rows.push.apply(ready.rows, avitoPhones);
-      ready.available[category] = true;
-      return;
-    }
     const layouts = tcLayouts_(headers);
     const height = Math.max(sheet.getLastRow() - 1, 0), values = height ? sheet.getRange(2, 1, height, width).getValues() : [];
     layouts.forEach(function(layout) {
