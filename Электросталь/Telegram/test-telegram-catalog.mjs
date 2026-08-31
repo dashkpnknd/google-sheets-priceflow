@@ -91,7 +91,7 @@ test('recognises colours in any part of a Telegram item without inventing a miss
   assert.equal(api.tcColor_('iPhone 17 Pro 256GB eSIM 🇯🇵'), '');
 });
 
-test('applies Elektrоstal Apple and Android markup to all eligible categories, then rounds up to 500 rubles', () => {
+test('applies only approved Elektrostal Apple/Android phone markups and never exposes a supplier cost', () => {
   const priced = api.tcApplyElektrostalMarkup_([
     { category: 'телефоны', name: 'iPhone 17 128GB', price: 15700 },
     { category: 'телефоны', name: 'Samsung Galaxy S25 256GB', price: 35700 },
@@ -106,11 +106,10 @@ test('applies Elektrоstal Apple and Android markup to all eligible categories, 
     { category: 'аксессуары', name: 'USB-C cable', price: 380 },
     { category: 'макбуки', name: 'MacBook Pro 14 M5 Max 36/2 ТБ', price: 304000 }
   ]);
-  assert.deepEqual(priced.rows.map((row) => row.price), [19000,41000,121500,164500,42500,136500,33000,24000,38000,78500,380,319000]);
-  assert.deepEqual(priced.rows.slice(0, 10).map((row) => row.markup), [3000,5000,10000,13000,5000,9000,4000,4000,5000,8000]);
-  assert.equal(priced.rows[11].markup, 15000);
-  assert.equal(priced.applied, 11);
-  assert.equal(priced.withoutRule, 1);
+  assert.deepEqual(priced.rows.map((row) => row.price), [19000,41000,121500,164500,42500,136500,33000,24000,317000]);
+  assert.deepEqual(priced.rows.map((row) => row.markup), [3000,5000,10000,13000,5000,9000,4000,4000,13000]);
+  assert.equal(priced.applied, 9);
+  assert.equal(priced.withoutRule, 3);
 });
 
 test('removes every iPhone 13 and 14 variant before the Elektrostal catalogue and markup', () => {
@@ -144,6 +143,11 @@ test('uses every permanent price message from the current Telegram navigation', 
     '<a href="https://t.me/astoredirectprice/8765">iPhone</a><a href="https://t.me/astoredirectprice/8783">Galaxy S</a>' +
     '<a href="https://t.me/astoredirectprice/8765">duplicate</a></div>';
   assert.deepEqual([...api.tcNavigationPostIds_(html, 'astoredirectprice')], [8765, 8783]);
+});
+
+test('does not reject the whole current catalogue for a navigation-only message without prices', () => {
+  assert.match(source, /if \(!postRows\.length\) return;/);
+  assert.doesNotMatch(source, /не вернул подтверждённые цены из прайс-сообщения/);
 });
 
 test('parses a history page and exposes the previous page cursor for full-channel reading', () => {
@@ -286,24 +290,25 @@ test('plans direct Elektrostal Avito price updates for phones and title-based ta
     { category: 'телефоны', name: 'iPhone 15 128GB Black eSIM', price: 65000 },
     { category: 'телефоны', name: 'iPhone 15 128GB Blue 2 SIM', price: 63000 }
   ], phoneLayout, [['Apple', 'iPhone 15', '128 ГБ', 'белый', 'SIM + eSIM', '6 ГБ', 62000, '25.09.2026']]);
-  assert.deepEqual(JSON.parse(JSON.stringify(unavailablePhone.updates)), [{ row: 0, price: '' }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(unavailablePhone.updates)), [{ row: 0, price: 63000 }]);
   const incompletePhone = api.tcAvitoPricePlan_([
-    { category:'телефоны', name:'Galaxy S26 Ultra 12/256GB Blue 2 SIM', price:84500 }
+    { category:'телефоны', phone:{ model:'Galaxy S26 Ultra', memory:'256 ГБ', color:'синий', sim:'2 SIM', ram:'12 ГБ' }, price:84500 }
   ], phoneLayout, [['Samsung', 'Galaxy S26 Ultra', '', 'синий', '2 SIM', '', 84500, '25.09.2026']]);
-  assert.deepEqual(JSON.parse(JSON.stringify(incompletePhone.updates)), [{ row:0, price:'' }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(incompletePhone.updates)), []);
+  assert.equal(incompletePhone.matched, 1);
 });
 
-test('does not substitute a declared 2 SIM offer for an eSIM listing', () => {
+test('treats SIM as non-restricting city metadata when phone identity is otherwise known', () => {
   assert.equal(api.tcPhone_('iPhone 16 Pro 128GB White (Dual-SIM)').config, '2 SIM');
   assert.equal(api.tcAvitoSafePhoneFallback_([
     { model:'iPhone 16 Pro', memory:'128 ГБ', color:'белый', sim:'2 SIM', ram:'', price:81900 }
-  ], { model:'iPhone 16 Pro', memory:'128 ГБ', color:'белый', sim:'eSIM', ram:'' }), null);
+  ], { model:'iPhone 16 Pro', memory:'128 ГБ', color:'белый', sim:'eSIM', ram:'' }).price, 81900);
 });
 
 
 test('does not let a service-marked phone collapse onto a regular Avito SKU', () => {
   assert.equal(api.tcAvitoEligiblePhone_({ category:'телефоны', name:'iPhone 17 512GB Black eSIM ASIS' }), false);
-  assert.equal(api.tcAvitoEligiblePhone_({ category:'телефоны', name:'Galaxy S26 12/256GB Blue Актив' }), false);
+  assert.equal(api.tcAvitoEligiblePhone_({ category:'телефоны', name:'Galaxy S26 12/256GB Blue Актив' }), true);
   assert.equal(api.tcAvitoEligiblePhone_({ category:'телефоны', name:'iPhone 17 512GB Black eSIM' }), true);
 });
 

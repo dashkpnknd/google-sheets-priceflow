@@ -464,7 +464,7 @@ test('applies all Ulyanovsk optional-field matching rules', () => {
     { model:'Galaxy S25', memory:'256 ГБ', color:'черный', sim:'2 SIM', ram:'', price:42000 },
     { model:'Galaxy S25', memory:'256 ГБ', color:'белый', sim:'SIM + eSIM', ram:'12 ГБ', price:45000 }
   ], phoneLayout, [['Galaxy S25', '256 ГБ', 'черный', '2 SIM', '12 ГБ', '']]);
-  assert.deepEqual(JSON.parse(JSON.stringify(android.updates)), [{ row:0, price:42000 }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(android.updates)), []);
 
   const titleLayout = api.tcAvitoTitleLayout_(['Title', 'Price']);
   const ipad = api.tcAvitoDirectTitlePlan_([
@@ -582,7 +582,7 @@ test('uses the 17 Pro 1TB markup and never crosses PS or Dyson model identities'
   assert.deepEqual(JSON.parse(JSON.stringify(dyson.updates)), [{ row:0, price:'' }]);
 });
 
-test('keeps every AirPods Max 2026 colour on its own prepared price', () => {
+test('uses the minimum AirPods Max 2026 price across colours', () => {
   const layout = api.tcAvitoTitleLayout_(['Title', 'Price']);
   const source = [
     { category:'наушники', title:'AirPods Max 2 2026 Blue', price:42100 },
@@ -596,9 +596,8 @@ test('keeps every AirPods Max 2026 colour on its own prepared price', () => {
     ['AirPods Max 2026 Starlight', 40800], ['AirPods Max 2026 Midnight', 40800],
     ['AirPods Max 2026 Orange', 40800]
   ]);
-  assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [
-    { row:0, price:42100 }, { row:1, price:42100 }, { row:2, price:42100 }, { row:3, price:41800 }
-  ]);
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), []);
+  assert.equal(plan.matched, 5);
 });
 
 test('requires a selected PS5 SKU and never prices controllers from accessories', () => {

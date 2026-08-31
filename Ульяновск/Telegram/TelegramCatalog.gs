@@ -364,7 +364,9 @@ function tcAvitoCheapestPhoneFallback_(phones, target) {
       (targetUnknownMemory || tcAvitoPhoneMemoryKey_(phone.memory) === memory) &&
       (targetUnknownColor || (android ? Boolean(targetColorGroup) && tcColorGroup_(phone.color) === targetColorGroup : tcNorm_(phone.color) === color)) &&
       (targetUnknownSim || sourceSim === sim) &&
-      (!android || targetUnknownRam || unknown(sourceRam) || sourceRam === ram);
+      // A declared RAM value must be confirmed by the supplier.  A blank
+      // source-RAM field is unknown, not a compatible Android configuration.
+      (!android || targetUnknownRam || sourceRam === ram);
   });
   const prices = candidates.map(function(item) { return Number(item.price); }).filter(Boolean);
   return prices.length ? { price:Math.min.apply(null, prices), rule:'ulyanovsk-phone-identity' } : null;
@@ -470,11 +472,8 @@ function tcAvitoDysonMatches_(targetTitle, candidateTitle) {
 function tcAvitoAirPodsMax2026_(value) { return /\bairpods\s+max\s+(?:2\s+)?2026\b/i.test(String(value || '')); }
 function tcAvitoAirPodsMaxMatches_(targetTitle, candidateTitle) {
   if (!tcAvitoAirPodsMax2026_(candidateTitle)) return false;
-  // Every filled Avito colour is a real variant here: Blue, Purple, Starlight,
-  // Midnight and Orange must not share the cheapest price with one another.
-  const targetColor = tcColorGroup_(tcColor_(targetTitle));
-  const candidateColor = tcColorGroup_(tcColor_(candidateTitle));
-  return !targetColor || Boolean(candidateColor && targetColor === candidateColor);
+  // AirPods Max is priced as one model: colour is editorial, not identity.
+  return true;
 }
 function tcAvitoPlaystationIdentity_(value) {
   const text = tcNorm_(value).replace(/playstation/g, 'ps');

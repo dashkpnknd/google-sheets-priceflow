@@ -174,7 +174,9 @@ function tcAvitoEligible_(row) {
 
 function tcHasSpecialCondition_(value) {
   const text = tcNorm_(value).replace(/[\u2010-\u2015]/g, '-');
-  return /(?:(?:^|[^a-zа-я])(?:asis|асис|cpo|цпо|active|open\s*box|refurb(?:ished)?|витрин(?:а|ный)|демо(?:\s*образец)?|уцен(?:ка|енный)|актив)(?=$|[^a-zа-я])|мят(?:ая|ый)\s*(?:коробк|упаковк|📦)|поврежд[её]нн(?:ая|ый)\s*(?:коробк|упаковк))/.test(text);
+  // "Актив" means a current sellable offer in this supplier's price list;
+  // it is deliberately not a special condition.
+  return /(?:(?:^|[^a-zа-я])(?:asis|асис|cpo|цпо|open\s*box|refurb(?:ished)?|витрин(?:а|ный)|демо(?:\s*образец)?|уцен(?:ка|енный)|пред\s*актив)(?=$|[^a-zа-я])|мят(?:ая|ый)\s*(?:коробк|упаковк|📦)|(?:вскрыт|поврежд)[а-яё]*\s*(?:коробк|упаковк))/.test(text);
 }
 
 // Backward-compatible name for any external code that called the old helper.
@@ -201,21 +203,20 @@ function tcSyncAvitoPrices_(ready) {
   return report;
 }
 function tcAvitoLayout_(headers) {
-  const index = {}; headers.forEach(function(value, column) { index[tcNorm_(value)] = column; });
+  const index = {}; headers.forEach(function(value, column) { index[tcAvitoHeaderKey_(value)] = column; });
   const required = ['model', 'memorysize', 'color', 'simconfig', 'ramsize', 'price'];
   return required.every(function(name) { return index[name] >= 0; }) ? { model:index.model, memory:index.memorysize, color:index.color, sim:index.simconfig, ram:index.ramsize, price:index.price } : null;
 }
 function tcAvitoPricePlan_(products, layout, rows) {
   const source = tcAvitoSourceIndex_(products), updates = [], missing = [], ambiguous = []; let matched = 0, cleared = 0;
   rows.forEach(function(row, rowIndex) {
-    const key = tcAvitoPhoneKey_({ model:row[layout.model], memory:row[layout.memory], color:row[layout.color], sim:row[layout.sim], ram:row[layout.ram] });
-    // An incomplete existing phone listing is not an exact SKU and must not
-    // keep a price.  Previously it was silently skipped, leaving stale Price
-    // on rows such as Galaxy S26 Ultra without MemorySize/RamSize.
-    if (!key) { missing.push(tcAvitoLabel_(row, layout) + ' (неполный SKU)'); if (row[layout.price] !== '') { updates.push({ row:rowIndex, price:'' }); cleared++; } return; }
     const phone = { model:row[layout.model], memory:row[layout.memory], color:row[layout.color], sim:row[layout.sim], ram:row[layout.ram] };
+    // A technical blank / "Не знаю" is not a restriction.  Only an unknown
+    // model is unsafe: no candidate is then selected.
+    if (tcAvitoUnknown_(phone.model)) { missing.push(tcAvitoLabel_(row, layout) + ' (неизвестная модель)'); if (row[layout.price] !== '') { updates.push({ row:rowIndex, price:'' }); cleared++; } return; }
+    const key = tcAvitoPhoneKey_(phone);
     const fallback = tcAvitoCheapestPhoneFallback_(source.phones, phone);
-    const price = (fallback && fallback.price) || source.prices[key];
+    const price = (fallback && fallback.price) || (key && source.prices[key]);
     if (!price) { missing.push(tcAvitoLabel_(row, layout)); if (row[layout.price] !== '') { updates.push({ row:rowIndex, price:'' }); cleared++; } return; }
     matched++; if (Number(row[layout.price]) !== price) updates.push({ row:rowIndex, price:price });
   });
@@ -224,9 +225,11 @@ function tcAvitoPricePlan_(products, layout, rows) {
 function tcAvitoSourceIndex_(products) {
   const prices = {}, conflicts = {}, phones = [];
   products.filter(function(product) { return product.category === 'телефоны' && Number(product.price) > 0; }).forEach(function(product) {
-    const phone = product.phone || tcPhone_(tcDisplay_(product)), key = tcAvitoPhoneKey_(phone); if (!key) return;
+    const phone = product.phone || tcPhone_(tcDisplay_(product)), key = tcAvitoPhoneKey_(phone);
     const price = Number(product.price);
+    if (tcAvitoUnknown_(phone.model)) return;
     phones.push({ model:phone.model, memory:phone.memory, color:phone.color, sim:phone.config || phone.sim || 'Не знаю', ram:phone.ram, price:price });
+    if (!key) return;
     prices[key] = prices[key] ? Math.min(prices[key], price) : price;
   }); return { prices:prices, conflicts:conflicts, phones:phones };
 }
@@ -241,43 +244,39 @@ function tcAvitoSimKey_(value) {
 function tcAvitoPhoneKey_(phone) {
   const model = tcNorm_(phone.model), memory = tcNorm_(phone.memory), color = tcNorm_(phone.color), sim = tcAvitoSimKey_(phone.config || phone.sim || 'Не знаю'), ram = tcNorm_(phone.ram);
   if (!model || !memory || !color) return '';
-  return [model, memory, color, sim, /^iphone/.test(model) ? '' : ram].join('|');
+  return [model, memory, color, sim, model.indexOf('iphone ') === 0 ? '' : ram].join('|');
 }
+function tcAvitoUnknown_(value) { const text = tcNorm_(value); return !text || text === 'не знаю' || text === 'n/a' || text === 'unknown'; }
 function tcAvitoRelaxedPhoneKey_(phone) {
   const model = tcNorm_(phone.model), memory = tcNorm_(phone.memory), ram = tcNorm_(phone.ram);
   if (!model || !memory) return ''; return [model, memory, /^iphone\b/.test(model) ? '' : ram].join('|');
 }
 // Fallback is permitted only when the supplier left colour or SIM unknown.
 // A declared `2 SIM` must never update an eSIM listing, and vice versa.
-function tcAvitoSafePhoneFallback_(phones, target) {
-  const model = tcNorm_(target.model), memory = tcNorm_(target.memory), color = tcNorm_(target.color), sim = tcNorm_(target.sim || target.config || 'Не знаю'), ram = tcNorm_(target.ram);
-  if (!model || !memory || !color) return null;
-  const unknown = function(value) { return !value || value === 'не знаю'; };
-  const candidates = phones.filter(function(phone) {
-    const phoneColor = tcNorm_(phone.color), phoneSim = tcNorm_(phone.sim || phone.config || 'Не знаю');
-    return tcNorm_(phone.model) === model && tcNorm_(phone.memory) === memory &&
-      (/^iphone/.test(model) || tcNorm_(phone.ram) === ram) &&
-      (unknown(phoneColor) || phoneColor === color) && (unknown(phoneSim) || phoneSim === sim) &&
-      (unknown(phoneColor) || unknown(phoneSim));
-  });
-  const prices = Array.from(new Set(candidates.map(function(item) { return Number(item.price); }).filter(Boolean)));
-  return prices.length === 1 ? { price:prices[0], rule:'supplier-omitted-field' } : null;
-}
+function tcAvitoSafePhoneFallback_(phones, target) { return tcAvitoCheapestPhoneFallback_(phones, target); }
 function tcAvitoLabel_(row, layout) { return [row[layout.model], row[layout.memory], row[layout.color], row[layout.sim], row[layout.ram]].map(String).join(' | '); }
-function tcAvitoTitleLayout_(headers) { const index = {}; headers.forEach(function(value, column) { index[tcNorm_(value)] = column; }); return index.title >= 0 && index.price >= 0 ? { title:index.title, price:index.price } : null; }
+function tcAvitoHeaderKey_(value) {
+  const key = tcNorm_(value).replace(/\s+/g, ' ');
+  const aliases = { 'модель':'model', 'встроенная память':'memorysize', 'память':'memorysize', 'цвет':'color', 'sim конфигурация':'simconfig', 'сим конфигурация':'simconfig', 'оперативная память':'ramsize', 'озу':'ramsize', 'цена':'price', 'цена продажи':'price', 'актуальная цена':'price', 'заголовок объявления':'title', 'наименование':'title', 'товар':'title' };
+  return aliases[key] || key.replace(/\s+/g, '');
+}
+function tcAvitoTitleLayout_(headers) { const index = {}; headers.forEach(function(value, column) { index[tcAvitoHeaderKey_(value)] = column; }); return index.title >= 0 && index.price >= 0 ? { title:index.title, price:index.price } : null; }
 function tcAvitoCheapestPhoneFallback_(phones, target) {
   const model = tcNorm_(target.model), memory = tcNorm_(target.memory), color = tcNorm_(target.color), sim = tcAvitoSimKey_(target.sim || target.config || 'Не знаю'), ram = tcNorm_(target.ram);
-  if (!model || !memory || !color) return null;
-  const unknown = function(value) { return !value || value === 'не знаю'; };
-  const targetUnknownSim = unknown(sim);
+  if (tcAvitoUnknown_(model)) return null;
+  const unknown = tcAvitoUnknown_;
+  const targetUnknownMemory = unknown(memory), targetUnknownColor = unknown(color), targetUnknownRam = unknown(ram);
   const candidates = phones.filter(function(phone) {
-    const phoneColor = tcNorm_(phone.color), phoneSim = tcAvitoSimKey_(phone.sim || phone.config || 'Не знаю');
-    return tcNorm_(phone.model) === model && tcNorm_(phone.memory) === memory &&
-      (/^iphone\b/.test(model) || tcNorm_(phone.ram) === ram) &&
-      (targetUnknownSim || unknown(phoneSim) || phoneSim === sim);
+    return tcNorm_(phone.model) === model &&
+      (targetUnknownMemory || tcNorm_(phone.memory) === memory) &&
+      // Colour and SIM are not restrictions in the approved Elektrostal
+      // phone identity; model, storage and Android RAM remain protected.
+      true &&
+      (model.indexOf('iphone ') === 0 || targetUnknownRam || tcNorm_(phone.ram) === ram);
   });
   const prices = Array.from(new Set(candidates.map(function(item) { return Number(item.price); }).filter(Boolean)));
-  return prices.length ? { price:Math.min.apply(null, prices), rule:targetUnknownSim ? 'target-unknown-sim' : 'supplier-omitted-field' } : null;
+  // SIM and country are not product identity constraints for this city.
+  return prices.length ? { price:Math.min.apply(null, prices), rule:'elektrostal-phone-identity' } : null;
 }
 function tcAvitoTitlePricePlan_(products, category, layout, rows) {
   const source = tcAvitoTitleSourceIndex_(products, category), updates = [], missing = [], ambiguous = []; let matched = 0, cleared = 0;
@@ -293,9 +292,7 @@ function tcAvitoTitlePricePlan_(products, category, layout, rows) {
 }
 function tcAvitoTitleSourceIndex_(products, category) { const prices = {}, items = []; products.filter(function(product) { return product.category === category && Number(product.price) > 0 && tcAvitoEligibleTitle_(tcDisplay_(product)); }).forEach(function(product) { const title = tcDisplay_(product), key = tcAvitoTitleKey_(title), price = Number(product.price); if (!key) return; items.push({ title:title, price:price }); prices[key] = prices[key] ? Math.min(prices[key], price) : price; }); return { prices:prices, items:items }; }
 function tcAvitoEligibleTitle_(value) {
-  // Avito has no state field we may write.  Do not let a pre-activated or
-  // damaged-box offer set the price of an ordinary listing.
-  return !/(?:\b(?:asis|cpo|open\s*box|refurb(?:ished)?)\b|уцен|витрин|демо|предактив|пред\s*актив|мят(?:ая|ый|ой|ую|ые|ых)?\s*(?:короб|упаков|📦))/iu.test(String(value || ''));
+  return !tcHasSpecialCondition_(value);
 }
 function tcAvitoStrictMacbookFallback_(items, category, targetTitle) {
   if (category !== 'макбуки') return null;
@@ -366,12 +363,30 @@ function tcAvitoCheapestTitleFallback_(items, category, targetTitle) {
   return { price:Math.min.apply(null, candidates.map(function(item) { return Number(item.price); }).filter(Boolean)), score:Math.max.apply(null, candidates.map(function(item) { return item.score; })) };
 }
 function tcAvitoRequiredTitleMatch_(category, targetTitle, candidateTitle) {
+  if (category === 'пс') return tcAvitoPlaystationMatches_(targetTitle, candidateTitle);
   const required = tcAvitoRequiredTitleTokens_(category, targetTitle), candidate = tcAvitoTitleWords_(candidateTitle);
   if (!required.every(function(token) { return candidate.indexOf(token) >= 0; })) return false;
   const target = String(targetTitle || ''), source = String(candidateTitle || '');
   if (category === 'наушники') return tcAvitoHasAnc_(target) === tcAvitoHasAnc_(source);
   if (/dualsense/i.test(target)) return /\bedge\b/i.test(target) === /\bedge\b/i.test(source);
   return true;
+}
+function tcAvitoPlaystationIdentity_(value) {
+  const text = tcNorm_(value).replace(/playstation/g, 'ps');
+  if (/dual\s*sense/.test(text)) return { family:/charg(?:ing|er)?\b|\bdock\b|\bstand\b|\bstation\b|заряд|док|подстав/.test(text) ? 'dualsense-accessory' : 'dualsense', edge:/\bedge\b/.test(text) };
+  const generation = /\bps\s*([345])\b/.exec(text); if (!generation) return null;
+  const form = /\bpro\b/.test(text) ? 'pro' : /\bslim\b/.test(text) ? 'slim' : 'standard';
+  const media = /\bdigital\b/.test(text) ? 'digital' : /\b(?:disc|disk|diskdrive)\b|диск(?:овод\w*|ов\w*)?/i.test(text) ? 'disc' : '';
+  const memory = /\b(825|1000|1024|2000|2048)\s*(?:gb|гб)|\b([12])\s*(?:tb|тб)\b/i.exec(text);
+  return { family:'ps' + generation[1], form:form, media:media, memory:memory ? Number(memory[1] || Number(memory[2]) * 1024) : 0 };
+}
+function tcAvitoPlaystationMatches_(targetTitle, candidateTitle) {
+  const target = tcAvitoPlaystationIdentity_(targetTitle), candidate = tcAvitoPlaystationIdentity_(candidateTitle);
+  if (!target || !candidate || target.family !== candidate.family) return false;
+  if (target.family === 'dualsense') return candidate.family === 'dualsense' && (!target.edge || candidate.edge);
+  if ((target.form === 'standard' && !target.media && !target.memory) || (target.form === 'slim' && !target.media && !target.memory)) return false;
+  const media = target.media || (target.form === 'slim' && target.memory ? 'disc' : '');
+  return target.form === candidate.form && (!media || media === candidate.media) && (!target.memory || target.memory === candidate.memory);
 }
 function tcAvitoRequiredTitleTokens_(category, value) {
   const words = tcAvitoTitleWords_(value);
@@ -600,11 +615,13 @@ function tcApplyElektrostalMarkup_(rows) {
     return false;
   }).map(function(row) {
     const amount = tcElektrostalMarkupAmount_(row);
-    if (amount === null) { withoutRule++; return Object.assign({}, row); }
+    // A supplier cost is never a sell price. Without an explicit city rule
+    // the item stays out of the prepared catalogue and therefore Avito.
+    if (amount === null) { withoutRule++; return null; }
     applied++;
     const price = Math.ceil((Number(row.price) + amount) / 500) * 500;
     return Object.assign({}, row, { supplierPrice: row.price, markup: amount, price: price });
-  });
+  }).filter(Boolean);
   return { rows: priced, applied: applied, withoutRule: withoutRule, excluded: excluded };
 }
 
@@ -618,35 +635,40 @@ function tcElektrostalMarkupAmount_(row) {
   if (!row) return null;
   const price = Number(row.price || 0), name = tcNorm_(tcDisplay_(row));
   if (price < 5000) return null;
-  // Электросталь: Apple получает отдельную шкалу. Samsung и Android получают
-  // Android-шкалу; та же Android-шкала обязательна для всех остальных
-  // категорий (Dyson, приставки, аксессуары и т.д.).
+  // Only the explicitly approved phone groups have a city markup.  Other
+  // product families need their own rule before they can receive a price.
   const apple = /\b(?:iphone|ipad|macbook|imac|apple\s+watch|airpods|apple\s+tv|apple\s+pencil)\b/.test(name);
   const android = /\b(?:samsung|galaxy|pixel|xiaomi|redmi|honor|huawei|oneplus|realme|oppo|vivo)\b/.test(name);
-  if (price > 225999) return 15000;
+  if (!apple && !(row.category === 'телефоны' && android)) return null;
+  // Apple retains its final approved band at every higher price.
+  if (apple && price > 225999) return 13000;
+  if (!apple && price > 225999) return 15000;
   const bands = apple ? [[15999,3000],[35999,4000],[69999,5000],[89999,6000],[110999,7500],[150999,9000],[225999,13000]] : [[15999,3000],[35999,5000],[69999,7000],[89999,8000],[110999,8500],[150999,10000],[225999,15000]];
   const band = bands.find(function(rule) { return price <= rule[0]; });
   return band ? band[1] : null;
 }
 
 function tcFetchRows_(channel) {
-  // Электросталь: источник — весь публичный Telegram-канал, а не закреплённая
-  // навигация и не ограниченная история.  Обходим все страницы `?before=` до
-  // самого первого сообщения; запись начинается только после полного обхода.
+  // The current navigation is the supplier's authoritative assortment.  Old
+  // historical posts must never revive a SKU after it disappears there.
+  const navigationResponse = UrlFetchApp.fetch('https://t.me/s/' + channel, { muteHttpExceptions:true });
+  if (navigationResponse.getResponseCode() !== 200) throw new Error('Telegram не открыл навигацию прайса: HTTP ' + navigationResponse.getResponseCode());
+  const navigationHtml = navigationResponse.getContentText();
+  const postIds = tcNavigationPostIds_(navigationHtml, channel);
+  if (!postIds.length) throw new Error('В текущей навигации Telegram не найдены ссылки на прайс. Каталог не изменён.');
   const rows = [];
-  const seenPages = {}, seenPosts = {};
-  let url = 'https://t.me/s/' + channel;
-  while (url) {
-    if (seenPages[url]) throw new Error('Telegram вернул повторяющуюся страницу истории; каталог не изменён.');
-    seenPages[url] = true;
-    const response = UrlFetchApp.fetch(url, { muteHttpExceptions:true });
-    if (response.getResponseCode() !== 200) throw new Error('Telegram не открыл историю канала: HTTP ' + response.getResponseCode());
-    const page = tcParsePreview_(response.getContentText(), channel), byPost = {};
-    page.rows.forEach(function(row) { (byPost[String(row.post)] = byPost[String(row.post)] || []).push(row); });
-    Object.keys(byPost).forEach(function(post) { if (!seenPosts[post]) { seenPosts[post] = true; rows.push.apply(rows, byPost[post]); } });
-    url = page.previous ? 'https://t.me' + page.previous : '';
-  }
-  if (!rows.length) throw new Error('Во всём канале Telegram не найдено ни одной подтверждённой цены. Каталог не изменён.');
+  postIds.forEach(function(postId) {
+    const response = UrlFetchApp.fetch('https://t.me/s/' + channel + '/' + postId, { muteHttpExceptions:true });
+    if (response.getResponseCode() !== 200) throw new Error('Telegram не открыл прайс-сообщение ' + postId + ': HTTP ' + response.getResponseCode());
+    const postRows = tcParseDirectPost_(response.getContentText(), channel, postId);
+    // Navigation also contains section headers and information messages
+    // (for example 9561). They are valid current navigation entries but not
+    // price sources. A real HTTP/read failure remains fatal; only a cleanly
+    // read message with no confirmed price is skipped.
+    if (!postRows.length) return;
+    rows.push.apply(rows, postRows);
+  });
+  if (!rows.length) throw new Error('В актуальном прайсе Telegram не найдено ни одной подтверждённой цены. Каталог не изменён.');
   return rows;
 }
 
