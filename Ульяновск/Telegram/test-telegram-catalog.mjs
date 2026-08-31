@@ -214,3 +214,13 @@ test('shared matcher preserves Ulyanovsk title safety and only plans Price', () 
   assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row:0, price:'' }]);
   assert.equal(matcher.runRegressionTests().passed, 8);
 });
+
+test('shared matcher keeps iPad mini generations separate', () => {
+  const matcher = api.PriceFlowAvitoMatcher;
+  const layout = matcher.titleLayout(['Title', 'Price']);
+  const plan = matcher.planTitle([
+    { title:'iPad Mini 6 256GB Wi-Fi Blue', price:41700 },
+    { title:'iPad Mini 7 A17 256GB Wi-Fi Blue', price:56800 }
+  ], 'айпады', layout, [['iPad 7 mini (2024), 256 ГБ Wi-Fi Blue', 41700]]);
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row:0, price:56800 }]);
+});
