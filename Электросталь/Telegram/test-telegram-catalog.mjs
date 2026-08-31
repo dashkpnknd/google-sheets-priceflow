@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const source = fs.readFileSync(new URL('./TelegramCatalog.gs', import.meta.url), 'utf8') + `
-globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcColor_,tcLayouts_,tcLayoutFor_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcApplyElektrostalMarkup_,tcElektrostalMarkupAmount_,tcExpand_,tcAvitoLayout_,tcAvitoPricePlan_,tcAvitoTitleLayout_,tcAvitoTitlePricePlan_,tcAvitoSafePhoneFallback_,tcAvitoEligiblePhone_,tcNavigationPostIds_,tcParsePreview_};`;
+globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcModel_,tcColor_,tcLayouts_,tcLayoutFor_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcApplyElektrostalMarkup_,tcElektrostalMarkupAmount_,tcExpand_,tcAvitoLayout_,tcAvitoPricePlan_,tcAvitoTitleLayout_,tcAvitoTitlePricePlan_,tcAvitoSafePhoneFallback_,tcAvitoEligible_,tcAvitoEligiblePhone_,tcNavigationPostIds_,tcParsePreview_};`;
 const parseCsv = (value) => String(value).trim().split(/\r?\n/).map((line) => {
   const cells = []; let current = ''; let quoted = false;
   for (let index = 0; index < line.length; index++) {
@@ -290,7 +290,7 @@ test('plans direct Elektrostal Avito price updates for phones and title-based ta
     { category: 'телефоны', name: 'iPhone 15 128GB Black eSIM', price: 65000 },
     { category: 'телефоны', name: 'iPhone 15 128GB Blue 2 SIM', price: 63000 }
   ], phoneLayout, [['Apple', 'iPhone 15', '128 ГБ', 'белый', 'SIM + eSIM', '6 ГБ', 62000, '25.09.2026']]);
-  assert.deepEqual(JSON.parse(JSON.stringify(unavailablePhone.updates)), [{ row: 0, price: 63000 }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(unavailablePhone.updates)), [{ row: 0, price: '' }]);
   const incompletePhone = api.tcAvitoPricePlan_([
     { category:'телефоны', phone:{ model:'Galaxy S26 Ultra', memory:'256 ГБ', color:'синий', sim:'2 SIM', ram:'12 ГБ' }, price:84500 }
   ], phoneLayout, [['Samsung', 'Galaxy S26 Ultra', '', 'синий', '2 SIM', '', 84500, '25.09.2026']]);
@@ -319,12 +319,45 @@ test('uses Ulyanovsk-safe Avito fallbacks in Elektrostal', () => {
     { category:'телефоны', name:'iPhone 16 128GB Black eSIM', price:70000 },
     { category:'телефоны', name:'iPhone 16 128GB Blue 2 SIM', price:72000 }
   ], phoneLayout, [['iPhone 16', '128 ГБ', 'белый', 'Не знаю', '', '']]);
-  assert.deepEqual(JSON.parse(JSON.stringify(phonePlan.updates)), [{ row:0, price:70000 }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(phonePlan.updates)), []);
   const titleLayout = api.tcAvitoTitleLayout_(['Title', 'Price']);
   const macPlan = api.tcAvitoTitlePricePlan_([
     { category:'макбуки', name:'MacBook Neo Air Neo Citrus 8/256GB', price:65300 },
     { category:'макбуки', name:'MacBook Air 13 M5 16/1TB Sky Blue (Мятая 📦)', price:130800 },
     { category:'макбуки', name:'MacBook Air 13 M5 16/1TB Silver', price:131800 }
   ], 'макбуки', titleLayout, [['MacBook 13 Neo 8/256 Blush', ''], ['MacBook Air 13 M5 16/1024 Sky Blue', '']]);
-  assert.deepEqual(JSON.parse(JSON.stringify(macPlan.updates)), [{ row:0, price:65300 }, { row:1, price:131800 }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(macPlan.updates)), [{ row:1, price:131800 }]);
+});
+
+test('requires a filled phone colour while allowing an unknown colour to use the lowest current variant', () => {
+  const layout = api.tcAvitoLayout_(['Model','MemorySize','Color','SimConfig','RamSize','Price']);
+  const sourceRows = [
+    { category:'телефоны', name:'iPhone 16 128GB White eSIM', price:70000 },
+    { category:'телефоны', name:'iPhone 16 128GB Black 2 SIM', price:68000 }
+  ];
+  assert.deepEqual(JSON.parse(JSON.stringify(api.tcAvitoPricePlan_(sourceRows, layout, [['iPhone 16','128 ГБ','белый','Не знаю','',0]]).updates)), [{row:0,price:70000}]);
+  assert.deepEqual(JSON.parse(JSON.stringify(api.tcAvitoPricePlan_(sourceRows, layout, [['iPhone 16','128 ГБ','Не знаю','Не знаю','',0]]).updates)), [{row:0,price:68000}]);
+});
+
+test('keeps Android radio, model family, RAM and colour-group identities separate', () => {
+  assert.notEqual(api.tcModel_('Galaxy Z Fold 6 12/256GB Blue 5G'), api.tcModel_('Galaxy Z Flip 6 12/256GB Blue 5G'));
+  assert.notEqual(api.tcModel_('Xiaomi 14 Pro 12/256GB NFC 5G'), api.tcModel_('Xiaomi 14 Pro+ 12/256GB NFC 5G'));
+  assert.notEqual(api.tcModel_('Redmi Note 14 8/256GB NFC 4G'), api.tcModel_('Redmi Note 14 8/256GB NFC 5G'));
+});
+
+test('matches iPad across Wi-Fi and LTE, but protects AirPods Max and Dyson OnTrac identities', () => {
+  const layout = api.tcAvitoTitleLayout_(['Title','Price']);
+  assert.deepEqual(JSON.parse(JSON.stringify(api.tcAvitoTitlePricePlan_([{category:'айпады',name:'iPad Air 11 M3 256GB LTE Blue',price:72000}], 'айпады', layout, [['iPad Air 11 M3 256GB Wi-Fi Black',0]]).updates)), [{row:0,price:72000}]);
+  assert.deepEqual(JSON.parse(JSON.stringify(api.tcAvitoTitlePricePlan_([{category:'наушники',name:'AirPods Pro 3 ANC',price:20000}], 'наушники', layout, [['AirPods Max 2 2026 Blue',100]]).updates)), [{row:0,price:''}]);
+  assert.deepEqual(JSON.parse(JSON.stringify(api.tcAvitoTitlePricePlan_([{category:'дайсон',name:'Dyson HS08 Blue',price:40000}], 'дайсон', layout, [['Dyson OnTrac CNC Copper',100]]).updates)), [{row:0,price:''}]);
+});
+
+test('removes ASIS and Open-Box before Elektrostal markup, while Galaxy Buds have no city price rule', () => {
+  const priced = api.tcApplyElektrostalMarkup_([
+    {category:'телефоны',name:'iPhone 16 128GB ASIS',price:70000},
+    {category:'телефоны',name:'iPhone 16 128GB Open-Box',price:70000},
+    {category:'наушники',name:'Galaxy Buds 3 Pro',price:12000}
+  ].filter(api.tcAvitoEligible_));
+  assert.equal(priced.rows.length, 0);
+  assert.equal(api.tcApplyElektrostalMarkup_([{category:'наушники',name:'Galaxy Buds 3 Pro',price:12000}]).rows.length, 0);
 });
