@@ -330,13 +330,29 @@ function tcFetchRows_(channel) {
   postIds.forEach(function(postId) {
     const response = UrlFetchApp.fetch('https://t.me/s/' + channel + '/' + postId, { muteHttpExceptions:true });
     if (response.getResponseCode() !== 200) throw new Error('Telegram не открыл прайс-сообщение ' + postId + ': HTTP ' + response.getResponseCode());
-    const postRows = tcParseDirectPost_(response.getContentText(), channel, postId);
+    const html = response.getContentText(), postRows = tcParseDirectPost_(html, channel, postId), continuation = tcContinuationInfo_(tcDirectPostText_(html, postId));
     // Navigation also contains section headers and information messages
     // (for example 9561). They are valid current navigation entries but not
     // price sources. A real HTTP/read failure remains fatal; only a cleanly
     // read message with no confirmed price is skipped.
     if (!postRows.length) return;
     rows.push.apply(rows, postRows);
+    // The supplier navigation points at the first post of a section. A long
+    // section continues in immediately following posts marked "(часть 2/3)".
+    // Read every declared part; a missing/mislabelled part fails closed rather
+    // than silently clearing live Avito prices from an incomplete catalogue.
+    if (continuation && continuation.part < continuation.total) {
+      for (let part = continuation.part + 1; part <= continuation.total; part++) {
+        const continuationId = postId + part - continuation.part;
+        const next = UrlFetchApp.fetch('https://t.me/s/' + channel + '/' + continuationId, { muteHttpExceptions:true });
+        if (next.getResponseCode() !== 200) throw new Error('Telegram не открыл продолжение прайс-сообщения ' + continuationId + ': HTTP ' + next.getResponseCode());
+        const text = tcDirectPostText_(next.getContentText(), continuationId), info = tcContinuationInfo_(text);
+        if (!text || !info || info.section !== continuation.section || info.part !== part || info.total !== continuation.total) {
+          throw new Error('Не найдено ожидаемое продолжение «' + continuation.label + '», часть ' + part + '/' + continuation.total + '. Каталог не изменён.');
+        }
+        rows.push.apply(rows, tcParsePost_(text, channel, continuationId));
+      }
+    }
   });
   if (!rows.length) throw new Error('В актуальном прайсе Telegram не найдено ни одной подтверждённой цены. Каталог не изменён.');
   return rows;
@@ -356,13 +372,25 @@ function tcNavigationPostIds_(html, channel) {
 
 /** A direct Telegram post URL also contains neighbours; parse only its target. */
 function tcParseDirectPost_(html, channel, targetPost) {
-  const rows = [], chunks = String(html || '').split(/<div class="tgme_widget_message_wrap[^>]*">/i);
+  const text = tcDirectPostText_(html, targetPost);
+  return text ? tcParsePost_(text, channel, targetPost) : [];
+}
+
+function tcDirectPostText_(html, targetPost) {
+  const chunks = String(html || '').split(/<div class="tgme_widget_message_wrap[^>]*">/i);
   for (let index = 1; index < chunks.length; index++) {
     const post = /data-post="[^/]+\/(\d+)"/i.exec(chunks[index]), body = /<div class="tgme_widget_message_text[^>]*>([\s\S]*?)<\/div>/i.exec(chunks[index]);
-    if (!post || !body || String(post[1]) !== String(targetPost)) continue;
-    rows.push.apply(rows, tcParsePost_(tcHtml_(body[1]), channel, post[1]));
+    if (post && body && String(post[1]) === String(targetPost)) return tcHtml_(body[1]);
   }
-  return rows;
+  return '';
+}
+
+function tcContinuationInfo_(text) {
+  const first = String(text || '').split('\n').map(function(line) { return line.trim(); }).filter(Boolean)[0] || '';
+  const match = /^(.*?)\s*\(часть\s*(\d+)\s*\/\s*(\d+)\)\s*$/i.exec(first);
+  if (!match) return null;
+  const part = Number(match[2]), total = Number(match[3]), label = match[1].trim();
+  return part > 0 && total >= part && label ? { section:tcNorm_(label), label:label, part:part, total:total } : null;
 }
 
 function tcParsePreview_(html, channel) {

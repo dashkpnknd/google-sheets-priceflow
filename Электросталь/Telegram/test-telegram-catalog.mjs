@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const source = fs.readFileSync(new URL('../../PriceFlowAvitoMatcher.gs', import.meta.url), 'utf8') + '\n' + fs.readFileSync(new URL('./TelegramCatalog.gs', import.meta.url), 'utf8') + `
-globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcModel_,tcColor_,tcLayouts_,tcLayoutFor_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcApplyElektrostalMarkup_,tcElektrostalMarkupAmount_,tcExpand_,tcNavigationPostIds_,tcParsePreview_,tcEligibleForCatalogue_,PriceFlowAvitoMatcher};`;
+globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcModel_,tcColor_,tcLayouts_,tcLayoutFor_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcApplyElektrostalMarkup_,tcElektrostalMarkupAmount_,tcExpand_,tcFetchRows_,tcNavigationPostIds_,tcParsePreview_,tcContinuationInfo_,tcEligibleForCatalogue_,PriceFlowAvitoMatcher};`;
 const parseCsv = (value) => String(value).trim().split(/\r?\n/).map((line) => {
   const cells = []; let current = ''; let quoted = false;
   for (let index = 0; index < line.length; index++) {
@@ -143,6 +143,26 @@ test('uses every permanent price message from the current Telegram navigation', 
     '<a href="https://t.me/astoredirectprice/8765">iPhone</a><a href="https://t.me/astoredirectprice/8783">Galaxy S</a>' +
     '<a href="https://t.me/astoredirectprice/8765">duplicate</a></div>';
   assert.deepEqual([...api.tcNavigationPostIds_(html, 'astoredirectprice')], [8765, 8783]);
+});
+
+test('reads every declared continuation of a current price section', () => {
+  assert.deepEqual(JSON.parse(JSON.stringify(api.tcContinuationInfo_('iPhone 17\nпозиции'))), null);
+  assert.deepEqual(JSON.parse(JSON.stringify(api.tcContinuationInfo_('📱 iPhone (часть 1/3)\n17 128GB Black — 70 000 ₽'))), { section:'📱 iphone', label:'📱 iPhone', part:1, total:3 });
+  assert.match(source, /continuation\.part < continuation\.total/);
+  assert.match(source, /Не найдено ожидаемое продолжение/);
+});
+
+test('includes continuation rows in the ready Elektrostal catalogue', () => {
+  const message = (id, text) => '<div class="tgme_widget_message_wrap"><div data-post="astoredirectprice/' + id + '"></div><div class="tgme_widget_message_text">' + text.replace(/\n/g, '<br>') + '</div></div>';
+  const navigation = '<div class="tgme_widget_message_wrap"><div class="tgme_widget_message_text">Навигация по прайсу</div><a href="https://t.me/astoredirectprice/100">iPhone</a></div>';
+  const pages = {
+    'https://t.me/s/astoredirectprice': navigation,
+    'https://t.me/s/astoredirectprice/100': message(100, 'iPhone (часть 1/2)\niPhone 17 256GB Black (eSim) — 70 000 ₽'),
+    'https://t.me/s/astoredirectprice/101': message(101, 'iPhone (часть 2/2)\niPhone 17 256GB Blue (eSim) — 71 000 ₽')
+  };
+  context.UrlFetchApp = { fetch(url) { return { getResponseCode: () => 200, getContentText: () => pages[url] || '' }; } };
+  const rows = api.tcFetchRows_('astoredirectprice');
+  assert.deepEqual(Array.from(rows, row => [row.post, row.price]), [[100, 70000], [101, 71000]]);
 });
 
 test('does not reject the whole current catalogue for a navigation-only message without prices', () => {
