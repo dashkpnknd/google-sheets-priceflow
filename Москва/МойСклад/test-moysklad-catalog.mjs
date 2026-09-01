@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-const source = fs.readFileSync(new URL('./MoySkladCatalog.gs', import.meta.url), 'utf8') + `\nglobalThis.API={mscPrice_,mscCategory_,mscItem_,mscLayouts_,mscRow_,mscPhone_,mscColor_,mscSummary_,mscProductSort_,mscCharacteristicsText_,mscPlausiblePrice_,mscLayout_,mscIsIphoneHandset_,mscDisplayModel_,mscHasMemory_,mscCleanName_};`;
+const source = fs.readFileSync(new URL('./MoySkladCatalog.gs', import.meta.url), 'utf8') + `\nglobalThis.API={mscPrice_,mscCategory_,mscItem_,mscLayouts_,mscRow_,mscPhone_,mscColor_,mscSummary_,mscProductSort_,mscCharacteristicsText_,mscPlausiblePrice_,mscInStock_,mscLayout_,mscIsIphoneHandset_,mscDisplayModel_,mscHasMemory_,mscCleanName_};`;
 const context = { console }; vm.createContext(context); vm.runInContext(source, context); const api = context.API;
 
 test('maps all supported product types to the standard client tabs', () => {
@@ -21,11 +21,11 @@ test('converts MoySklad kopecks to rubles and keeps a blank missing price blank'
   assert.equal(api.mscPrice_([]), '');
 });
 test('uses product and variant data without relying on an existing sheet row', () => {
-  const item = api.mscItem_({name:'256GB Blue SIM + eSIM', article:'A-1', salePrices:[{value:10299000}], product:{name:'iPhone 17 Pro'}});
+  const item = api.mscItem_({name:'256GB Blue SIM + eSIM', article:'A-1', salePrices:[{value:10299000}], stock:1, reserve:0, product:{name:'iPhone 17 Pro'}});
   assert.equal(item.category, 'телефоны'); assert.equal(item.name, 'iPhone 17 Pro 256GB Blue SIM + eSIM'); assert.equal(item.price,102990);
 });
 test('includes MoySklad variant characteristics in the parsable product text', () => {
-  const item = api.mscItem_({name:'iPhone 14', salePrices:[{value:5700000}], characteristics:[{name:'Память',value:'512 GB'},{name:'Цвет',value:'Blue'},{name:'Страна',value:'Japan'},{name:'SIM',value:'SIM + eSIM'}]});
+  const item = api.mscItem_({name:'iPhone 14', salePrices:[{value:5700000}], stock:1, reserve:0, characteristics:[{name:'Память',value:'512 GB'},{name:'Цвет',value:'Blue'},{name:'Страна',value:'Japan'},{name:'SIM',value:'SIM + eSIM'}]});
   assert.match(item.name,/512 GB/); assert.match(item.name,/Blue/); assert.match(item.name,/Japan/);
   const info = api.mscPhone_(item.name);
   assert.deepEqual({...info}, {model:'iPhone 14',memory:'512 ГБ',ram:'',color:'голубой',sim:'SIM + eSIM',country:'Япония'});
@@ -46,6 +46,13 @@ test('splits Android RAM and memory without writing a country column', () => {
   assert.deepEqual({...phone}, {model:'Pixel 7',memory:'128 ГБ',ram:'8 ГБ',color:'желтый',sim:'',country:'США 🇺🇸'});
   const layout = api.mscLayouts_(['Model','SimConfig','MemorySize','Color','RamSize','Price'])[0];
   assert.deepEqual([...api.mscRow_(layout,{name:'Pixel 7 8/128GB Lemongrass 🇺🇸',price:23500})], ['Pixel 7','Не знаю','128 ГБ','желтый','8 ГБ',23500]);
+});
+test('imports only currently available items and re-evaluates availability every run', () => {
+  assert.equal(api.mscInStock_({stock:1, reserve:0}), true);
+  assert.equal(api.mscInStock_({stock:1, reserve:1}), false);
+  assert.equal(api.mscInStock_({stock:0, reserve:0}), false);
+  assert.equal(api.mscItem_({name:'iPhone 17 256GB', salePrices:[{value:8000000}], stock:1, reserve:1}), null);
+  assert.equal(api.mscItem_({name:'iPhone 17 256GB', salePrices:[{value:8000000}], stock:1, reserve:0}).category, 'телефоны');
 });
 test('sorts iPhones by generation rather than an old row order', () => {
   const products = [{name:'iPhone 17 Pro 256GB',price:100000},{name:'iPhone 13 128GB',price:40000},{name:'iPhone 16e 256GB',price:60000},{name:'iPhone 14 128GB',price:50000}];
@@ -85,7 +92,7 @@ test('skips accessory cases and keeps Samsung wearables out of the Android phone
   assert.equal(api.mscCategory_('Galaxy A36 8/256 GB'), 'телефоны');
   assert.equal(api.mscHasMemory_('Galaxy A36 8/256 GB'), true);
   assert.equal(api.mscCleanName_(' # Galaxy Buds 4'), 'Galaxy Buds 4');
-  const item = api.mscItem_({name:'# Galaxy Buds 4', salePrices:[{value:1299000}]});
+  const item = api.mscItem_({name:'# Galaxy Buds 4', salePrices:[{value:1299000}], stock:1, reserve:0});
   assert.equal(item.name, 'Galaxy Buds 4');
   assert.equal(item.category, 'наушники');
 });

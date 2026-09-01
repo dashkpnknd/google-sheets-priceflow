@@ -75,7 +75,10 @@ function mscApi_(token, path) {
   return JSON.parse(response.getContentText());
 }
 function mscItem_(item) {
-  if (!item || !item.name || item.archived) return null;
+  // Каталог пересобирается с нуля на каждом запуске. Поэтому товар с нулевым
+  // доступным остатком исчезает только из текущего снимка и снова попадёт в
+  // него автоматически, когда появится на складе.
+  if (!item || !item.name || item.archived || !mscInStock_(item)) return null;
   const name = String(item.name).trim(), parent = item.product && item.product.name || '', details = mscCharacteristicsText_(item), full = mscJoinParts_([parent, name, details]);
   const price = mscPrice_(item.salePrices || []), category = mscCategory_((item.productFolder && item.productFolder.name || '') + ' ' + full);
   // Placeholders and service rows with a symbolic price must not enter a
@@ -106,6 +109,10 @@ function mscCharacteristicsText_(item) {
   return mscJoinParts_(values);
 }
 function mscPrice_(prices) { const value = prices && prices.length ? Number(prices[0].value || 0) : 0; return value ? value / 100 : ''; }
+function mscInStock_(item) {
+  const stock = Number(item && item.stock || 0), reserve = Number(item && item.reserve || 0);
+  return Number.isFinite(stock) && Number.isFinite(reserve) && stock - reserve > 0;
+}
 function mscPlausiblePrice_(category, price) { return Number(price) >= (category === 'телефоны' ? 1000 : 1); }
 function mscIsAccessory_(value) { return /чехол|кейс|бампер|накладк|футляр|case\b|cover\b|стекло|пленк|глазур|кабель|cable|зарядн|charger|сзу|блок\s*питан|адаптер|держател|ремеш|клавиатур|мышь|защитн|access\b|type\s*-?\s*c|magsafe|пауэрбанк|power\s*bank|переходник|хаб\b|док-станц|dock|контроллер|геймпад|джойстик|руль|игровой\s+аксессуар/.test(mscNorm_(value)); }
 function mscHasMemory_(value) { return /(?:\d{1,2}\s*\/\s*)?\d{2,4}\s*(?:гб|gb|тб|tb)\b/i.test(String(value || '')); }
