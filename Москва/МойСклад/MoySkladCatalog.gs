@@ -5,7 +5,10 @@
  */
 const MSC = {
   api: 'https://api.moysklad.ru/api/remap/1.2', pageSize: 1000, everyMinutes: 15,
-  sheets: ['телефоны', 'макбуки', 'айпады', 'часы', 'наушники', 'пс', 'дайсон', 'аймаки'],
+  // Лист аксессуаров — часть московского контракта. В него попадают
+  // защитные стёкла, зарядки и другие товары, которые нельзя смешивать с
+  // основными товарными категориями.
+  sheets: ['телефоны', 'макбуки', 'айпады', 'часы', 'наушники', 'пс', 'дайсон', 'аймаки', 'аксессуары'],
   props: { project: 'MSC_PROJECT', token: 'MSC_TOKEN', last: 'MSC_LAST', status: 'MSC_STATUS' }
 };
 
@@ -113,7 +116,7 @@ function mscCategory_(value) {
   const v = mscNorm_(value);
   // Проверяем аксессуар раньше названия совместимого устройства: «чехол для
   // AirPods» — не наушники.
-  if (mscIsAccessory_(v)) return 'прочее';
+  if (mscIsAccessory_(v)) return 'аксессуары';
   if (/airpods|earpods|galaxy\s+(?:buds|ring)\b|наушник|headphone|гарнитур|колонк/.test(v)) return 'наушники';
   if (/\bwatch\b|часы/.test(v)) return 'часы';
   // В прайсе Samsung позиции без объёма памяти — это носимые устройства, а
