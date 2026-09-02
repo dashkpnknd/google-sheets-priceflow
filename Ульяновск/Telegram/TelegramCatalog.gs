@@ -29,7 +29,7 @@ const TC = {
     'наушники': { sheetName: 'наушники', kind: 'title' }, 'пс': { sheetName: 'пс', kind: 'title' },
     'дайсон': { sheetName: 'дайсон', kind: 'title' }
   } },
-  props: { project: 'TC_PROJECT', channel: 'TC_CHANNEL', mirrorTwoSim: 'TC_MIRROR_TWO_SIM', last: 'TC_LAST', status: 'TC_STATUS' }
+  props: { project: 'TC_PROJECT', channel: 'TC_CHANNEL', mirrorTwoSim: 'TC_MIRROR_TWO_SIM', last: 'TC_LAST', status: 'TC_STATUS', templateLastReport: 'TC_TEMPLATE_LAST_REPORT' }
 };
 
 function onOpen() {
@@ -73,7 +73,7 @@ function saveTelegramCatalogSetup(form) {
 
 function runTelegramCatalogNow() { tcEnsureTrigger_(); const result = syncTelegramCatalog_(); return Object.assign(getTelegramCatalogSetup(), { message: tcSummary_(result) }); }
 // Reconciliation for the separate customer template without rebuilding stage 1.
-function runPriceTemplateSyncNow() { tcAssertUlyanovskInvariants_(); return tcSyncPriceTemplate_(); }
+function runPriceTemplateSyncNow() { tcAssertUlyanovskInvariants_(); const report = tcSyncPriceTemplate_(); return Object.assign(report, { message: tcPriceTemplateSummary_(report) }); }
 function syncTelegramCatalog() {
   // A trigger may survive a copied project. Until the user has connected a
   // channel, it should silently do nothing rather than repeatedly fail.
@@ -132,7 +132,15 @@ function syncTelegramCatalog_() {
 
 /** Stage 2 reads only the completed local catalogue and writes Price only. */
 function tcSyncPriceTemplate_() {
-  return PriceFlowTemplateMatcher.sync({ city:'ulyanovsk', sourceSpreadsheet:SpreadsheetApp.getActiveSpreadsheet(), templateSpreadsheetId:TC.priceTemplate.spreadsheetId, headerRow:TC.priceTemplate.headerRow, firstDataRow:TC.priceTemplate.firstDataRow, sheets:TC.priceTemplate.sheets });
+  const report = PriceFlowTemplateMatcher.sync({ city:'ulyanovsk', sourceSpreadsheet:SpreadsheetApp.getActiveSpreadsheet(), templateSpreadsheetId:TC.priceTemplate.spreadsheetId, headerRow:TC.priceTemplate.headerRow, firstDataRow:TC.priceTemplate.firstDataRow, sheets:TC.priceTemplate.sheets, allowIphoneAirAlias:false });
+  // Script Properties hold the compact technical result; no audit sheet is created.
+  PropertiesService.getScriptProperties().setProperty(TC.props.templateLastReport, JSON.stringify({ at:report.at, updated:report.updated, skippedByReason:report.skippedByReason, ambiguous:Object.keys(report.sheets).reduce(function(all, name) { return all.concat((report.sheets[name].ambiguous || []).map(function(item) { return { sheet:name, title:item.title, prices:item.prices }; })); }, []).slice(0, 50) }));
+  return report;
+}
+
+function tcPriceTemplateSummary_(report) {
+  const reasons = Object.keys(report.skippedByReason || {}).map(function(reason) { return reason + ': ' + report.skippedByReason[reason]; });
+  return 'Шаблон цен: обновлено ' + Number(report.updated || 0) + '. ' + (reasons.length ? 'Пропуски — ' + reasons.join(', ') + '.' : 'Пропусков нет.');
 }
 
 // These invariants run before every supplier rebuild.  They make accidental

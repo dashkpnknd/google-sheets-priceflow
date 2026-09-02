@@ -212,7 +212,7 @@ test('shared matcher preserves Ulyanovsk title safety and only plans Price', () 
   const layout = matcher.titleLayout(['Title', 'Price', 'DateEnd']);
   const plan = matcher.planTitle([{ title:'MacBook Air 13 M5 16/512 Blue', price:120000 }], 'макбуки', layout, [['MacBook Air 15 M5 16/512 Blue', 90000, '2099-01-01']]);
   assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row:0, price:'' }]);
-  assert.equal(matcher.runRegressionTests().passed, 10);
+  assert.equal(matcher.runRegressionTests().passed, 17);
 });
 
 test('shared matcher keeps iPad mini generations separate', () => {
@@ -231,12 +231,55 @@ test('price-template matcher supports separate iPhone and Android blocks', () =>
     'Model', 'SimConfig', 'MemorySize', 'Color', 'RamSize', 'Price'
   ]);
   assert.deepEqual(JSON.parse(JSON.stringify(layouts)), [
-    { model: 0, memory: 2, color: 3, sim: 1, ram: -1, price: 4 },
-    { model: 8, memory: 10, color: 11, sim: 9, ram: 12, price: 13 }
+    { model: 0, memory: 2, color: 3, sim: 1, ram: -1, price: 4, diagnostic: 5 },
+    { model: 8, memory: 10, color: 11, sim: 9, ram: 12, price: 13, diagnostic: 14 }
   ]);
   assert.match(source, /const templateSync = tcSyncPriceTemplate_\(\);/);
   assert.match(source, /templateSpreadsheetId:TC\.priceTemplate\.spreadsheetId/);
   assert.match(source, /function runPriceTemplateSyncNow\(\)/);
   assert.match(source, /16zsIEQF1CqeQJWvskAChZQmZiRZj7NIxrzle_uKDM0I/);
   assert.doesNotMatch(source, /tcSyncAvitoPrices_|19GKgYl_RYR5Ezl6_L_bjIGkHmM2_vsWp5X1ZTV4rAF0/);
+});
+
+test('template phone matching preserves every explicit SKU field and reports its first failed field', () => {
+  const matcher = api.PriceFlowAvitoMatcher;
+  const layout = { model:0, sim:1, memory:2, color:3, ram:4, price:5 };
+  const sourceRows = [
+    { model:'Galaxy S26 Plus', memory:'256 ГБ', color:'синий', sim:'SIM + eSIM', ram:'12 ГБ', price:71000, search:'Galaxy S26 Plus 12/256 Blue SIM + eSIM' },
+    { model:'Galaxy S26 Plus', memory:'512 ГБ', color:'синий', sim:'SIM + eSIM', ram:'12 ГБ', price:75000, search:'Galaxy S26 Plus 12/512 Blue SIM + eSIM' }
+  ];
+  const plan = matcher.planPhone(sourceRows, layout, [
+    ['Galaxy S26+', '2 SIM', '256 ГБ', 'синий', '12 ГБ', ''],
+    ['Galaxy S26+', 'eSIM', '256 ГБ', 'синий', '12 ГБ', ''],
+    ['Galaxy S26+', '2 SIM', '1 ТБ', 'синий', '12 ГБ', '']
+  ]);
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row:0, price:71000 }]);
+  assert.deepEqual([...plan.reasons], ['', 'Нет нужной SIM', 'Нет нужной памяти']);
+});
+
+test('iPhone Air alias is available only after the explicit owner approval flag', () => {
+  const matcher = api.PriceFlowAvitoMatcher;
+  assert.notEqual(matcher.phoneModel('iPhone Air'), matcher.phoneModel('iPhone 17 Air'));
+  assert.equal(matcher.phoneModel('iPhone Air', { allowIphoneAirAlias:true }), matcher.phoneModel('iPhone 17 Air', { allowIphoneAirAlias:true }));
+});
+
+test('excludes special conditions in every ready-catalogue field', () => {
+  const matcher = api.PriceFlowAvitoMatcher;
+  const layout = { model:0, sim:1, memory:2, color:3, ram:4, price:5 };
+  const plan = matcher.planPhone([{ model:'Galaxy S26', memory:'256 ГБ', color:'синий', sim:'SIM + eSIM', ram:'12 ГБ', price:1, search:'Galaxy S26 | Open Box' }], layout, [['Galaxy S26', '2 SIM', '256 ГБ', 'синий', '12 ГБ', '999']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row:0, price:'' }]);
+  assert.deepEqual([...plan.reasons], ['Нет модели у поставщика']);
+});
+
+test('uses the agreed PS5 Slim fallback and isolates ordinary PS5 and OnTrac', () => {
+  const matcher = api.PriceFlowAvitoMatcher;
+  const title = matcher.titleLayout(['Title', 'Price']);
+  const ps = matcher.planTitle([
+    { title:'PlayStation 5 Slim Digital 825 GB', price:60800, search:'PlayStation 5 Slim Digital 825 GB' },
+    { title:'PlayStation 5 Slim Disc 1 TB', price:70100, search:'PlayStation 5 Slim Disc 1 TB' }
+  ], 'пс', title, [['PlayStation 5 Slim', ''], ['PlayStation 5', '']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(ps.updates)), [{ row:0, price:60800 }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(ps.ambiguous)), [{ row:0, title:'PlayStation 5 Slim', prices:[60800,70100] }]);
+  const ontrac = matcher.planTitle([{ title:'AirPods Pro 3', price:20000, search:'AirPods Pro 3' }], 'наушники', title, [['Dyson OnTrac', '12000']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(ontrac.updates)), [{ row:0, price:'' }]);
 });
