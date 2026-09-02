@@ -3,7 +3,7 @@
  * validates every source/target header before the first write.
  */
 const PriceFlowTemplateMatcher = (function() {
-  function readSheet(sheet, headerRow, firstDataRow) { const width=sheet.getLastColumn(),headers=sheet.getRange(headerRow,1,1,width).getValues()[0],height=Math.max(sheet.getLastRow()-firstDataRow+1,0); return {headers:headers,rows:height?sheet.getRange(firstDataRow,1,height,width).getValues():[]}; }
+  function readSheet(sheet, headerRow, firstDataRow, minimumWidth) { const width=Math.max(sheet.getLastColumn(),minimumWidth||0),headers=sheet.getRange(headerRow,1,1,width).getValues()[0],height=Math.max(sheet.getLastRow()-firstDataRow+1,0); return {headers:headers,rows:height?sheet.getRange(firstDataRow,1,height,width).getValues():[]}; }
   function phoneLayouts(headers) {
     const prices=[];headers.forEach(function(value,index){if(PriceFlowAvitoMatcher.header(value)==='price')prices.push(index);});
     return prices.map(function(price,index){const start=index?prices[index-1]+1:0,columns={};headers.slice(start,price+1).forEach(function(value,offset){columns[PriceFlowAvitoMatcher.header(value)]=start+offset;});if(!['model','memorysize','color','simconfig'].every(function(name){return columns[name]>=0;}))return null;return{model:columns.model,memory:columns.memorysize,color:columns.color,sim:columns.simconfig,ram:columns.ramsize===undefined?-1:columns.ramsize,price:price,diagnostic:price+1};}).filter(Boolean);
@@ -27,7 +27,7 @@ const PriceFlowTemplateMatcher = (function() {
     Object.keys(config.sheets).forEach(function(category){
       const target=config.sheets[category],sourceSheet=sourceBook.getSheetByName(category),templateSheet=templateBook.getSheetByName(target.sheetName||category);
       if(!sourceSheet||!templateSheet)throw new Error('PriceFlowTemplateMatcher: отсутствует лист «'+category+'».');
-      const source=readSheet(sourceSheet,sourceHeaderRow,sourceFirstDataRow),destination=readSheet(templateSheet,headerRow,firstDataRow);
+      const source=readSheet(sourceSheet,sourceHeaderRow,sourceFirstDataRow),destination=readSheet(templateSheet,headerRow,firstDataRow,target.kind==='phone'?15:0);
       if(!sourceHasLayout(source.headers,target.kind))throw new Error('PriceFlowTemplateMatcher: неверная шапка исходного листа «'+sourceSheet.getName()+'»; запись не выполнена.');
       let sourceItems=PriceFlowAvitoMatcher.sourceRows(source.headers,source.rows),plans;
       if(target.kind==='phone'){
