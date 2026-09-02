@@ -21,16 +21,9 @@ const TC = {
   markupGids: [0, 998621873, 1581268057, 816391661, 72651251, 1869147184,
     385010794, 128937099, 338535652, 463783735, 933137760, 1778122432,
     739113936, 2069038397],
-  // Fixed Ulyanovsk Avito workbook. Only Price is changed in these existing tabs.
-  avito: { spreadsheetId: '19GKgYl_RYR5Ezl6_L_bjIGkHmM2_vsWp5X1ZTV4rAF0', headerRow: 2, firstDataRow: 3, sheets: {
-    'телефоны': { sheetId: 739636152, kind: 'phone' }, 'макбуки': { sheetId: 328331373, kind: 'title' },
-    'айпады': { sheetId: 1704742480, kind: 'title' }, 'часы': { sheetId: 1537478299, kind: 'title' },
-    'наушники': { sheetId: 848792271, kind: 'title' }, 'пс': { sheetId: 59071582, kind: 'title' },
-    'дайсон': { sheetId: 1643349080, kind: 'title' }
-  } },
-  // A separate customer template. Its tab names and structure stay intact;
+  // The only stage-2 destination. Its tab names and structure stay intact;
   // the template matcher writes only Price after the ready catalogue is built.
-  priceTemplate: { spreadsheetId: '1u0wJSPKOWzSBARY3d0LIQAYZ_ju3109oPMn96xgK_MM', headerRow: 1, firstDataRow: 2, sheets: {
+  priceTemplate: { spreadsheetId: '16zsIEQF1CqeQJWvskAChZQmZiRZj7NIxrzle_uKDM0I', headerRow: 1, firstDataRow: 2, sheets: {
     'телефоны': { sheetName: 'телефоны', kind: 'phone' }, 'макбуки': { sheetName: 'макбуки', kind: 'title' },
     'айпады': { sheetName: 'айпады', kind: 'title' }, 'часы': { sheetName: 'часы', kind: 'title' },
     'наушники': { sheetName: 'наушники', kind: 'title' }, 'пс': { sheetName: 'пс', kind: 'title' },
@@ -43,7 +36,6 @@ function onOpen() {
   SpreadsheetApp.getUi().createMenu('Каталог поставщика')
     .addItem('Подключить Telegram-канал', 'showTelegramCatalogSidebar')
     .addSeparator().addItem('Пересобрать каталог сейчас', 'runTelegramCatalogNow')
-    .addItem('Синхронизировать цены и актуальность', 'runAvitoPriceSyncNow')
     .addItem('Синхронизировать шаблон цен', 'runPriceTemplateSyncNow').addToUi();
 }
 
@@ -80,9 +72,6 @@ function saveTelegramCatalogSetup(form) {
 }
 
 function runTelegramCatalogNow() { tcEnsureTrigger_(); const result = syncTelegramCatalog_(); return Object.assign(getTelegramCatalogSetup(), { message: tcSummary_(result) }); }
-// Run this after a catalogue has already been rebuilt when only Avito needs
-// a reconciliation. It reads the prepared tabs, never raw Telegram text.
-function runAvitoPriceSyncNow() { tcAssertUlyanovskInvariants_(); return tcSyncAvitoPrices_(); }
 // Reconciliation for the separate customer template without rebuilding stage 1.
 function runPriceTemplateSyncNow() { tcAssertUlyanovskInvariants_(); return tcSyncPriceTemplate_(); }
 function syncTelegramCatalog() {
@@ -125,12 +114,9 @@ function syncTelegramCatalog_() {
       if (!sheet) throw new Error('Нет листа «' + name + '» в стандартной таблице.');
       written += tcWriteSheet_(sheet, entries);
     });
-    // The catalogue just written into this spreadsheet is the authoritative
-    // source for Avito: it already has the selected country, markup and every
-    // technical field in separate columns.  Do not match Avito to raw Telegram
-    // display text a second time.
+    // The completed local catalogue is the only source for the external
+    // template: it already has selected country, markup and technical fields.
     SpreadsheetApp.flush();
-    const priceSync = tcSyncAvitoPrices_();
     const templateSync = tcSyncPriceTemplate_();
     tcWriteAndroidCalculationLog_(book, rows, markup.withoutMarkupItems);
     const now = new Date(); p.setProperty(TC.props.last, String(now.getTime()));
@@ -139,17 +125,12 @@ function syncTelegramCatalog_() {
       rows: rows.length, written: written, mirrored: mirror.mirrored,
       cheapest: cheapest.removed, markedUp: markup.applied, withoutMarkup: markup.withoutRule,
       withoutMarkupItems: markup.withoutMarkupItems,
-      skippedSheets: skippedSheets, priceSync: priceSync, templateSync: templateSync
+      skippedSheets: skippedSheets, templateSync: templateSync
     };
   } finally { lock.releaseLock(); }
 }
 
-/** Stage 2 is shared; it reads only the completed local catalogue. */
-function tcSyncAvitoPrices_() {
-  return PriceFlowAvitoMatcher.sync({ city:"ulyanovsk", sourceSpreadsheet:SpreadsheetApp.getActiveSpreadsheet(), avitoSpreadsheetId:TC.avito.spreadsheetId, headerRow:TC.avito.headerRow, firstDataRow:TC.avito.firstDataRow, sheets:TC.avito.sheets });
-}
-
-/** Separate second stage for the price template; Avito remains unchanged. */
+/** Stage 2 reads only the completed local catalogue and writes Price only. */
 function tcSyncPriceTemplate_() {
   return PriceFlowTemplateMatcher.sync({ city:'ulyanovsk', sourceSpreadsheet:SpreadsheetApp.getActiveSpreadsheet(), templateSpreadsheetId:TC.priceTemplate.spreadsheetId, headerRow:TC.priceTemplate.headerRow, firstDataRow:TC.priceTemplate.firstDataRow, sheets:TC.priceTemplate.sheets });
 }

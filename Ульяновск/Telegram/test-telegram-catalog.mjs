@@ -237,4 +237,6 @@ test('price-template matcher supports separate iPhone and Android blocks', () =>
   assert.match(source, /const templateSync = tcSyncPriceTemplate_\(\);/);
   assert.match(source, /templateSpreadsheetId:TC\.priceTemplate\.spreadsheetId/);
   assert.match(source, /function runPriceTemplateSyncNow\(\)/);
+  assert.match(source, /16zsIEQF1CqeQJWvskAChZQmZiRZj7NIxrzle_uKDM0I/);
+  assert.doesNotMatch(source, /tcSyncAvitoPrices_|19GKgYl_RYR5Ezl6_L_bjIGkHmM2_vsWp5X1ZTV4rAF0/);
 });
