@@ -28,6 +28,14 @@ const TC = {
     'наушники': { sheetId: 848792271, kind: 'title' }, 'пс': { sheetId: 59071582, kind: 'title' },
     'дайсон': { sheetId: 1643349080, kind: 'title' }
   } },
+  // A separate customer template. Its tab names and structure stay intact;
+  // the template matcher writes only Price after the ready catalogue is built.
+  priceTemplate: { spreadsheetId: '1u0wJSPKOWzSBARY3d0LIQAYZ_ju3109oPMn96xgK_MM', headerRow: 1, firstDataRow: 2, sheets: {
+    'телефоны': { sheetName: 'телефоны', kind: 'phone' }, 'макбуки': { sheetName: 'макбуки', kind: 'title' },
+    'айпады': { sheetName: 'айпады', kind: 'title' }, 'часы': { sheetName: 'часы', kind: 'title' },
+    'наушники': { sheetName: 'наушники', kind: 'title' }, 'пс': { sheetName: 'пс', kind: 'title' },
+    'дайсон': { sheetName: 'дайсон', kind: 'title' }
+  } },
   props: { project: 'TC_PROJECT', channel: 'TC_CHANNEL', mirrorTwoSim: 'TC_MIRROR_TWO_SIM', last: 'TC_LAST', status: 'TC_STATUS' }
 };
 
@@ -35,7 +43,8 @@ function onOpen() {
   SpreadsheetApp.getUi().createMenu('Каталог поставщика')
     .addItem('Подключить Telegram-канал', 'showTelegramCatalogSidebar')
     .addSeparator().addItem('Пересобрать каталог сейчас', 'runTelegramCatalogNow')
-    .addItem('Синхронизировать цены и актуальность', 'runAvitoPriceSyncNow').addToUi();
+    .addItem('Синхронизировать цены и актуальность', 'runAvitoPriceSyncNow')
+    .addItem('Синхронизировать шаблон цен', 'runPriceTemplateSyncNow').addToUi();
 }
 
 function showTelegramCatalogSidebar() {
@@ -74,6 +83,8 @@ function runTelegramCatalogNow() { tcEnsureTrigger_(); const result = syncTelegr
 // Run this after a catalogue has already been rebuilt when only Avito needs
 // a reconciliation. It reads the prepared tabs, never raw Telegram text.
 function runAvitoPriceSyncNow() { tcAssertUlyanovskInvariants_(); return tcSyncAvitoPrices_(); }
+// Reconciliation for the separate customer template without rebuilding stage 1.
+function runPriceTemplateSyncNow() { tcAssertUlyanovskInvariants_(); return tcSyncPriceTemplate_(); }
 function syncTelegramCatalog() {
   // A trigger may survive a copied project. Until the user has connected a
   // channel, it should silently do nothing rather than repeatedly fail.
@@ -120,6 +131,7 @@ function syncTelegramCatalog_() {
     // display text a second time.
     SpreadsheetApp.flush();
     const priceSync = tcSyncAvitoPrices_();
+    const templateSync = tcSyncPriceTemplate_();
     tcWriteAndroidCalculationLog_(book, rows, markup.withoutMarkupItems);
     const now = new Date(); p.setProperty(TC.props.last, String(now.getTime()));
     p.setProperty(TC.props.status, 'Каталог обновлён: ' + written + ' позиций.');
@@ -127,7 +139,7 @@ function syncTelegramCatalog_() {
       rows: rows.length, written: written, mirrored: mirror.mirrored,
       cheapest: cheapest.removed, markedUp: markup.applied, withoutMarkup: markup.withoutRule,
       withoutMarkupItems: markup.withoutMarkupItems,
-      skippedSheets: skippedSheets, priceSync: priceSync
+      skippedSheets: skippedSheets, priceSync: priceSync, templateSync: templateSync
     };
   } finally { lock.releaseLock(); }
 }
@@ -135,6 +147,11 @@ function syncTelegramCatalog_() {
 /** Stage 2 is shared; it reads only the completed local catalogue. */
 function tcSyncAvitoPrices_() {
   return PriceFlowAvitoMatcher.sync({ city:"ulyanovsk", sourceSpreadsheet:SpreadsheetApp.getActiveSpreadsheet(), avitoSpreadsheetId:TC.avito.spreadsheetId, headerRow:TC.avito.headerRow, firstDataRow:TC.avito.firstDataRow, sheets:TC.avito.sheets });
+}
+
+/** Separate second stage for the price template; Avito remains unchanged. */
+function tcSyncPriceTemplate_() {
+  return PriceFlowTemplateMatcher.sync({ city:'ulyanovsk', sourceSpreadsheet:SpreadsheetApp.getActiveSpreadsheet(), templateSpreadsheetId:TC.priceTemplate.spreadsheetId, headerRow:TC.priceTemplate.headerRow, firstDataRow:TC.priceTemplate.firstDataRow, sheets:TC.priceTemplate.sheets });
 }
 
 // These invariants run before every supplier rebuild.  They make accidental

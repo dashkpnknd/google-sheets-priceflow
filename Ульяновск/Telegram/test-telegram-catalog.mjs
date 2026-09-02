@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
-const source = fs.readFileSync(new URL('../../PriceFlowAvitoMatcher.gs', import.meta.url), 'utf8') + '\n' + fs.readFileSync(new URL('./TelegramCatalog.gs', import.meta.url), 'utf8') + `
-globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcColor_,tcColorGroup_,tcModel_,tcAndroidTechnicalModifiers_,tcIsAsis_,tcLayouts_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcAddTwoSimMirror_,tcChooseCheapestCountry_,tcParseMarkupCsv_,tcApplyUlyanovskMarkup_,tcMarkupAmount_,tcMarkupKey_,PriceFlowAvitoMatcher};`;
+const source = fs.readFileSync(new URL('../../PriceFlowAvitoMatcher.gs', import.meta.url), 'utf8') + '\n' + fs.readFileSync(new URL('../../PriceFlowTemplateMatcher.gs', import.meta.url), 'utf8') + '\n' + fs.readFileSync(new URL('./TelegramCatalog.gs', import.meta.url), 'utf8') + `
+globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcColor_,tcColorGroup_,tcModel_,tcAndroidTechnicalModifiers_,tcIsAsis_,tcLayouts_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcAddTwoSimMirror_,tcChooseCheapestCountry_,tcParseMarkupCsv_,tcApplyUlyanovskMarkup_,tcMarkupAmount_,tcMarkupKey_,PriceFlowAvitoMatcher,PriceFlowTemplateMatcher};`;
 const parseCsv = (value) => String(value).trim().split(/\r?\n/).map((line) => {
   const cells = []; let current = ''; let quoted = false;
   for (let index = 0; index < line.length; index++) {
@@ -223,4 +223,18 @@ test('shared matcher keeps iPad mini generations separate', () => {
     { title:'iPad Mini 7 A17 256GB Wi-Fi Blue', price:56800 }
   ], 'айпады', layout, [['iPad 7 mini (2024), 256 ГБ Wi-Fi Blue', 41700]]);
   assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row:0, price:56800 }]);
+});
+
+test('price-template matcher supports separate iPhone and Android blocks', () => {
+  const layouts = api.PriceFlowTemplateMatcher.phoneLayouts([
+    'Model', 'SimConfig', 'MemorySize', 'Color', 'Price', '', '', '',
+    'Model', 'SimConfig', 'MemorySize', 'Color', 'RamSize', 'Price'
+  ]);
+  assert.deepEqual(JSON.parse(JSON.stringify(layouts)), [
+    { model: 0, memory: 2, color: 3, sim: 1, ram: -1, price: 4 },
+    { model: 8, memory: 10, color: 11, sim: 9, ram: 12, price: 13 }
+  ]);
+  assert.match(source, /const templateSync = tcSyncPriceTemplate_\(\);/);
+  assert.match(source, /templateSpreadsheetId:TC\.priceTemplate\.spreadsheetId/);
+  assert.match(source, /function runPriceTemplateSyncNow\(\)/);
 });
