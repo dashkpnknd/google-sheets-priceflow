@@ -212,7 +212,7 @@ test('shared matcher preserves Ulyanovsk title safety and only plans Price', () 
   const layout = matcher.titleLayout(['Title', 'Price', 'DateEnd']);
   const plan = matcher.planTitle([{ title:'MacBook Air 13 M5 16/512 Blue', price:120000 }], 'макбуки', layout, [['MacBook Air 15 M5 16/512 Blue', 90000, '2099-01-01']]);
   assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row:0, price:'' }]);
-  assert.equal(matcher.runRegressionTests().passed, 17);
+  assert.equal(matcher.runRegressionTests().passed, 19);
 });
 
 test('shared matcher keeps iPad mini generations separate', () => {
@@ -269,6 +269,8 @@ test('excludes special conditions in every ready-catalogue field', () => {
   const plan = matcher.planPhone([{ model:'Galaxy S26', memory:'256 ГБ', color:'синий', sim:'SIM + eSIM', ram:'12 ГБ', price:1, search:'Galaxy S26 | Open Box' }], layout, [['Galaxy S26', '2 SIM', '256 ГБ', 'синий', '12 ГБ', '999']]);
   assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row:0, price:'' }]);
   assert.deepEqual([...plan.reasons], ['Нет модели у поставщика']);
+  assert.equal(matcher.eligible('Galaxy S26 распакованный'), false);
+  assert.equal(matcher.eligible('Galaxy S26 брак'), false);
 });
 
 test('uses the agreed PS5 Slim fallback and isolates ordinary PS5 and OnTrac', () => {
