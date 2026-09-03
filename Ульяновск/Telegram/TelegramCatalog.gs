@@ -6,7 +6,6 @@
  */
 const TC = {
   sheets: ['телефоны', 'макбуки', 'айпады', 'часы', 'наушники', 'пс', 'дайсон', 'аймаки'],
-  androidLogSheet: 'Лог Android цен',
   everyMinutes: 15,
   // Current Uniseil price sheet. The synchronizer discovers this link again
   // from the latest public channel menu before every run, so a supplier link
@@ -122,7 +121,6 @@ function syncTelegramCatalog_() {
     // template: it already has selected country, markup and technical fields.
     SpreadsheetApp.flush();
     const templateSync = tcSyncPriceTemplate_();
-    tcWriteAndroidCalculationLog_(book, rows, markup.withoutMarkupItems);
     const now = new Date(); p.setProperty(TC.props.last, String(now.getTime()));
     p.setProperty(TC.props.status, 'Каталог обновлён: ' + written + ' позиций.');
     return {
@@ -319,7 +317,7 @@ function tcAndroidMarkupRule_(row) {
 function tcNorm_(value) { return String(value || '').trim().toLocaleLowerCase('ru-RU'); }
 function tcDisplay_(product) { return [product.name, product.variant].filter(Boolean).join(' ').replace(/[\u{1F1E6}-\u{1F1FF}]{2}/gu, '').replace(/\s+/g, ' ').trim(); }
 function tcSourceText_(product) { return [tcDisplay_(product), product && product.section, product && product.sourceRow].filter(Boolean).join(' '); }
-function tcIsAsis_(value) { return /(?:\b(?:asis|асис|cpo|цпо|open\s*box|refurb(?:ished)?|defect(?:ive)?|faulty|damaged|used|active|б\/?у|бу)\b|уцен|витрин|демо|пред\s*актив|предактив|активир|распак|брак|вскрыт[а-я]*\s*(?:короб|упаков)|поврежд[а-я]*\s*(?:короб|упаков)|мят(?:ая|ый|ой|ую|ые|ых)?\s*(?:короб|упаков))/iu.test(String(value || '')); }
+function tcIsAsis_(value) { return /(?:\b(?:asis|асис|cpo|цпо|open\s*box|refurb(?:ished)?|defect(?:ive)?|faulty|damaged|used|active|б\/?у|бу)\b|уцен|витрин|демо|пред\s*актив|предактив|активир|распак|брак|вскрыт[а-я]*\s*(?:короб|упаков)|поврежд[а-я]*\s*(?:короб|упаков)|мят(?:ая|ый|ой|ую|ые|ых))/iu.test(String(value || '')); }
 function tcSupplierModels_(rows) { return Array.from(new Set((rows || []).map(function(row) { return tcPhone_(tcSourceText_(row)).model; }).filter(Boolean).map(tcNorm_))); }
 function tcReadySupplierModels_() { try { const stored = JSON.parse(PropertiesService.getScriptProperties().getProperty(TC.props.supplierModels) || '[]'); return Array.isArray(stored) ? stored : []; } catch (error) { return []; } }
 function tcAssertBaseIphonesTransferred_(sourceRows, catalogueRows) { const source = tcSupplierModels_(sourceRows), catalogue = tcSupplierModels_(catalogueRows); const missing = source.filter(function(model) { return /^iphone\s+\d+$/.test(model) && catalogue.indexOf(model) < 0; }); if (missing.length) throw new Error(missing.join(', ') + ' найден у поставщика, но не передан в общую таблицу; синхронизация шаблона отменена.'); }
@@ -373,9 +371,9 @@ function tcChooseCheapestCountry_(rows) {
     const phone = tcPhone_(tcDisplay_(row));
     const fallback = tcNorm_(tcDisplay_(row))
       .replace(/[\u{1F1E6}-\u{1F1FF}]/gu, '').replace(/\s+/g, ' ').trim();
-    // An Android item without a recognised Avito colour is published with an
-    // empty Colour field. Such a field must not split the price candidates.
-    const colorKey = /^iphone\b/i.test(String(phone.model || '')) ? tcNorm_(phone.color) : tcColorGroup_(phone.color);
+    // A populated supplier colour is part of the Android SKU. In particular,
+    // blue and light-blue must never be collapsed before stage 2 checks it.
+    const colorKey = tcNorm_(phone.color) || tcSupplierColorKey_(tcDisplay_(row), phone);
     // SIM and country do not make Android phones different price candidates.
     // iPhone keeps its configuration because its destination grid publishes it.
     const configKey = /^iphone\b/i.test(String(phone.model || '')) ? phone.config : '';
@@ -652,22 +650,24 @@ function tcExpand_(header, item) {
   if (/^watch\b/i.test(h) && /^watch\b/i.test(i)) return 'Apple ' + i;
   return i;
 }
-function tcCategory_(value) { const v = tcNorm_(value); if (/iphone|galaxy|pixel|xiaomi|samsung|honor|huawei|oneplus|realme/.test(v)) return 'телефоны'; if (/macbook/.test(v)) return 'макбуки'; if (/ipad/.test(v)) return 'айпады'; if (/watch/.test(v)) return 'часы'; if (/airpods|наушники|колонки/.test(v)) return 'наушники'; if (/playstation|\bps[345]\b|xbox/.test(v)) return 'пс'; if (/dyson/.test(v)) return 'дайсон'; if (/imac/.test(v)) return 'аймаки'; return 'прочее'; }
+function tcCategory_(value) { const v = tcNorm_(value); if (/iphone|galaxy|pixel|xiaomi|redmi|poco|samsung|honor|huawei|oneplus|realme|nothing|tecno/.test(v)) return 'телефоны'; if (/macbook/.test(v)) return 'макбуки'; if (/ipad/.test(v)) return 'айпады'; if (/watch/.test(v)) return 'часы'; if (/airpods|наушники|колонки/.test(v)) return 'наушники'; if (/playstation|\bps[345]\b|xbox/.test(v)) return 'пс'; if (/dyson/.test(v)) return 'дайсон'; if (/imac/.test(v)) return 'аймаки'; return 'прочее'; }
 function tcPhone_(value) {
   const text = String(value || ''), specs = /(\d{1,2})\s*\/\s*(\d{1,4})\s*(гб|gb|тб|tb)/i.exec(text);
   const memory = specs ? null : /(?:^|\s)(\d{1,4})\s?(гб|gb|тб|tb)(?=\s|$)/i.exec(text);
   const unit = function(amount, suffix) { return /тб|tb/i.test(suffix) ? String(Number(amount) * 1024) + ' ГБ' : amount + ' ГБ'; };
   const sim = /\b(?:2\s*(?:sim|сим)|dual\s*-?\s*sim)\b/i.test(text) ? '2 SIM' : /sim\s*\+\s*e\s*-?sim/i.test(text) ? 'SIM + eSIM' : /e\s*-?sim/i.test(text) ? 'eSIM' : /\bsim\b/i.test(text) ? 'SIM' : '';
-  return { model: tcModel_(text), memory: specs ? unit(specs[2], specs[3]) : memory ? unit(memory[1], memory[2]) : '', ram: specs ? unit(specs[1], 'GB') : '', color: tcColor_(text), config: sim, country: tcCountry_(text) };
+  return { model: tcModel_(text), memory: specs ? unit(specs[2], specs[3]) : memory ? unit(memory[1], memory[2]) : '', ram: specs ? unit(specs[1], 'GB') : '', color: tcColor_(text), config: sim, country: tcCountry_(text), technical: tcAndroidTechnicalModifiers_(text) };
 }
 function tcModel_(value) {
   const text = String(value || '').replace(/\(\s*asis\s*\)/gi, ' ').replace(/\s+/g, ' ').trim();
   const iphone = /\biphone\s+(\d+(?:e)?(?:\s+(?:air|pro\s*max|pro|plus|mini))?)/i.exec(text);
   if (iphone) return 'iPhone ' + iphone[1].replace(/\s+/g, ' ').trim();
-  const other = /\b(galaxy\s+(?:(?:s|a|m)\d+(?:\+|\s+(?:ultra|fe|plus))?|z\s+(?:flip|fold)\d+(?:\s+ultra)?)|pixel\s+\d+(?:[a-z])?(?:\s+(?:pro|xl))?|honor\s+[\w-]+(?:\s+(?:pro|lite|x\d+d?))?|huawei\s+(?:nova\s+\d+(?:\s+(?:pro|i|se))?|pura\s+[\w-]+(?:\s+(?:pro(?:\s+max)?|ultra|plus))?)|(?:xiaomi|redmi|poco)\s+(?:note\s+)?[\w-]+(?:\s+(?:pro\+?|plus|ultra|max|t))?|oneplus\s+[\w-]+(?:\s+(?:pro|r|t))?|realme\s+[\w-]+(?:\s+(?:pro|plus))?|nothing\s+phone\s*\(?[\w-]+\)?(?:\s+(?:pro|plus))?)/i.exec(text);
+  const other = /\b(galaxy\s+(?:(?:s|a|m)\d+(?:\+|\s+(?:ultra|fe|plus))?|z\s+(?:flip|fold)\d+(?:\s+ultra)?)|pixel\s+\d+(?:[a-z])?(?:\s+(?:pro(?:\s+fold|\s+xl)?|xl))?|honor\s+[\w-]+(?:\s+(?:pro|lite|x\d+d?))?|huawei\s+(?:nova\s+\d+(?:\s+(?:pro|i|se))?|pura\s+[\w-]+(?:\s+(?:pro(?:\s+max)?|ultra|plus))?)|(?:xiaomi|redmi|poco)\s+(?:note\s+)?[\w-]+(?:\s+(?:pro\+?|plus|ultra|max|t))?|oneplus\s+[\w-]+(?:\s+(?:pro|r|t))?|realme\s+[\w-]+(?:\s+(?:pro|plus))?|nothing\s+phone\s*\(?[\w-]+\)?(?:\s+(?:pro|plus))?)/i.exec(text);
   if (!other) return '';
-  const modifiers = tcAndroidTechnicalModifiers_(text);
-  return other[1].replace(/\s+/g, ' ').trim() + (modifiers ? ' ' + modifiers : '');
+  // 4G/5G/NFC remain an original technical attribute, not a model suffix.
+  // Thus an unspecified template model may match it, while an explicit
+  // suffix still remains a different template model until separately agreed.
+  return other[1].replace(/\s+/g, ' ').trim();
 }
 function tcAndroidTechnicalModifiers_(value) {
   const text = tcNorm_(value), modifiers = [];
@@ -722,6 +722,7 @@ function tcAvitoColor_(source, detected) {
   if (/\b(?:galaxy|pixel)\b/i.test(v)) {
     if (/titanium\s+(?:black|jetblack)|awesome\s+graphite|\bobsidian\b/.test(v)) return 'черный';
     if (/titanium\s+whitesilver/.test(v)) return 'белый';
+    if (/titanium\s+silverblue/.test(v)) return 'синий';
     if (/titanium\s+gray|\bgraphite\b/.test(v)) return 'серый';
     if (/awesome\s+olive/.test(v)) return 'зеленый';
     if (/\bcream\b/.test(v)) return 'бежевый';

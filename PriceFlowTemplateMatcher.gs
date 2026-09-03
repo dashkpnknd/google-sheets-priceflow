@@ -36,6 +36,7 @@ const PriceFlowTemplateMatcher = (function() {
         plans=layouts.map(function(layout){return{price:layout.price,diagnostic:layout.diagnostic,plan:PriceFlowAvitoMatcher.planPhone(sourceItems,layout,destination.rows,config)};});
       } else {
         const layout=PriceFlowAvitoMatcher.titleLayout(destination.headers);if(!layout)throw new Error('PriceFlowTemplateMatcher: неверная шапка «'+templateSheet.getName()+'»; запись не выполнена.');
+        if(category==='макбуки'){layout.diagnostic=layout.price+1;validateDiagnostics(templateSheet,[layout],destination.headers,headerRow,firstDataRow,destination.rows.length);}
         // Only Dyson OnTrac may use the ready Dyson catalogue as a second source
         // for the headphones template.  Other headphone matching remains local.
         if(category==='наушники'){
@@ -43,7 +44,7 @@ const PriceFlowTemplateMatcher = (function() {
           const dysonData=readSheet(dyson,sourceHeaderRow,sourceFirstDataRow);if(!sourceHasLayout(dysonData.headers,'title'))throw new Error('PriceFlowTemplateMatcher: неверная шапка исходного листа «дайсон»; запись не выполнена.');
           sourceItems=sourceItems.concat(PriceFlowAvitoMatcher.sourceRows(dysonData.headers,dysonData.rows));
         }
-        plans=[{price:layout.price,plan:PriceFlowAvitoMatcher.planTitle(sourceItems,category,layout,destination.rows)}];
+        plans=[{price:layout.price,diagnostic:layout.diagnostic,plan:PriceFlowAvitoMatcher.planTitle(sourceItems,category,layout,destination.rows)}];
       }
       const total=summarize(plans.map(function(item){return item.plan;}));staged.push({sheet:templateSheet,headers:destination.headers,plans:plans,rowCount:destination.rows.length});report.sourceRows+=sourceItems.length;report.sheets[category]={matched:total.matched,updated:total.updated,cleared:total.cleared,missing:total.missing.slice(0,200),reasons:target.kind==='phone'?reasonTotals(plans.map(function(item){return item.plan;})):{},ambiguous:total.ambiguous};
     });

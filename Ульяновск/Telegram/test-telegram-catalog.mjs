@@ -212,7 +212,7 @@ test('shared matcher preserves Ulyanovsk title safety and only plans Price', () 
   const layout = matcher.titleLayout(['Title', 'Price', 'DateEnd']);
   const plan = matcher.planTitle([{ title:'MacBook Air 13 M5 16/512 Blue', price:120000 }], 'макбуки', layout, [['MacBook Air 15 M5 16/512 Blue', 90000, '2099-01-01']]);
   assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row:0, price:'' }]);
-  assert.equal(matcher.runRegressionTests().passed, 19);
+  assert.equal(matcher.runRegressionTests().passed, 23);
 });
 
 test('shared matcher keeps iPad mini generations separate', () => {
@@ -371,13 +371,36 @@ test('matches all 20 canonical MacBook RAM/SSD keys including 1024GB and 1TB spe
   const layout = matcher.titleLayout(['Title', 'Price']);
   const sources = [], targets = [];
   [8, 16, 24, 32, 36].forEach((ram) => [256, 512, 1024, 2048].forEach((ssd) => {
-    sources.push({ title:`MacBook Air 13 M4 ${ram}/${ssd}`, price:100000 + sources.length, search:`MacBook Air 13 M4 ${ram}/${ssd}` });
+    sources.push({ title:`MacBook Air 13 M4 ${ram}/${ssd} Silver`, price:100000 + sources.length, search:`MacBook Air 13 M4 ${ram}/${ssd} Silver` });
     const targetSsd = ssd === 1024 ? '1 ТБ' : ssd === 2048 ? '2 ТБ' : `${ssd} ГБ`;
-    targets.push([`MacBook Air 13 M4 ${ram} ГБ ${targetSsd}`, '']);
+    targets.push([`MacBook Air 13 M4 ${ram} ГБ ${targetSsd} Silver`, '']);
   }));
   const plan = matcher.planTitle(sources, 'макбуки', layout, targets);
   assert.equal(plan.updates.length, 20);
   assert.equal(plan.matched, 20);
+});
+
+test('keeps explicit Android and MacBook colours as separate SKU fields', () => {
+  const matcher = api.PriceFlowAvitoMatcher;
+  const layout = { model:0, sim:1, memory:2, color:3, ram:4, price:5 };
+  const plan = matcher.planPhone([
+    { model:'Galaxy S25', memory:'128 ГБ', ram:'8 ГБ', color:'голубой', sim:'Не знаю', price:70000, search:'Galaxy S25 Icyblue 8/128' },
+    { model:'Galaxy S25', memory:'128 ГБ', ram:'8 ГБ', color:'синий', sim:'Не знаю', price:69000, search:'Galaxy S25 Navy 8/128' }
+  ], layout, [['Galaxy S25','Не знаю','128 ГБ','голубой','8 ГБ','']], {});
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row:0, price:70000 }]);
+  assert.equal(matcher.titleMatches('макбуки', 'MacBook Air 13 M5 16/1TB Sky Blue', 'MacBook Air 13 M5 16/1TB Silver'), false);
+});
+
+test('uses the agreed Android diagnostic order and preserves technical model boundaries', () => {
+  const matcher = api.PriceFlowAvitoMatcher;
+  const layout = { model:0, sim:1, memory:2, color:3, ram:4, price:5 };
+  const plan = matcher.planPhone([
+    { model:'Galaxy Z Fold8', memory:'1024 ГБ', ram:'16 ГБ', color:'серый', sim:'Не знаю', price:170300, search:'Galaxy Z Fold8 16/1TB Graphite' }
+  ], layout, [['Galaxy Z Fold8','Не знаю','1024 ГБ','зеленый','12 ГБ','']], {});
+  assert.equal(plan.reasons[0], 'Нет нужной RAM');
+  assert.equal(api.tcModel_('POCO X7 Pro 5G 8/256GB Black'), 'POCO X7 Pro');
+  assert.equal(api.tcModel_('Pixel 10 Pro Fold 16/512GB'), 'Pixel 10 Pro Fold');
+  assert.equal(api.tcIsAsis_('MacBook Air 13 M5 (Мятая 📦)'), true);
 });
 
 test('matches four iPad Air M4 colours, eight Watch Ultra 2 rows, and current AirPods', () => {
