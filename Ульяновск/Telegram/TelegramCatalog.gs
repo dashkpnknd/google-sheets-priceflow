@@ -446,6 +446,30 @@ function tcMarkupAmount_(row, rules) {
   const productKey = tcMarkupKey_(display), equalRules = rules.filter(function(rule) { return tcMarkupKey_(rule.label) === productKey; });
   const amounts = equalRules.map(function(rule) { return rule.amount; }).filter(function(amount, index, values) { return values.indexOf(amount) === index; });
   if (productKey && amounts.length === 1) return amounts[0];
+  // Android supplier names may repeat a technical marker (`(5G) 5G`) that is
+  // not part of the catalogue model.  Resolve the markup by the parsed SKU,
+  // never by the first similarly named rule.  Colour stays mandatory first;
+  // it is relaxed only for the markup amount (not for the catalogue SKU) and
+  // only when all approved sibling rules have one and the same amount.
+  const androidSkuKey = tcAndroidMarkupKey_(display, false);
+  const androidSkuAmount = tcUniqueRuleAmount_(rules, function(rule) {
+    return tcAndroidMarkupKey_(rule.label, false) === androidSkuKey;
+  });
+  if (androidSkuKey && androidSkuAmount !== null) return androidSkuAmount;
+  const androidConfigurationKey = tcAndroidMarkupKey_(display, true);
+  const androidConfigurationAmount = tcUniqueRuleAmount_(rules, function(rule) {
+    return tcAndroidMarkupKey_(rule.label, true) === androidConfigurationKey;
+  });
+  if (androidConfigurationKey && androidConfigurationAmount !== null) return androidConfigurationAmount;
+  // The approved Redmi Note Pro policy is a product tier, rather than a
+  // one-off year number.  It remains strictly `Note ... Pro`: no Pro+, base
+  // Note, Ultra or a different RAM/memory configuration can use this branch.
+  const androidFamilyKey = tcAndroidMarkupFamilyKey_(display);
+  const androidFamilyAmount = tcUniqueRuleAmount_(rules, function(rule) {
+    return tcAndroidMarkupFamilyKey_(rule.label) === androidFamilyKey &&
+      tcAndroidMarkupKey_(rule.label, true).replace(/^[^|]*\|/, '') === androidConfigurationKey.replace(/^[^|]*\|/, '');
+  });
+  if (androidFamilyKey && androidFamilyAmount !== null) return androidFamilyAmount;
   // Supplier writes `Dyson HD…`, while the approved rule sheet stores the
   // same exact SKU as `HD…`. This exception is limited to Dyson only.
   if (/^dyson\b/.test(productKey)) {
@@ -460,10 +484,12 @@ function tcMarkupAmount_(row, rules) {
   if (/\b(imac|mini)\b/.test(name)) return find(/imac\/mini/);
   if (/ipad/.test(name)) return find(/\bpro\b/.test(name) ? /^ipad\s+pro$/ : /ipad.*кроме\s+про/);
   if (!/^iphone\b/.test(name)) {
-    // Pixel has its own approved family rule in the public Ulyanovsk markup
-    // workbook. Read that rule instead of exposing a supplier price or
-    // duplicating the amount in code.
-    if (/\bpixel\b/.test(name)) return find(/(?:google\s+)?pixel/);
+    // A generic Pixel rule is valid only when the rule sheet actually has
+    // one.  Do not take the first concrete Pixel SKU (for example Pixel 7)
+    // for a different generation.
+    if (/\bpixel\b/.test(name)) return tcUniqueRuleAmount_(rules, function(rule) {
+      return /^(?:google\s+)?pixel$/.test(tcNorm_(rule.label));
+    });
     if (/galaxy\s*buds/.test(name)) return find(/galaxy\s*buds/);
     if (/galaxy\s*watch/.test(name)) return find(/galaxy\s*watch/);
     if (/galaxy\s*tab\s*s/.test(name)) return find(/galaxy\s*tab\s*s.*сер/);
@@ -493,6 +519,27 @@ function tcMarkupKey_(value) {
     .replace(/\bdisk(?:drive)?\b/gi, 'disc')
     .replace(/(\d+)\s*(?:gb|гб)/gi, '$1gb').replace(/(\d+)\s*(?:tb|тб)/gi, '$1tb')
     .replace(/[^a-zа-я0-9]+/gi, ' ').replace(/ё/g, 'е').replace(/\s+/g, ' ').trim();
+}
+
+function tcUniqueRuleAmount_(rules, predicate) {
+  const amounts = rules.filter(predicate).map(function(rule) { return rule.amount; })
+    .filter(function(amount, index, values) { return values.indexOf(amount) === index; });
+  return amounts.length === 1 ? amounts[0] : null;
+}
+
+// Key for markup resolution only.  The ready catalogue retains the complete
+// Android SKU, including its technical source attribute, and stage 2 still
+// compares Model/RAM/memory/colour exactly.
+function tcAndroidMarkupKey_(value, omitColor) {
+  const phone = tcPhone_(value);
+  if (!phone.model || !phone.ram || !phone.memory) return '';
+  return [phone.model, phone.ram, phone.memory, omitColor ? '' : phone.color]
+    .map(tcNorm_).join('|');
+}
+
+function tcAndroidMarkupFamilyKey_(value) {
+  const model = tcNorm_(tcPhone_(value).model);
+  return /^redmi note \d+ pro$/.test(model) ? model.replace(/\d+/, '#') : '';
 }
 
 // The supplier publishes one complete, editable price sheet in the current
