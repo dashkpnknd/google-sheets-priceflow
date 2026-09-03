@@ -604,8 +604,8 @@ test('matches Watches by stated series, year, size, case and Ultra strap', () =>
     { title:'Watch Ultra 3 (2025) Natural case Milanese Loop (M)', price:73300, search:'Watch Ultra 3 (2025) Natural case Milanese Loop (M)' }
   ], 'часы', layout, [
     ['SE 2 2024 40mm Midnight', '20600'], ['SE 2 2024 40mm Silver', '20600'],
-    ['S10 42mm Natural Titanium', '28800'], ['S10 46mm Rose Gold', ''],
-    ['S11 46mm Silver', '30300'], ['Ultra 2 2024 Black Alpine Loop Blue', '55000'],
+    ['S10 42mm Natural Titanium', '28800'], ['S10 46mm Rose Gold Plum', ''],
+    ['S11 46mm Silver Purple Fog', '30300'], ['Ultra 2 2024 Black Alpine Loop Blue', '55000'],
     ['Ultra 3 2025 Natural Ocean Band Blue', '60300'], ['Ultra 3 2025 Black Alpine Loop Black', '60300'],
     ['Ultra 3 2025 Natural Milanese Loop', '60300']
   ]);
@@ -616,6 +616,29 @@ test('matches Watches by stated series, year, size, case and Ultra strap', () =>
   ]);
   const headphones = matcher.planTitle([{ title:'AirPods Pro 2', price:20000, search:'AirPods Pro 2' }, { title:'AirPods 4', price:15000, search:'AirPods 4' }], 'наушники', layout, [['AirPods Pro 2', ''], ['AirPods 4', '']]);
   assert.equal(headphones.matched, 2);
+});
+
+test('keeps Watch accent variants out of plain finishes and normalizes Gold Rose Gold', () => {
+  const matcher = api.PriceFlowAvitoMatcher;
+  const layout = matcher.titleLayout(['Title', 'Price']);
+  const plan = matcher.planTitle([
+    { title:'Apple Watch S10 (2024) 46mm Rose Gold (M/L)', price:29900, search:'Apple Watch S10 (2024) 46mm Rose Gold (M/L)' },
+    { title:'Apple Watch S10 (2024) 46mm Rose Gold Plum (Loop)', price:29800, search:'Apple Watch S10 (2024) 46mm Rose Gold Plum (Loop)' },
+    { title:'Apple Watch S11 (2025) 42mm Gold Rose Gold (S/M)', price:30300, search:'Apple Watch S11 (2025) 42mm Gold Rose Gold (S/M)' },
+    { title:'Apple Watch S11 (2025) 42mm Rose Gold (S/M)', price:30600, search:'Apple Watch S11 (2025) 42mm Rose Gold (S/M)' },
+    { title:'Apple Watch S11 (2025) 42mm Space Gray (S/M) LTE (Мятая 📦)', price:30600, search:'Apple Watch S11 (2025) 42mm Space Gray (S/M) LTE (Мятая 📦)' },
+    { title:'Apple Watch S11 (2025) 42mm Space Gray (M/L)', price:31000, search:'Apple Watch S11 (2025) 42mm Space Gray (M/L)' },
+    { title:'Apple Watch S11 (2025) 46mm Silver Purple Fog (M/L)', price:33800, search:'Apple Watch S11 (2025) 46mm Silver Purple Fog (M/L)' },
+    { title:'Apple Watch S11 (2025) 46mm Silver (M/L)', price:34800, search:'Apple Watch S11 (2025) 46mm Silver (M/L)' }
+  ], 'часы', layout, [
+    ['Apple Watch S10 (2024) 46mm Rose Gold', ''],
+    ['Apple Watch S11 (2025) 42mm Rose Gold', ''],
+    ['Apple Watch S11 (2025) 42mm Space Gray', ''],
+    ['Apple Watch S11 (2025) 46mm Silver', '']
+  ]);
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [
+    { row:0, price:29900 }, { row:1, price:30300 }, { row:2, price:31000 }, { row:3, price:34800 }
+  ]);
 });
 
 test('fills supplier-backed Watch and Dyson gaps despite stable naming and packaging variants', () => {
