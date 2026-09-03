@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const source = fs.readFileSync(new URL('../../PriceFlowAvitoMatcher.gs', import.meta.url), 'utf8') + '\n' + fs.readFileSync(new URL('../../PriceFlowTemplateMatcher.gs', import.meta.url), 'utf8') + '\n' + fs.readFileSync(new URL('./TelegramCatalog.gs', import.meta.url), 'utf8') + `
-globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcColor_,tcColorGroup_,tcModel_,tcAndroidTechnicalModifiers_,tcIsAsis_,tcLayouts_,tcTargetRow_,tcParsePost_,tcLine_,tcExpand_,tcSummary_,tcProductSort_,tcAddTwoSimMirror_,tcChooseCheapestCountry_,tcSupplierColorKey_,tcParseMarkupCsv_,tcApplyUlyanovskMarkup_,tcMarkupAmount_,tcMarkupKey_,tcAndroidMarkupKey_,tcAndroidMarkupFamilyKey_,PriceFlowAvitoMatcher,PriceFlowTemplateMatcher};`;
+globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcColor_,tcColorGroup_,tcModel_,tcAndroidTechnicalModifiers_,tcIsAsis_,tcLayouts_,tcTargetRow_,tcParsePost_,tcLine_,tcExpand_,tcSummary_,tcProductSort_,tcAddTwoSimMirror_,tcChooseCheapestCountry_,tcSupplierColorKey_,tcParseMarkupCsv_,tcApplyUlyanovskMarkup_,tcMarkupAmount_,tcMarkupKey_,tcAndroidMarkupKey_,PriceFlowAvitoMatcher,PriceFlowTemplateMatcher};`;
 const parseCsv = (value) => String(value).trim().split(/\r?\n/).map((line) => {
   const cells = []; let current = ''; let quoted = false;
   for (let index = 0; index < line.length; index++) {
@@ -183,7 +183,7 @@ test('uses exact rules from every Ulyanovsk markup tab before broad brand rules'
   assert.equal(api.tcMarkupKey_('Galaxy S25 12/256GB Blue 🇪🇺'), api.tcMarkupKey_('Galaxy S25 12/256 ГБ Blue'));
 });
 
-test('uses Ulyanovsk Android fallback markup for incomplete variant rules', () => {
+test('does not invent Android markup when the table has no exact rule', () => {
   const rules = api.tcParseMarkupCsv_('Модель,Наценка\nPixel 7 8/128GB Lemongrass,1500\nPixel 10 12/256GB Indigo,3000\nPOCO X7 Pro 8/256GB (5G) 5G Green,1000\nPOCO X7 Pro 12/512GB (5G) 5G Green,1000\nRedmi Note 15 Pro 12/256GB 4G Black,1500\nRedmi Note 15 Pro 12/512GB 4G Black,1500');
   const priced = api.tcApplyUlyanovskMarkup_([
     { category:'телефоны', name:'Pixel 10 12/256GB Obsidian', price:58800 },
@@ -194,10 +194,21 @@ test('uses Ulyanovsk Android fallback markup for incomplete variant rules', () =
     { category:'телефоны', name:'Redmi Note 14 Pro 12/512GB 4G Black', price:22900 },
     { category:'телефоны', name:'Pixel 10 12/256GB Indigo', price:58800 }
   ], rules);
-  assert.deepEqual(priced.rows.map((row) => row.price), [61300, 30000, 30000, 31900, 22900, 25400, 61800]);
-  assert.equal(priced.withoutRule, 0);
+  assert.deepEqual(priced.rows.map((row) => row.price), [28500, 30400, 61800]);
+  assert.equal(priced.withoutRule, 4);
+  assert.deepEqual(JSON.parse(JSON.stringify(priced.missingMarkupRows.map((row) => row.markupStatus))), ['Не найдена наценка', 'Не найдена наценка', 'Не найдена наценка', 'Не найдена наценка']);
   assert.equal(api.tcAndroidMarkupKey_('POCO X7 Pro 8/256GB (5G) 5G Green', false), api.tcAndroidMarkupKey_('POCO X7 Pro 8/256GB 5G Green', false));
-  assert.equal(api.tcAndroidMarkupFamilyKey_('Redmi Note 14 Pro+ 12/512GB 5G Black'), '');
+});
+
+test('rejects a retail-price-sized markup and applies the Samsung S rule to Fold and Flip', () => {
+  const invalid = api.tcParseMarkupCsv_('Модель,Наценка\nNothing Phone 3 12/256GB Black,45500');
+  assert.deepEqual(invalid, []);
+  const rules = api.tcParseMarkupCsv_('Модель,Наценка\nS - серии / z-Fold,5000');
+  const priced = api.tcApplyUlyanovskMarkup_([
+    { category:'телефоны', name:'Galaxy Z Fold7 12/256GB Black', price:100000 },
+    { category:'телефоны', name:'Galaxy Z Flip7 12/256GB Black', price:80000 }
+  ], rules);
+  assert.deepEqual(priced.rows.map((row) => row.price), [105000, 85000]);
 });
 
 test('parses a complete public-channel product post', () => {

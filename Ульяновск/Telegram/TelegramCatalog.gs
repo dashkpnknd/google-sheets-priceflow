@@ -20,9 +20,11 @@ const TC = {
   markupGids: [0, 998621873, 1581268057, 816391661, 72651251, 1869147184,
     385010794, 128937099, 338535652, 463783735, 933137760, 1778122432,
     739113936, 2069038397],
-  // Approved Ulyanovsk fallback for Android variants that have no exact
-  // markup-card match. Exact individual rules above it keep priority.
-  androidFallbackMarkup: 2500,
+  // The markup file is the only price-adjustment source. A value above this
+  // sanity limit is a supplier/retail price accidentally entered as markup,
+  // never a valid adjustment.
+  maxMarkupAmount: 10000,
+  markupDiagnosticsSheet: 'Проверка наценки',
   // The only stage-2 destination. Its tab names and structure stay intact;
   // the template matcher writes only Price after the ready catalogue is built.
   priceTemplate: { spreadsheetId: '16zsIEQF1CqeQJWvskAChZQmZiRZj7NIxrzle_uKDM0I', headerRow: 1, firstDataRow: 2, sheets: {
@@ -108,7 +110,6 @@ function syncTelegramCatalog_() {
     const cheapest = tcChooseCheapestCountry_(mirror.rows);
     const rules = tcLoadUlyanovskMarkup_(), markup = tcApplyUlyanovskMarkup_(cheapest.rows, rules);
     const rows = markup.rows;
-    tcAssertBaseIphonesTransferred_(sourceRows, rows);
     const byCategory = {};
     rows.forEach(function(row) { (byCategory[row.category] = byCategory[row.category] || []).push(row); });
     let written = 0; const skippedSheets = [];
@@ -117,6 +118,7 @@ function syncTelegramCatalog_() {
       if (!sheet) throw new Error('Нет листа «' + name + '» в стандартной таблице.');
       written += tcWriteSheet_(sheet, entries);
     });
+    tcWriteMarkupDiagnostics_(book, markup.missingMarkupRows);
     // The second stage remains supplier-free. It receives only this compact
     // snapshot from a successful first-stage rebuild for truthful F/O reasons.
     p.setProperty(TC.props.supplierModels, JSON.stringify(tcSupplierModels_(sourceRows)));
@@ -295,27 +297,17 @@ function tcSummary_(result) {
     (withoutMarkup ? '. Без правила наценки: ' + withoutMarkup : '') +
     '. Далее обновляется автоматически каждые 15 минут.';
 }
-function tcWriteAndroidCalculationLog_(book, rows, missingMarkup) {
-  let sheet = book.getSheetByName(TC.androidLogSheet);
-  if (!sheet) sheet = book.insertSheet(TC.androidLogSheet);
-  const headers = ['Итоговая строка', 'Строка поставщика', 'Товар поставщика', 'Закупочная цена', 'Цветовая группа', 'Правило наценки', 'Наценка', 'Итог', 'Статус'];
-  const log = rows.filter(function(row) { const phone = tcPhone_(tcDisplay_(row)); return row.category === 'телефоны' && !/^iphone\b/i.test(phone.model); }).map(function(row) {
-    const phone = tcPhone_(tcDisplay_(row));
-    return [String(row.outputSheet || 'телефоны') + '!L' + String(row.outputRow || ''), 'Лист1!A' + String(row.sourceRow || ''), tcDisplay_(row), row.supplierPrice || '', tcColorGroup_(phone.color) || 'не указан', tcAndroidMarkupRule_(row), row.markup || '', row.price || '', 'CALCULATED'];
+function tcWriteMarkupDiagnostics_(book, missingMarkupRows) {
+  let sheet = book.getSheetByName(TC.markupDiagnosticsSheet);
+  if (!sheet) sheet = book.insertSheet(TC.markupDiagnosticsSheet);
+  const headers = ['Категория', 'Строка поставщика', 'Товар поставщика', 'Закупочная цена', 'Статус'];
+  const log = (missingMarkupRows || []).map(function(row) {
+    return [row.category || '', 'Лист1!A' + String(row.sourceRow || ''), tcDisplay_(row), row.supplierPrice || '', row.markupStatus || 'Не найдена наценка'];
   });
-  (missingMarkup || []).forEach(function(item) { log.push(['', '', item, '', '', '', '', '', 'MISSING_MARKUP_RULE']); });
   sheet.clearContents(); sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
   if (log.length) sheet.getRange(2, 1, log.length, headers.length).setValues(log);
   sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
   if (log.length) sheet.getRange(2, 4, log.length, 1).setNumberFormat('0');
-  if (log.length) sheet.getRange(2, 7, log.length, 2).setNumberFormat('0');
-}
-function tcAndroidMarkupRule_(row) {
-  const name = tcNorm_(tcDisplay_(row));
-  if (/galaxy\s+z\s*(?:flip|fold)/.test(name)) return 'Samsung Foldables';
-  if (/galaxy\s+s/.test(name)) return 'Samsung Galaxy S';
-  if (/galaxy\s+a\d/.test(name)) return 'Samsung Galaxy A';
-  return 'Точное правило таблицы';
 }
 function tcNorm_(value) { return String(value || '').trim().toLocaleLowerCase('ru-RU'); }
 function tcDisplay_(product) { return [product.name, product.variant].filter(Boolean).join(' ').replace(/[\u{1F1E6}-\u{1F1FF}]{2}/gu, '').replace(/\s+/g, ' ').trim(); }
@@ -323,7 +315,6 @@ function tcSourceText_(product) { return [tcDisplay_(product), product && produc
 function tcIsAsis_(value) { return /(?:\b(?:asis|асис|cpo|цпо|open\s*box|refurb(?:ished)?|defect(?:ive)?|faulty|damaged|used|active|б\/?у|бу)\b|уцен|витрин|демо|пред\s*актив|предактив|активир|распак|брак|вскрыт[а-я]*\s*(?:короб|упаков)|поврежд[а-я]*\s*(?:короб|упаков)|мят(?:ая|ый|ой|ую|ые|ых))/iu.test(String(value || '')); }
 function tcSupplierModels_(rows) { return Array.from(new Set((rows || []).map(function(row) { return tcPhone_(tcSourceText_(row)).model; }).filter(Boolean).map(tcNorm_))); }
 function tcReadySupplierModels_() { try { const stored = JSON.parse(PropertiesService.getScriptProperties().getProperty(TC.props.supplierModels) || '[]'); return Array.isArray(stored) ? stored : []; } catch (error) { return []; } }
-function tcAssertBaseIphonesTransferred_(sourceRows, catalogueRows) { const source = tcSupplierModels_(sourceRows), catalogue = tcSupplierModels_(catalogueRows); const missing = source.filter(function(model) { return /^iphone\s+\d+$/.test(model) && catalogue.indexOf(model) < 0; }); if (missing.length) throw new Error(missing.join(', ') + ' найден у поставщика, но не передан в общую таблицу; синхронизация шаблона отменена.'); }
 function tcOutputPhoneModel_(phone, full, fallback) {
   const model = phone.model || fallback;
   return tcIsAsis_(full) && !/^\(asis\)\s*/i.test(model) ? '(ASIS) ' + model : model;
@@ -438,19 +429,24 @@ function tcParseMarkupCsv_(csv) {
     const amount = Number(amountText);
     // Section headings in the markup workbook have an empty second cell. They
     // are labels, not a legitimate zero-rouble markup rule.
-    return label && amountText && Number.isFinite(amount) ? { label: label, amount: amount } : null;
+    return label && amountText && Number.isFinite(amount) && amount > 0 && amount <= TC.maxMarkupAmount ? { label: label, amount: amount } : null;
   }).filter(Boolean);
 }
 
 function tcApplyUlyanovskMarkup_(rows, rules) {
-  let applied = 0, withoutRule = 0; const withoutMarkupItems = [];
+  let applied = 0, withoutRule = 0; const withoutMarkupItems = [], missingMarkupRows = [];
   const priced = rows.map(function(row) {
     const amount = tcMarkupAmount_(row, rules);
-    if (amount === null) { withoutRule++; withoutMarkupItems.push(tcDisplay_(row)); return null; }
+    if (amount === null) {
+      withoutRule++;
+      withoutMarkupItems.push(tcDisplay_(row));
+      missingMarkupRows.push(Object.assign({}, row, { supplierPrice: row.price, markupStatus: 'Не найдена наценка' }));
+      return null;
+    }
     applied++;
     return Object.assign({}, row, { supplierPrice: row.price, markup: amount, price: Number(row.price) + amount });
   }).filter(Boolean);
-  return { rows: priced, applied: applied, withoutRule: withoutRule, withoutMarkupItems: withoutMarkupItems };
+  return { rows: priced, applied: applied, withoutRule: withoutRule, withoutMarkupItems: withoutMarkupItems, missingMarkupRows: missingMarkupRows };
 }
 
 function tcMarkupAmount_(row, rules) {
@@ -468,21 +464,6 @@ function tcMarkupAmount_(row, rules) {
   const productKey = tcMarkupKey_(display), equalRules = rules.filter(function(rule) { return tcMarkupKey_(rule.label) === productKey; });
   const amounts = equalRules.map(function(rule) { return rule.amount; }).filter(function(amount, index, values) { return values.indexOf(amount) === index; });
   if (productKey && amounts.length === 1) return amounts[0];
-  // An explicit broad Google Pixel rule is still a client-owned markup
-  // policy, not an incomplete SKU. It therefore stays ahead of the Android
-  // fallback below.
-  if (!/^iphone\b/.test(name) && /\bpixel\b/.test(name)) {
-    const pixelAmount = tcUniqueRuleAmount_(rules, function(rule) {
-      return /^(?:google\s+)?pixel$/.test(tcNorm_(rule.label));
-    });
-    if (pixelAmount !== null) return pixelAmount;
-  }
-  // A partial Android card in the markup file is not an exact product rule:
-  // another colour, repeated `5G`, or a changed RAM/memory must not inherit
-  // its individual price adjustment. Use the Ulyanovsk Android fallback;
-  // exact product rows above always retain priority.
-  const androidBaseAmount = tcAndroidBaseMarkupAmount_(phone);
-  if (androidBaseAmount !== null) return androidBaseAmount;
   // Android supplier names may repeat a technical marker (`(5G) 5G`) that is
   // not part of the catalogue model.  Resolve the markup by the parsed SKU,
   // never by the first similarly named rule.  Colour stays mandatory first;
@@ -493,20 +474,6 @@ function tcMarkupAmount_(row, rules) {
     return tcAndroidMarkupKey_(rule.label, false) === androidSkuKey;
   });
   if (androidSkuKey && androidSkuAmount !== null) return androidSkuAmount;
-  const androidConfigurationKey = tcAndroidMarkupKey_(display, true);
-  const androidConfigurationAmount = tcUniqueRuleAmount_(rules, function(rule) {
-    return tcAndroidMarkupKey_(rule.label, true) === androidConfigurationKey;
-  });
-  if (androidConfigurationKey && androidConfigurationAmount !== null) return androidConfigurationAmount;
-  // The approved Redmi Note Pro policy is a product tier, rather than a
-  // one-off year number.  It remains strictly `Note ... Pro`: no Pro+, base
-  // Note, Ultra or a different RAM/memory configuration can use this branch.
-  const androidFamilyKey = tcAndroidMarkupFamilyKey_(display);
-  const androidFamilyAmount = tcUniqueRuleAmount_(rules, function(rule) {
-    return tcAndroidMarkupFamilyKey_(rule.label) === androidFamilyKey &&
-      tcAndroidMarkupKey_(rule.label, true).replace(/^[^|]*\|/, '') === androidConfigurationKey.replace(/^[^|]*\|/, '');
-  });
-  if (androidFamilyKey && androidFamilyAmount !== null) return androidFamilyAmount;
   // Supplier writes `Dyson HD…`, while the approved rule sheet stores the
   // same exact SKU as `HD…`. This exception is limited to Dyson only.
   if (/^dyson\b/.test(productKey)) {
@@ -521,13 +488,15 @@ function tcMarkupAmount_(row, rules) {
   if (/\b(imac|mini)\b/.test(name)) return find(/imac\/mini/);
   if (/ipad/.test(name)) return find(/\bpro\b/.test(name) ? /^ipad\s+pro$/ : /ipad.*кроме\s+про/);
   if (!/^iphone\b/.test(name)) {
-    // A generic Pixel rule is valid only when the rule sheet actually has
-    // one.  Do not take the first concrete Pixel SKU (for example Pixel 7)
-    // for a different generation.
+    if (/\bpixel\b/.test(name)) return tcUniqueRuleAmount_(rules, function(rule) {
+      return /^(?:google\s+)?pixel$/.test(tcNorm_(rule.label));
+    });
     if (/galaxy\s*buds/.test(name)) return find(/galaxy\s*buds/);
     if (/galaxy\s*watch/.test(name)) return find(/galaxy\s*watch/);
     if (/galaxy\s*tab\s*s/.test(name)) return find(/galaxy\s*tab\s*s.*сер/);
     if (/galaxy\s*tab\s*a/.test(name)) return find(/galaxy\s*tab\s*a.*сер/);
+    // The Samsung table's joint S/Z Fold rule is also the agreed rule for
+    // Z Flip; both foldable lines receive its table amount.
     if (/galaxy\s*(?:s|z\s*(?:fold|flip))/.test(name)) return find(/s\s*-\s*сер|z\s*-?fold/);
     if (/galaxy\s*a\d/.test(name)) return find(/a\s*-\s*сер/);
     return null;
@@ -561,12 +530,6 @@ function tcUniqueRuleAmount_(rules, predicate) {
   return amounts.length === 1 ? amounts[0] : null;
 }
 
-function tcAndroidBaseMarkupAmount_(phone) {
-  if (!phone || !phone.model || /^iphone\b/i.test(phone.model)) return null;
-  const amount = Number(TC.androidFallbackMarkup);
-  return Number.isFinite(amount) ? amount : null;
-}
-
 // Key for markup resolution only.  The ready catalogue retains the complete
 // Android SKU, including its technical source attribute, and stage 2 still
 // compares Model/RAM/memory/colour exactly.
@@ -575,11 +538,6 @@ function tcAndroidMarkupKey_(value, omitColor) {
   if (!phone.model || !phone.ram || !phone.memory) return '';
   return [phone.model, phone.ram, phone.memory, omitColor ? '' : phone.color]
     .map(tcNorm_).join('|');
-}
-
-function tcAndroidMarkupFamilyKey_(value) {
-  const model = tcNorm_(tcPhone_(value).model);
-  return /^redmi note \d+ pro$/.test(model) ? model.replace(/\d+/, '#') : '';
 }
 
 // The supplier publishes one complete, editable price sheet in the current
