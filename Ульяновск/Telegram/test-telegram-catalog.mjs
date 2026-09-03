@@ -269,7 +269,7 @@ test('shared matcher preserves Ulyanovsk title safety and only plans Price', () 
   const layout = matcher.titleLayout(['Title', 'Price', 'DateEnd']);
   const plan = matcher.planTitle([{ title:'MacBook Air 13 M5 16/512 Blue', price:120000 }], 'макбуки', layout, [['MacBook Air 15 M5 16/512 Blue', 90000, '2099-01-01']]);
   assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row:0, price:'' }]);
-  assert.equal(matcher.runRegressionTests().passed, 27);
+  assert.equal(matcher.runRegressionTests().passed, 29);
 });
 
 test('shared matcher keeps iPad mini generations separate', () => {
@@ -361,6 +361,31 @@ test('does not price a bare PS5 from an accessory and keeps DualSense colours se
     ['DualSense PS5 White', '']
   ]);
   assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row:0, price:'' }, { row:1, price:6400 }, { row:2, price:6300 }]);
+});
+
+test('matches Dyson by code, R-Pro edition and complete colour combination', () => {
+  const matcher = api.PriceFlowAvitoMatcher, layout = matcher.titleLayout(['Title', 'Price']);
+  const plan = matcher.planTitle([
+    { title:'HS08 Ceramic Pink/Rose Gold (Case)', price:35500, search:'HS08 Ceramic Pink/Rose Gold (Case)' },
+    { title:'HS08 Vinca Blue/Topaz', price:36600, search:'HS08 Vinca Blue/Topaz' },
+    { title:'HS09 Co-anda2x Red Velvet/Gold', price:49400, search:'HS09 Co-anda2x Red Velvet/Gold' },
+    { title:'HT01 Blue Copper (с ковриком)', price:30100, search:'HT01 Blue Copper (с ковриком)' },
+    { title:'HD16 Ceramic Patina', price:35300, search:'HD16 Ceramic Patina' },
+    { title:'HD17 Jasper Plum (variant 2)', price:37600, search:'HD17 Jasper Plum (variant 2)' },
+    { title:'HD18 Vinca Blue/Topaz', price:32900, search:'HD18 Vinca Blue/Topaz' }
+  ], 'дайсон', layout, [
+    ['HS08 Ceramic Pink/Rose Gold', '34700'], ['HS08 Vinca Blue/Topaz', '34700'],
+    ['HS08 Kanzan Pink', '34700'], ['HS09 Co-anda2x Red Velvet/Gold', '40900'],
+    ['HT01 Blue/Copper', '29300'], ['HD16 Ceramic/Patina', '29600'],
+    ['HD17 Jasper Plum', '32800'], ['HD17 R-Pro Jasper Plum', '32800'],
+    ['HD18 R-Pro Vinca Blue/Topaz Orange', '32900']
+  ]);
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [
+    { row:0, price:35500 }, { row:1, price:36600 }, { row:2, price:'' },
+    { row:3, price:49400 }, { row:4, price:30100 }, { row:5, price:35300 },
+    { row:6, price:37600 }, { row:7, price:'' }, { row:8, price:'' }
+  ]);
+  assert.deepEqual([...plan.reasons], ['', '', 'Нет точного SKU у поставщика', '', '', '', '', 'Нет точной R-Pro модели', 'Нет точной R-Pro модели']);
 });
 
 test('splits the mixed iPhone 17e / 17 supplier section into its actual per-row models', () => {
