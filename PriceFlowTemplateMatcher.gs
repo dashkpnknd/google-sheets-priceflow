@@ -69,7 +69,7 @@ const PriceFlowTemplateMatcher = (function() {
           const dysonData=readSheet(dyson,sourceHeaderRow,sourceFirstDataRow);if(!sourceHasLayout(dysonData.headers,'title'))throw new Error('PriceFlowTemplateMatcher: неверная шапка исходного листа «дайсон»; запись не выполнена.');
           sourceItems=sourceItems.concat(PriceFlowAvitoMatcher.sourceRows(dysonData.headers,dysonData.rows));
         }
-        plans=[{price:layout.price,diagnostic:layout.diagnostic,plan:PriceFlowAvitoMatcher.planTitle(sourceItems,category,layout,destination.rows)}];
+        plans=[{price:layout.price,diagnostic:layout.diagnostic,plan:PriceFlowAvitoMatcher.planTitle(sourceItems,category,layout,destination.rows,{strictUlyanovskWatchFinish:config.city==='ulyanovsk'})}];
       }
       const total=summarize(plans.map(function(item){return item.plan;}));staged.push({sheet:templateSheet,headers:destination.headers,plans:plans,rowCount:destination.rows.length});report.sourceRows+=sourceItems.length;report.sheets[category]={matched:total.matched,updated:total.updated,cleared:total.cleared,missing:total.missing.slice(0,200),reasons:target.kind==='phone'?reasonTotals(plans.map(function(item){return item.plan;})):{},ambiguous:total.ambiguous};
     });

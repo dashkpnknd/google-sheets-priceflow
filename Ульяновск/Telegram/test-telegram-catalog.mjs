@@ -608,7 +608,7 @@ test('matches Watches by stated series, year, size, case and Ultra strap', () =>
     ['S11 46mm Silver Purple Fog', '30300'], ['Ultra 2 2024 Black Alpine Loop Blue', '55000'],
     ['Ultra 3 2025 Natural Ocean Band Blue', '60300'], ['Ultra 3 2025 Black Alpine Loop Black', '60300'],
     ['Ultra 3 2025 Natural Milanese Loop', '60300']
-  ]);
+  ], { strictUlyanovskWatchFinish:true });
   assert.deepEqual(JSON.parse(JSON.stringify(watch.updates)), [
     { row:0, price:21800 }, { row:1, price:22800 }, { row:2, price:60800 },
     { row:3, price:28800 }, { row:4, price:33800 }, { row:5, price:'' },
@@ -635,7 +635,7 @@ test('keeps Watch accent variants out of plain finishes and normalizes Gold Rose
     ['Apple Watch S11 (2025) 42mm Rose Gold', ''],
     ['Apple Watch S11 (2025) 42mm Space Gray', ''],
     ['Apple Watch S11 (2025) 46mm Silver', '']
-  ]);
+  ], { strictUlyanovskWatchFinish:true });
   assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [
     { row:0, price:29900 }, { row:1, price:30300 }, { row:2, price:31000 }, { row:3, price:34800 }
   ]);
