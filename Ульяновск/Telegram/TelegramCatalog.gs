@@ -465,6 +465,14 @@ function tcMarkupAmount_(row, rules) {
   const productKey = tcMarkupKey_(display), equalRules = rules.filter(function(rule) { return tcMarkupKey_(rule.label) === productKey; });
   const amounts = equalRules.map(function(rule) { return rule.amount; }).filter(function(amount, index, values) { return values.indexOf(amount) === index; });
   if (productKey && amounts.length === 1) return amounts[0];
+  // A partial Android card in the markup file is not an exact product rule:
+  // another colour, repeated `5G`, or a changed RAM/memory must not inherit
+  // its individual price adjustment.  Ulyanovsk's approved base Android
+  // adjustment is maintained in the markup workbook as the `A - серия`
+  // rule.  Read that amount from the workbook rather than duplicating a
+  // rouble value here.  Exact product rows above always retain priority.
+  const androidBaseAmount = tcAndroidBaseMarkupAmount_(phone, rules);
+  if (androidBaseAmount !== null) return androidBaseAmount;
   // Android supplier names may repeat a technical marker (`(5G) 5G`) that is
   // not part of the catalogue model.  Resolve the markup by the parsed SKU,
   // never by the first similarly named rule.  Colour stays mandatory first;
@@ -544,6 +552,16 @@ function tcUniqueRuleAmount_(rules, predicate) {
   const amounts = rules.filter(predicate).map(function(rule) { return rule.amount; })
     .filter(function(amount, index, values) { return values.indexOf(amount) === index; });
   return amounts.length === 1 ? amounts[0] : null;
+}
+
+function tcAndroidBaseMarkupAmount_(phone, rules) {
+  if (!phone || !phone.model || /^iphone\b/i.test(phone.model)) return null;
+  // The label is intentionally recognised by its category name, while the
+  // amount stays in the client-owned rules workbook.  It must be unique: a
+  // malformed or conflicting base rule fails closed instead of guessing.
+  return tcUniqueRuleAmount_(rules, function(rule) {
+    return /^a\s*(?:-|–|—)?\s*сер(?:ия|ии)(?:\s|$)/i.test(tcNorm_(rule.label));
+  });
 }
 
 // Key for markup resolution only.  The ready catalogue retains the complete

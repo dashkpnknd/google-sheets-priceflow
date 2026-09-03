@@ -183,17 +183,18 @@ test('uses exact rules from every Ulyanovsk markup tab before broad brand rules'
   assert.equal(api.tcMarkupKey_('Galaxy S25 12/256GB Blue 🇪🇺'), api.tcMarkupKey_('Galaxy S25 12/256 ГБ Blue'));
 });
 
-test('applies Android markup by unambiguous SKU, not the first sibling rule', () => {
-  const rules = api.tcParseMarkupCsv_('Модель,Наценка\nPixel 7 8/128GB Lemongrass,1500\nPixel 10 12/256GB Indigo,5000\nPOCO X7 Pro 8/256GB (5G) 5G Green,1000\nPOCO X7 Pro 12/512GB (5G) 5G Green,1000\nRedmi Note 15 Pro 12/256GB 4G Black,1500\nRedmi Note 15 Pro 12/512GB 4G Black,1500');
+test('uses the client-owned Android base markup for incomplete variant rules', () => {
+  const rules = api.tcParseMarkupCsv_('Модель,Наценка\nA - серия,2000\nPixel 7 8/128GB Lemongrass,1500\nPixel 10 12/256GB Indigo,3000\nPOCO X7 Pro 8/256GB (5G) 5G Green,1000\nPOCO X7 Pro 12/512GB (5G) 5G Green,1000\nRedmi Note 15 Pro 12/256GB 4G Black,1500\nRedmi Note 15 Pro 12/512GB 4G Black,1500');
   const priced = api.tcApplyUlyanovskMarkup_([
     { category:'телефоны', name:'Pixel 10 12/256GB Obsidian', price:58200 },
     { category:'телефоны', name:'POCO X7 Pro 8/256GB 5G Green', price:27500 },
     { category:'телефоны', name:'POCO X7 Pro 8/256GB 5G Black', price:27500 },
     { category:'телефоны', name:'POCO X7 Pro 12/512GB 5G Green', price:29400 },
     { category:'телефоны', name:'Redmi Note 14 Pro 12/256GB 4G Black', price:20400 },
-    { category:'телефоны', name:'Redmi Note 14 Pro 12/512GB 4G Black', price:22900 }
+    { category:'телефоны', name:'Redmi Note 14 Pro 12/512GB 4G Black', price:22900 },
+    { category:'телефоны', name:'Pixel 10 12/256GB Indigo', price:58200 }
   ], rules);
-  assert.deepEqual(priced.rows.map((row) => row.price), [63200, 28500, 28500, 30400, 21900, 24400]);
+  assert.deepEqual(priced.rows.map((row) => row.price), [60200, 29500, 29500, 31400, 22400, 24900, 61200]);
   assert.equal(priced.withoutRule, 0);
   assert.equal(api.tcAndroidMarkupKey_('POCO X7 Pro 8/256GB (5G) 5G Green', false), api.tcAndroidMarkupKey_('POCO X7 Pro 8/256GB 5G Green', false));
   assert.equal(api.tcAndroidMarkupFamilyKey_('Redmi Note 14 Pro+ 12/512GB 5G Black'), '');
