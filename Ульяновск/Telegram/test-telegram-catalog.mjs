@@ -514,11 +514,31 @@ test('matches iPad colours exactly while keeping Wi-Fi and Nano Glass non-blocki
   assert.deepEqual(JSON.parse(JSON.stringify(absent.updates)), [{ row:0, price:'' }]);
 });
 
-test('matches eight Watch Ultra 2 rows and current AirPods', () => {
+test('matches Watches by stated series, year, size, case and Ultra strap', () => {
   const matcher = api.PriceFlowAvitoMatcher;
   const layout = matcher.titleLayout(['Title', 'Price']);
-  const watch = matcher.planTitle([{ title:'Apple Watch Ultra 2 Black Ocean Band', price:70000, search:'Apple Watch Ultra 2 Black Ocean Band' }], 'часы', layout, Array.from({ length:8 }, (_, index) => [`Watch Ultra 2 strap ${index + 1}`, '']));
-  assert.equal(watch.matched, 8);
+  const watch = matcher.planTitle([
+    { title:'Watch SE 2 (2024) 40mm Jet Black (Loop)', price:21800, search:'Watch SE 2 (2024) 40mm Jet Black (Loop)' },
+    { title:'Watch SE 2 (2024) 40mm Silver (M/L)', price:22800, search:'Watch SE 2 (2024) 40mm Silver (M/L)' },
+    { title:'Watch S10 (2024) 42mm Natural Milanese Loop (M/L)', price:60800, search:'Watch S10 (2024) 42mm Natural Milanese Loop (M/L)' },
+    { title:'Watch S10 (2024) 46mm Rose Gold Plum (Loop)', price:28800, search:'Watch S10 (2024) 46mm Rose Gold Plum (Loop)' },
+    { title:'Watch S11 (2025) 46mm Silver Purple Fog (M/L)', price:33800, search:'Watch S11 (2025) 46mm Silver Purple Fog (M/L)' },
+    { title:'Watch Ultra 2 (2024) Black case Green Alpine Loop (M)', price:55000, search:'Watch Ultra 2 (2024) Black case Green Alpine Loop (M)' },
+    { title:'Watch Ultra 3 (2025) Natural case Anchor Blue Ocean Band (One Size)', price:61300, search:'Watch Ultra 3 (2025) Natural case Anchor Blue Ocean Band (One Size)' },
+    { title:'Watch Ultra 3 (2025) Black case Black Alpine Loop (M)', price:60500, search:'Watch Ultra 3 (2025) Black case Black Alpine Loop (M)' },
+    { title:'Watch Ultra 3 (2025) Natural case Milanese Loop (M)', price:73300, search:'Watch Ultra 3 (2025) Natural case Milanese Loop (M)' }
+  ], 'часы', layout, [
+    ['SE 2 2024 40mm Midnight', '20600'], ['SE 2 2024 40mm Silver', '20600'],
+    ['S10 42mm Natural Titanium', '28800'], ['S10 46mm Rose Gold', ''],
+    ['S11 46mm Silver', '30300'], ['Ultra 2 2024 Black Alpine Loop Blue', '55000'],
+    ['Ultra 3 2025 Natural Ocean Band Blue', '60300'], ['Ultra 3 2025 Black Alpine Loop Black', '60300'],
+    ['Ultra 3 2025 Natural Milanese Loop', '60300']
+  ]);
+  assert.deepEqual(JSON.parse(JSON.stringify(watch.updates)), [
+    { row:0, price:21800 }, { row:1, price:22800 }, { row:2, price:60800 },
+    { row:3, price:28800 }, { row:4, price:33800 }, { row:5, price:'' },
+    { row:6, price:61300 }, { row:7, price:60500 }, { row:8, price:73300 }
+  ]);
   const headphones = matcher.planTitle([{ title:'AirPods Pro 2', price:20000, search:'AirPods Pro 2' }, { title:'AirPods 4', price:15000, search:'AirPods 4' }], 'наушники', layout, [['AirPods Pro 2', ''], ['AirPods 4', '']]);
   assert.equal(headphones.matched, 2);
 });
