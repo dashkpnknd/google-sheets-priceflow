@@ -371,15 +371,16 @@ function tcChooseCheapestCountry_(rows) {
     const phone = tcPhone_(tcDisplay_(row));
     const fallback = tcNorm_(tcDisplay_(row))
       .replace(/[\u{1F1E6}-\u{1F1FF}]/gu, '').replace(/\s+/g, ' ').trim();
+    const productKey = tcSupplierProductKey_(row, phone, fallback);
     // Choose a country only among the same supplier finish.  Several Samsung
     // shades map to one template colour (for example Silver Shadow/Gray), but
     // they are different supplier SKUs and must not borrow one another's
     // purchase price before stage 2 has checked the canonical colour.
-    const colorKey = tcSupplierColorKey_(tcDisplay_(row), phone) || tcNorm_(phone.color);
+    const colorKey = row.category === 'дайсон' ? '' : tcSupplierColorKey_(tcDisplay_(row), phone) || tcNorm_(phone.color);
     // SIM and country do not make Android phones different price candidates.
     // iPhone keeps its configuration because its destination grid publishes it.
     const configKey = /^iphone\b/i.test(String(phone.model || '')) ? phone.config : '';
-    const key = [row.category, tcIsAsis_(tcDisplay_(row)) ? 'asis' : 'new', phone.model || fallback, configKey, phone.memory, phone.ram, colorKey]
+    const key = [row.category, tcIsAsis_(tcDisplay_(row)) ? 'asis' : 'new', productKey, configKey, phone.memory, phone.ram, colorKey]
       .map(tcNorm_).join('|');
     const current = selected[key];
     const currentPhone = current && tcPhone_(tcDisplay_(current));
@@ -390,6 +391,17 @@ function tcChooseCheapestCountry_(rows) {
   });
   const kept = Object.keys(selected).map(function(key) { return selected[key]; });
   return { rows: kept, removed: Math.max(0, rows.length - kept.length) };
+}
+// The Dyson template does not publish packaging options.  Treat Case / Без
+// кейса as supplier-only details while choosing the lowest country price, but
+// retain the actual model, R-Pro edition and finish in the product key.
+function tcSupplierProductKey_(row, phone, fallback) {
+  if (!row || row.category !== 'дайсон') return phone.model || fallback;
+  return String(fallback || '')
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/\b(?:case|with\s+case|without\s+case|diffuse|variant\s*\d+)\b/gi, ' ')
+    .replace(/(?:без|с)\s+кейс[а-я]*/gi, ' ').replace(/кейс[а-я]*/gi, ' ')
+    .replace(/\s+/g, ' ').trim();
 }
 // Keep the supplier's actual finish for country selection.  This key is not
 // written to the catalogue: `tcColor_` still produces the approved template

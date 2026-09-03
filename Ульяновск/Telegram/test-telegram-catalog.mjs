@@ -109,6 +109,15 @@ test('keeps one cheapest country per full phone configuration', () => {
   assert.ok(selected.rows.some((row) => api.tcPhone_(row.name).config === 'eSIM'));
 });
 
+test('uses the cheapest Dyson item when only the supplier Case option differs', () => {
+  const selected = api.tcChooseCheapestCountry_([
+    { category:'дайсон', name:'Dyson HD16 Jasper Plum', variant:'🇪🇺', price:38900 },
+    { category:'дайсон', name:'Dyson HD16 Jasper Plum (Case)', variant:'🇮🇳', price:40600 }
+  ]);
+  assert.equal(selected.rows.length, 1);
+  assert.equal(selected.rows[0].price, 38900);
+});
+
 test('selects the cheapest country within the exact Samsung supplier finish', () => {
   const rows = [
     { category:'телефоны', name:'Galaxy Z Fold8 12/512GB Graphite', variant:'🇪🇺', price:132400 },
