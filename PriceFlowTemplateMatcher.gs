@@ -20,19 +20,14 @@ const PriceFlowTemplateMatcher = (function() {
       if(!title&&rowCount){const range=sheet.getRange(firstDataRow,layout.diagnostic+1,rowCount,1);const values=range.getValues(),formulas=range.getFormulas();if(values.some(function(row){return row[0]!=='';})||formulas.some(function(row){return row[0]!=='';}))throw new Error('PriceFlowTemplateMatcher: диагностическая колонка не свободна на листе «'+sheet.getName()+'»; запись не выполнена.');}
     });
   }
-  function validateDiagnosticColumn(sheet,column,headers,firstDataRow,rowCount){
-    const title=String(headers[column]||'').trim();
-    if(title&&title!=='Причина без цены')throw new Error('PriceFlowTemplateMatcher: колонка C занята на листе «'+sheet.getName()+'»; запись не выполнена.');
-    if(!title&&rowCount){const range=sheet.getRange(firstDataRow,column+1,rowCount,1),values=range.getValues(),formulas=range.getFormulas();if(values.some(function(row){return row[0]!=='';})||formulas.some(function(row){return row[0]!=='';}))throw new Error('PriceFlowTemplateMatcher: колонка C не свободна на листе «'+sheet.getName()+'»; запись не выполнена.');}
-  }
   function sync(config){
     if(!config||!config.sourceSpreadsheet||!config.templateSpreadsheetId||!config.sheets)throw new Error('PriceFlowTemplateMatcher: неполная конфигурация.');
     const sourceBook=config.sourceSpreadsheet,templateBook=SpreadsheetApp.openById(config.templateSpreadsheetId),sourceHeaderRow=config.sourceHeaderRow||1,sourceFirstDataRow=config.sourceFirstDataRow||sourceHeaderRow+1,headerRow=config.headerRow||1,firstDataRow=config.firstDataRow||headerRow+1,staged=[],report={at:new Date().toISOString(),city:config.city||'',sourceRows:0,sheets:{}};
-    // The complete plan (including diagnostics) is produced before any Price/header write.
+    // The complete plan (including F/O diagnostics) is produced before any Price/header write.
     Object.keys(config.sheets).forEach(function(category){
       const target=config.sheets[category],sourceSheet=sourceBook.getSheetByName(category),templateSheet=templateBook.getSheetByName(target.sheetName||category);
       if(!sourceSheet||!templateSheet)throw new Error('PriceFlowTemplateMatcher: отсутствует лист «'+category+'».');
-      const source=readSheet(sourceSheet,sourceHeaderRow,sourceFirstDataRow),destination=readSheet(templateSheet,headerRow,firstDataRow,target.kind==='phone'?15:3);
+      const source=readSheet(sourceSheet,sourceHeaderRow,sourceFirstDataRow),destination=readSheet(templateSheet,headerRow,firstDataRow,target.kind==='phone'?15:0);
       if(!sourceHasLayout(source.headers,target.kind))throw new Error('PriceFlowTemplateMatcher: неверная шапка исходного листа «'+sourceSheet.getName()+'»; запись не выполнена.');
       let sourceItems=PriceFlowAvitoMatcher.sourceRows(source.headers,source.rows),plans;
       if(target.kind==='phone'){
@@ -41,7 +36,6 @@ const PriceFlowTemplateMatcher = (function() {
         plans=layouts.map(function(layout){return{price:layout.price,diagnostic:layout.diagnostic,plan:PriceFlowAvitoMatcher.planPhone(sourceItems,layout,destination.rows,config)};});
       } else {
         const layout=PriceFlowAvitoMatcher.titleLayout(destination.headers);if(!layout)throw new Error('PriceFlowTemplateMatcher: неверная шапка «'+templateSheet.getName()+'»; запись не выполнена.');
-        validateDiagnosticColumn(templateSheet,2,destination.headers,firstDataRow,destination.rows.length);
         // Only Dyson OnTrac may use the ready Dyson catalogue as a second source
         // for the headphones template.  Other headphone matching remains local.
         if(category==='наушники'){
@@ -49,9 +43,9 @@ const PriceFlowTemplateMatcher = (function() {
           const dysonData=readSheet(dyson,sourceHeaderRow,sourceFirstDataRow);if(!sourceHasLayout(dysonData.headers,'title'))throw new Error('PriceFlowTemplateMatcher: неверная шапка исходного листа «дайсон»; запись не выполнена.');
           sourceItems=sourceItems.concat(PriceFlowAvitoMatcher.sourceRows(dysonData.headers,dysonData.rows));
         }
-        plans=[{price:layout.price,diagnostic:2,plan:PriceFlowAvitoMatcher.planTitle(sourceItems,category,layout,destination.rows)}];
+        plans=[{price:layout.price,plan:PriceFlowAvitoMatcher.planTitle(sourceItems,category,layout,destination.rows)}];
       }
-      const total=summarize(plans.map(function(item){return item.plan;}));staged.push({sheet:templateSheet,headers:destination.headers,plans:plans,rowCount:destination.rows.length});report.sourceRows+=sourceItems.length;report.sheets[category]={matched:total.matched,updated:total.updated,cleared:total.cleared,missing:total.missing.slice(0,200),reasons:reasonTotals(plans.map(function(item){return item.plan;})),ambiguous:total.ambiguous};
+      const total=summarize(plans.map(function(item){return item.plan;}));staged.push({sheet:templateSheet,headers:destination.headers,plans:plans,rowCount:destination.rows.length});report.sourceRows+=sourceItems.length;report.sheets[category]={matched:total.matched,updated:total.updated,cleared:total.cleared,missing:total.missing.slice(0,200),reasons:target.kind==='phone'?reasonTotals(plans.map(function(item){return item.plan;})):{},ambiguous:total.ambiguous};
     });
     staged.forEach(function(item){item.plans.forEach(function(itemPlan){writePrices(item.sheet,firstDataRow,itemPlan.price,itemPlan.plan.updates);if(itemPlan.diagnostic!==undefined){if(String(item.headers[itemPlan.diagnostic]||'').trim()!=='Причина без цены')item.sheet.getRange(headerRow,itemPlan.diagnostic+1).setValue('Причина без цены');if(item.rowCount)item.sheet.getRange(firstDataRow,itemPlan.diagnostic+1,item.rowCount,1).setValues(itemPlan.plan.reasons.map(function(reason){return[reason||''];}));}});});
     report.updated=Object.keys(report.sheets).reduce(function(total,key){return total+report.sheets[key].updated;},0);report.skippedByReason=Object.keys(report.sheets).reduce(function(total,key){const reasons=report.sheets[key].reasons||{};Object.keys(reasons).forEach(function(reason){total[reason]=(total[reason]||0)+reasons[reason];});return total;},{});return report;

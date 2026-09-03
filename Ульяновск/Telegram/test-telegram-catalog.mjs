@@ -285,15 +285,3 @@ test('uses the agreed PS5 Slim fallback and isolates ordinary PS5 and OnTrac', (
   const ontrac = matcher.planTitle([{ title:'AirPods Pro 3', price:20000, search:'AirPods Pro 3' }], 'наушники', title, [['Dyson OnTrac', '12000']]);
   assert.deepEqual(JSON.parse(JSON.stringify(ontrac.updates)), [{ row:0, price:'' }]);
 });
-
-test('title tabs expose a real diagnostic reason only when a safe price is absent', () => {
-  const matcher = api.PriceFlowAvitoMatcher;
-  const layout = matcher.titleLayout(['Title', 'Price']);
-  const plan = matcher.planTitle([{ title:'MacBook Air 13 M5 16/512', price:120000, search:'MacBook Air 13 M5 16/512' }], 'макбуки', layout, [
-    ['MacBook Air 13 M5 16/512', ''],
-    ['MacBook Air 15 M5 16/512', ''],
-    ['MacBook Pro 14 M5 16/512', '']
-  ]);
-  assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row:0, price:120000 }]);
-  assert.deepEqual([...plan.reasons], ['', 'Нет точного SKU у поставщика', 'Нет модели у поставщика']);
-});
