@@ -371,9 +371,11 @@ function tcChooseCheapestCountry_(rows) {
     const phone = tcPhone_(tcDisplay_(row));
     const fallback = tcNorm_(tcDisplay_(row))
       .replace(/[\u{1F1E6}-\u{1F1FF}]/gu, '').replace(/\s+/g, ' ').trim();
-    // A populated supplier colour is part of the Android SKU. In particular,
-    // blue and light-blue must never be collapsed before stage 2 checks it.
-    const colorKey = tcNorm_(phone.color) || tcSupplierColorKey_(tcDisplay_(row), phone);
+    // Choose a country only among the same supplier finish.  Several Samsung
+    // shades map to one template colour (for example Silver Shadow/Gray), but
+    // they are different supplier SKUs and must not borrow one another's
+    // purchase price before stage 2 has checked the canonical colour.
+    const colorKey = tcSupplierColorKey_(tcDisplay_(row), phone) || tcNorm_(phone.color);
     // SIM and country do not make Android phones different price candidates.
     // iPhone keeps its configuration because its destination grid publishes it.
     const configKey = /^iphone\b/i.test(String(phone.model || '')) ? phone.config : '';
@@ -389,10 +391,15 @@ function tcChooseCheapestCountry_(rows) {
   const kept = Object.keys(selected).map(function(key) { return selected[key]; });
   return { rows: kept, removed: Math.max(0, rows.length - kept.length) };
 }
-// Unknown supplier finishes must never collapse into one "no colour" SKU.
+// Keep the supplier's actual finish for country selection.  This key is not
+// written to the catalogue: `tcColor_` still produces the approved template
+// colour.  Network labels are not finishes and therefore do not split one
+// otherwise identical SKU between supplier countries.
 function tcSupplierColorKey_(value, phone) {
-  if (phone && phone.color) return tcNorm_(phone.color);
-  return tcNorm_(value).replace(/[\u{1F1E6}-\u{1F1FF}]{2}/gu, ' ').replace(/(?:galaxy\s+(?:s|a|m)\d+(?:\s+(?:fe|ultra|plus))?|galaxy\s+z\s+(?:flip|fold)\d+(?:\s+ultra)?|iphone\s+[^\s]+|\d+\s*\/\s*\d+\s*(?:gb|гб|tb|тб)?|\d+\s*(?:gb|гб|tb|тб)|sim\s*\+\s*e\s*-?sim|e\s*-?sim|2\s*sim|dual\s*-?sim)/giu, ' ').replace(/\s+/g, ' ').trim();
+  const finish = tcNorm_(value).replace(/[\u{1F1E6}-\u{1F1FF}]{2}/gu, ' ')
+    .replace(/(?:galaxy\s+(?:s|a|m)\d+(?:\s+(?:fe|ultra|plus))?|galaxy\s+z\s+(?:flip|fold)\d+(?:\s+ultra)?|iphone\s+[^\s]+|\d+\s*\/\s*\d+\s*(?:gb|гб|tb|тб)?|\d+\s*(?:gb|гб|tb|тб)|sim\s*\+\s*e\s*-?sim|e\s*-?sim|2\s*sim|dual\s*-?sim|4g|5g|nfc|lte)/giu, ' ')
+    .replace(/\s+/g, ' ').trim();
+  return finish || tcNorm_(phone && phone.color);
 }
 
 function tcLoadUlyanovskMarkup_() {
@@ -771,6 +778,25 @@ function tcAvitoColor_(source, detected) {
   // Android supplier colour marketing names are SKU colours, not cosmetic
   // hints. Keep this dictionary local to Android field normalisation.
   if (/\b(?:galaxy|pixel)\b/i.test(v)) {
+    // These lines have a finite, approved supplier palette.  Do not let a
+    // generic colour word from another Samsung finish enter the same template
+    // cell: for example base S25 grey is specifically Silver Shadow, while
+    // Fold/Flip grey is Graphite.
+    if (/\bgalaxy\s+s25\b(?!\s+(?:fe|ultra)\b)/i.test(v)) {
+      if (/silver\s*shadow/.test(v)) return 'серый';
+      if (/icy\s*blue/.test(v)) return 'голубой';
+      if (/\bnavy\b/.test(v)) return 'синий';
+      if (/\bmint\b/.test(v)) return 'зеленый';
+      return '';
+    }
+    if (/\bgalaxy\s+z\s+(?:fold8|flip8)(?:\s+ultra)?\b/i.test(v)) {
+      if (/\bgraphite\b/.test(v)) return 'серый';
+      if (/\bcream\b/.test(v)) return 'бежевый';
+      if (/lavender|violet\s*shadow/.test(v)) return 'фиолетовый';
+      if (/\bmint\b/.test(v)) return 'зеленый';
+      if (/\bpink\b/.test(v)) return 'розовый';
+      return '';
+    }
     if (/titanium\s+(?:black|jetblack)|awesome\s+graphite|\bobsidian\b/.test(v)) return 'черный';
     if (/titanium\s+whitesilver/.test(v)) return 'белый';
     if (/titanium\s+silverblue/.test(v)) return 'синий';
