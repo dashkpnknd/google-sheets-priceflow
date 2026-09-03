@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const source = fs.readFileSync(new URL('../../PriceFlowAvitoMatcher.gs', import.meta.url), 'utf8') + '\n' + fs.readFileSync(new URL('../../PriceFlowTemplateMatcher.gs', import.meta.url), 'utf8') + '\n' + fs.readFileSync(new URL('./TelegramCatalog.gs', import.meta.url), 'utf8') + `
-globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcColor_,tcColorGroup_,tcModel_,tcAndroidTechnicalModifiers_,tcIsAsis_,tcLayouts_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcAddTwoSimMirror_,tcChooseCheapestCountry_,tcParseMarkupCsv_,tcApplyUlyanovskMarkup_,tcMarkupAmount_,tcMarkupKey_,PriceFlowAvitoMatcher,PriceFlowTemplateMatcher};`;
+globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcColor_,tcColorGroup_,tcModel_,tcAndroidTechnicalModifiers_,tcIsAsis_,tcLayouts_,tcTargetRow_,tcParsePost_,tcLine_,tcExpand_,tcSummary_,tcProductSort_,tcAddTwoSimMirror_,tcChooseCheapestCountry_,tcParseMarkupCsv_,tcApplyUlyanovskMarkup_,tcMarkupAmount_,tcMarkupKey_,PriceFlowAvitoMatcher,PriceFlowTemplateMatcher};`;
 const parseCsv = (value) => String(value).trim().split(/\r?\n/).map((line) => {
   const cells = []; let current = ''; let quoted = false;
   for (let index = 0; index < line.length; index++) {
@@ -268,7 +268,7 @@ test('excludes special conditions in every ready-catalogue field', () => {
   const layout = { model:0, sim:1, memory:2, color:3, ram:4, price:5 };
   const plan = matcher.planPhone([{ model:'Galaxy S26', memory:'256 ГБ', color:'синий', sim:'SIM + eSIM', ram:'12 ГБ', price:1, search:'Galaxy S26 | Open Box' }], layout, [['Galaxy S26', '2 SIM', '256 ГБ', 'синий', '12 ГБ', '999']]);
   assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row:0, price:'' }]);
-  assert.deepEqual([...plan.reasons], ['Нет модели у поставщика']);
+  assert.deepEqual([...plan.reasons], ['Нет модели в общей таблице']);
   assert.equal(matcher.eligible('Galaxy S26 распакованный'), false);
   assert.equal(matcher.eligible('Galaxy S26 брак'), false);
 });
@@ -284,4 +284,76 @@ test('uses the agreed PS5 Slim fallback and isolates ordinary PS5 and OnTrac', (
   assert.deepEqual(JSON.parse(JSON.stringify(ps.ambiguous)), [{ row:0, title:'PlayStation 5 Slim', prices:[60800,70100] }]);
   const ontrac = matcher.planTitle([{ title:'AirPods Pro 3', price:20000, search:'AirPods Pro 3' }], 'наушники', title, [['Dyson OnTrac', '12000']]);
   assert.deepEqual(JSON.parse(JSON.stringify(ontrac.updates)), [{ row:0, price:'' }]);
+});
+
+test('splits the mixed iPhone 17e / 17 supplier section into its actual per-row models', () => {
+  const rows = api.tcParsePost_('iPhone 17e \\ 17\n17 256GB Black 🇮🇳 (SIM + eSIM) — 70 000 ₽\n17e 256GB Black 🇮🇳 (eSIM) — 60 000 ₽', 'opt_uniseil', '100');
+  assert.equal(rows.length, 2);
+  assert.equal(api.tcPhone_(rows[0].name + ' ' + rows[0].variant).model, 'iPhone 17');
+  assert.equal(api.tcPhone_(rows[1].name + ' ' + rows[1].variant).model, 'iPhone 17e');
+  assert.equal(api.tcPhone_(rows[0].name + ' ' + rows[0].variant).config, 'SIM + eSIM');
+});
+
+test('fills 19 of 20 exact base iPhone 17 SKUs and leaves only 512GB violet eSIM blank', () => {
+  const colors = [['Black', 'черный'], ['White', 'белый'], ['Blue', 'голубой'], ['Sage', 'зеленый'], ['Lavender', 'фиолетовый']];
+  const physical = [], esim = [];
+  colors.forEach(([sourceColor, targetColor]) => [256, 512].forEach((memory) => {
+    physical.push(`17 ${memory}GB ${sourceColor} 🇮🇳 (SIM + eSIM) — ${70000 + physical.length * 100} ₽`);
+    if (!(memory === 512 && sourceColor === 'Lavender')) esim.push(`17 ${memory}GB ${sourceColor} 🇯🇵 (eSIM) — ${68000 + esim.length * 100} ₽`);
+  }));
+  const parsed = api.tcParsePost_(['iPhone 17e \\ 17', ...physical, ...esim].join('\n'), 'opt_uniseil', '101');
+  assert.equal(parsed.length, 19);
+  const sourceRows = parsed.map((row) => {
+    const phone = api.tcPhone_(row.name + ' ' + row.variant);
+    return { model:phone.model, memory:phone.memory, color:phone.color, sim:phone.config, ram:phone.ram, price:row.price, search:row.name + ' ' + row.variant };
+  });
+  const targets = [];
+  colors.forEach(([, color]) => [256, 512].forEach((memory) => {
+    targets.push(['iPhone 17', 'SIM + eSIM', `${memory} ГБ`, color, '']);
+    targets.push(['iPhone 17', 'Только eSIM', `${memory} ГБ`, color, '']);
+  }));
+  const plan = api.PriceFlowAvitoMatcher.planPhone(sourceRows, { model:0, sim:1, memory:2, color:3, ram:-1, price:4 }, targets);
+  assert.equal(plan.updates.filter((update) => update.price !== '').length, 19);
+  const missing = targets.findIndex((row) => row[1] === 'Только eSIM' && row[2] === '512 ГБ' && row[3] === 'фиолетовый');
+  assert.equal(plan.reasons[missing], 'Нет нужной SIM');
+  assert.equal(plan.updates.some((update) => update.row === missing && update.price !== ''), false);
+});
+
+test('distinguishes an absent ready-catalogue model from a first-stage transmission failure', () => {
+  const matcher = api.PriceFlowAvitoMatcher;
+  const layout = { model:0, sim:1, memory:2, color:3, ram:4, price:5 };
+  const target = [['iPhone 17', 'SIM + eSIM', '256 ГБ', 'черный', '', '']];
+  assert.deepEqual([...matcher.planPhone([], layout, target, { supplierModels:['iphone 17'] }).reasons], ['Не передано из прайса поставщика']);
+  assert.deepEqual([...matcher.planPhone([], layout, target, { supplierModels:[] }).reasons], ['Нет модели в общей таблице']);
+});
+
+test('filters activated and unpacked supplier rows before they can reach the ready catalogue', () => {
+  assert.equal(api.tcIsAsis_('iPhone 17 256GB Active'), true);
+  assert.equal(api.tcIsAsis_('iPhone 17 256GB распакованный'), true);
+  assert.equal(api.tcIsAsis_('iPhone 17 256GB поврежденная упаковка'), true);
+});
+
+test('matches all 20 canonical MacBook RAM/SSD keys including 1024GB and 1TB spelling', () => {
+  const matcher = api.PriceFlowAvitoMatcher;
+  const layout = matcher.titleLayout(['Title', 'Price']);
+  const sources = [], targets = [];
+  [8, 16, 24, 32, 36].forEach((ram) => [256, 512, 1024, 2048].forEach((ssd) => {
+    sources.push({ title:`MacBook Air 13 M4 ${ram}/${ssd}`, price:100000 + sources.length, search:`MacBook Air 13 M4 ${ram}/${ssd}` });
+    const targetSsd = ssd === 1024 ? '1 ТБ' : ssd === 2048 ? '2 ТБ' : `${ssd} ГБ`;
+    targets.push([`MacBook Air 13 M4 ${ram} ГБ ${targetSsd}`, '']);
+  }));
+  const plan = matcher.planTitle(sources, 'макбуки', layout, targets);
+  assert.equal(plan.updates.length, 20);
+  assert.equal(plan.matched, 20);
+});
+
+test('matches four iPad Air M4 colours, eight Watch Ultra 2 rows, and current AirPods', () => {
+  const matcher = api.PriceFlowAvitoMatcher;
+  const layout = matcher.titleLayout(['Title', 'Price']);
+  const ipad = matcher.planTitle([{ title:'iPad Air 11 M4 256GB Wi-Fi Blue', price:65000, search:'iPad Air 11 M4 256GB Wi-Fi Blue' }], 'айпады', layout, ['Blue','Purple','Starlight','Space Gray'].map((color) => [`iPad Air 11 M4 256 ГБ Wi-Fi ${color}`, '']));
+  assert.equal(ipad.matched, 4);
+  const watch = matcher.planTitle([{ title:'Apple Watch Ultra 2 Black Ocean Band', price:70000, search:'Apple Watch Ultra 2 Black Ocean Band' }], 'часы', layout, Array.from({ length:8 }, (_, index) => [`Watch Ultra 2 strap ${index + 1}`, '']));
+  assert.equal(watch.matched, 8);
+  const headphones = matcher.planTitle([{ title:'AirPods Pro 2', price:20000, search:'AirPods Pro 2' }, { title:'AirPods 4', price:15000, search:'AirPods 4' }], 'наушники', layout, [['AirPods Pro 2', ''], ['AirPods 4', '']]);
+  assert.equal(headphones.matched, 2);
 });

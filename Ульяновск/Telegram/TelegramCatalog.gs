@@ -29,7 +29,7 @@ const TC = {
     'наушники': { sheetName: 'наушники', kind: 'title' }, 'пс': { sheetName: 'пс', kind: 'title' },
     'дайсон': { sheetName: 'дайсон', kind: 'title' }
   } },
-  props: { project: 'TC_PROJECT', channel: 'TC_CHANNEL', mirrorTwoSim: 'TC_MIRROR_TWO_SIM', last: 'TC_LAST', status: 'TC_STATUS', templateLastReport: 'TC_TEMPLATE_LAST_REPORT' }
+  props: { project: 'TC_PROJECT', channel: 'TC_CHANNEL', mirrorTwoSim: 'TC_MIRROR_TWO_SIM', last: 'TC_LAST', status: 'TC_STATUS', templateLastReport: 'TC_TEMPLATE_LAST_REPORT', supplierModels: 'TC_READY_SUPPLIER_MODELS' }
 };
 
 function onOpen() {
@@ -99,13 +99,14 @@ function syncTelegramCatalog_() {
     const p = PropertiesService.getScriptProperties(), channel = p.getProperty(TC.props.channel);
     if (!channel) throw new Error('Сначала подключите публичный Telegram-канал.');
     const book = SpreadsheetApp.getActiveSpreadsheet();
-    const sourceRows = tcFetchSupplierSheetRows_(channel).filter(function(row) { return !tcIsAsis_(tcDisplay_(row)); });
+    const sourceRows = tcFetchSupplierSheetRows_(channel).filter(function(row) { return !tcIsAsis_(tcSourceText_(row)); });
     const mirror = tcAddTwoSimMirror_(sourceRows, p.getProperty(TC.props.mirrorTwoSim) === 'true');
     // Одна и та же конфигурация может быть у поставщика из нескольких стран.
     // Для Ульяновска берём только вариант с минимальной закупочной ценой.
     const cheapest = tcChooseCheapestCountry_(mirror.rows);
     const rules = tcLoadUlyanovskMarkup_(), markup = tcApplyUlyanovskMarkup_(cheapest.rows, rules);
     const rows = markup.rows;
+    tcAssertIphone17Transferred_(sourceRows, rows);
     const byCategory = {};
     rows.forEach(function(row) { (byCategory[row.category] = byCategory[row.category] || []).push(row); });
     let written = 0; const skippedSheets = [];
@@ -114,6 +115,9 @@ function syncTelegramCatalog_() {
       if (!sheet) throw new Error('Нет листа «' + name + '» в стандартной таблице.');
       written += tcWriteSheet_(sheet, entries);
     });
+    // The second stage remains supplier-free. It receives only this compact
+    // snapshot from a successful first-stage rebuild for truthful F/O reasons.
+    p.setProperty(TC.props.supplierModels, JSON.stringify(tcSupplierModels_(sourceRows)));
     // The completed local catalogue is the only source for the external
     // template: it already has selected country, markup and technical fields.
     SpreadsheetApp.flush();
@@ -132,7 +136,7 @@ function syncTelegramCatalog_() {
 
 /** Stage 2 reads only the completed local catalogue and writes Price only. */
 function tcSyncPriceTemplate_() {
-  const report = PriceFlowTemplateMatcher.sync({ city:'ulyanovsk', sourceSpreadsheet:SpreadsheetApp.getActiveSpreadsheet(), templateSpreadsheetId:TC.priceTemplate.spreadsheetId, headerRow:TC.priceTemplate.headerRow, firstDataRow:TC.priceTemplate.firstDataRow, sheets:TC.priceTemplate.sheets, allowIphoneAirAlias:false });
+  const report = PriceFlowTemplateMatcher.sync({ city:'ulyanovsk', sourceSpreadsheet:SpreadsheetApp.getActiveSpreadsheet(), templateSpreadsheetId:TC.priceTemplate.spreadsheetId, headerRow:TC.priceTemplate.headerRow, firstDataRow:TC.priceTemplate.firstDataRow, sheets:TC.priceTemplate.sheets, allowIphoneAirAlias:false, supplierModels:tcReadySupplierModels_() });
   // Script Properties hold the compact technical result; no audit sheet is created.
   PropertiesService.getScriptProperties().setProperty(TC.props.templateLastReport, JSON.stringify({ at:report.at, updated:report.updated, skippedByReason:report.skippedByReason, ambiguous:Object.keys(report.sheets).reduce(function(all, name) { return all.concat((report.sheets[name].ambiguous || []).map(function(item) { return { sheet:name, title:item.title, prices:item.prices }; })); }, []).slice(0, 50) }));
   return report;
@@ -314,7 +318,11 @@ function tcAndroidMarkupRule_(row) {
 }
 function tcNorm_(value) { return String(value || '').trim().toLocaleLowerCase('ru-RU'); }
 function tcDisplay_(product) { return [product.name, product.variant].filter(Boolean).join(' ').replace(/[\u{1F1E6}-\u{1F1FF}]{2}/gu, '').replace(/\s+/g, ' ').trim(); }
-function tcIsAsis_(value) { return /(?:\(\s*asis(?:[^)]*)\)|\bcpo\b|open\s*box|refurb(?:ished)?|уцен|витрин|предактив|пред\s*актив|мят(?:ая|ый|ой|ую|ые|ых)?\s*(?:короб|упаков)|вскрыт[а-я]*\s*(?:короб|упаков))/iu.test(String(value || '')); }
+function tcSourceText_(product) { return [tcDisplay_(product), product && product.section, product && product.sourceRow].filter(Boolean).join(' '); }
+function tcIsAsis_(value) { return /(?:\b(?:asis|асис|cpo|цпо|open\s*box|refurb(?:ished)?|defect(?:ive)?|faulty|damaged|used|active|б\/?у|бу)\b|уцен|витрин|демо|пред\s*актив|предактив|активир|распак|брак|вскрыт[а-я]*\s*(?:короб|упаков)|поврежд[а-я]*\s*(?:короб|упаков)|мят(?:ая|ый|ой|ую|ые|ых)?\s*(?:короб|упаков))/iu.test(String(value || '')); }
+function tcSupplierModels_(rows) { return Array.from(new Set((rows || []).map(function(row) { return tcPhone_(tcSourceText_(row)).model; }).filter(Boolean).map(tcNorm_))); }
+function tcReadySupplierModels_() { try { const stored = JSON.parse(PropertiesService.getScriptProperties().getProperty(TC.props.supplierModels) || '[]'); return Array.isArray(stored) ? stored : []; } catch (error) { return []; } }
+function tcAssertIphone17Transferred_(sourceRows, catalogueRows) { const source = tcSupplierModels_(sourceRows), catalogue = tcSupplierModels_(catalogueRows); if (source.indexOf('iphone 17') >= 0 && catalogue.indexOf('iphone 17') < 0) throw new Error('iPhone 17 найден у поставщика, но не передан в общую таблицу; синхронизация шаблона отменена.'); }
 function tcOutputPhoneModel_(phone, full, fallback) {
   const model = phone.model || fallback;
   return tcIsAsis_(full) && !/^\(asis\)\s*/i.test(model) ? '(ASIS) ' + model : model;
@@ -611,7 +619,14 @@ function tcLine_(header, line, channel, post) {
 }
 
 function tcExpand_(header, item) {
-  const h = String(header).replace(/\\/g, ' ').replace(/\s+/g, ' ').trim(), i = String(item).trim();
+  const rawHeader = String(header).trim(), h = rawHeader.replace(/\\/g, ' ').replace(/\s+/g, ' ').trim(), i = String(item).trim();
+  // A current supplier section intentionally combines two base models. Each
+  // price row begins with its actual model, so never assign the header's 17e
+  // to an ordinary 17 row.
+  if (/^iphone\s+17e\s*(?:\\|\/)\s*17$/i.test(rawHeader)) {
+    const mixed = /^(?:iphone\s+)?(17e|17)(?:\s+|$)(.*)$/i.exec(i);
+    if (mixed) return 'iPhone ' + mixed[1] + (mixed[2] ? ' ' + mixed[2].trim() : '');
+  }
   // In Uniseil posts a section can already contain the model ("iPhone 16 Pro")
   // while each line starts with it again ("16 Pro 128GB …").  Keep one model
   // name only; duplicated text previously made diagnostics and exact matching
