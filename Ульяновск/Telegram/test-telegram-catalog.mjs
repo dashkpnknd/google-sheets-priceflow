@@ -269,7 +269,7 @@ test('shared matcher preserves Ulyanovsk title safety and only plans Price', () 
   const layout = matcher.titleLayout(['Title', 'Price', 'DateEnd']);
   const plan = matcher.planTitle([{ title:'MacBook Air 13 M5 16/512 Blue', price:120000 }], 'макбуки', layout, [['MacBook Air 15 M5 16/512 Blue', 90000, '2099-01-01']]);
   assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row:0, price:'' }]);
-  assert.equal(matcher.runRegressionTests().passed, 25);
+  assert.equal(matcher.runRegressionTests().passed, 27);
 });
 
 test('shared matcher keeps iPad mini generations separate', () => {
@@ -347,6 +347,20 @@ test('uses the agreed PS5 Slim fallback and isolates ordinary PS5 and OnTrac', (
   assert.deepEqual(JSON.parse(JSON.stringify(ps.ambiguous)), [{ row:0, title:'PlayStation 5 Slim', prices:[60800,70100] }]);
   const ontrac = matcher.planTitle([{ title:'AirPods Pro 3', price:20000, search:'AirPods Pro 3' }], 'наушники', title, [['Dyson OnTrac', '12000']]);
   assert.deepEqual(JSON.parse(JSON.stringify(ontrac.updates)), [{ row:0, price:'' }]);
+});
+
+test('does not price a bare PS5 from an accessory and keeps DualSense colours separate', () => {
+  const matcher = api.PriceFlowAvitoMatcher, layout = matcher.titleLayout(['Title', 'Price']);
+  const plan = matcher.planTitle([
+    { title:'PlayStation 5 Vertical Stand analog', price:2200, search:'PlayStation 5 Vertical Stand analog' },
+    { title:'DualSense PS5 Black', price:6400, search:'DualSense PS5 Black' },
+    { title:'DualSense PS5 White', price:6300, search:'DualSense PS5 White' }
+  ], 'пс', layout, [
+    ['Sony PlayStation 5 Гарантия Рассрочка', '2200'],
+    ['DualSense PS5 Black', '6300'],
+    ['DualSense PS5 White', '']
+  ]);
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row:0, price:'' }, { row:1, price:6400 }, { row:2, price:6300 }]);
 });
 
 test('splits the mixed iPhone 17e / 17 supplier section into its actual per-row models', () => {
