@@ -101,7 +101,10 @@ function tcEnsureTrigger_() {
 function syncTelegramCatalog_() {
   tcAssertUlyanovskInvariants_();
   const lock = LockService.getScriptLock();
-  if (!lock.tryLock(1000)) return { rows: 0, written: 0, skippedSheets: [] };
+  // A manual «Пересобрать весь каталог» must never look successful while a
+  // scheduled run owns the project lock.  Wait briefly for the normal case,
+  // then fail loudly instead of returning an empty no-op report.
+  if (!lock.tryLock(30000)) throw new Error('Пересборка уже выполняется в другом запуске. Дождитесь её завершения и повторите команду.');
   try {
     const p = PropertiesService.getScriptProperties(), channel = p.getProperty(TC.props.channel);
     if (!channel) throw new Error('Сначала подключите публичный Telegram-канал.');
