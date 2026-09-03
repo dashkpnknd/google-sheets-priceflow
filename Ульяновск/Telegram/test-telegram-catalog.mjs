@@ -363,6 +363,12 @@ test('does not price a bare PS5 from an accessory and keeps DualSense colours se
   assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row:0, price:'' }, { row:1, price:6400 }, { row:2, price:6300 }]);
 });
 
+test('does not treat Russian Slim or Pro labels as a bare PS5', () => {
+  const matcher = api.PriceFlowAvitoMatcher;
+  assert.equal(matcher.titleMatches('пс', 'Sony PlayStation 5 Гарантия Рассрочка', 'Sony PlayStation 5 Слим цифровая'), false);
+  assert.equal(matcher.titleMatches('пс', 'Sony PlayStation 5 Гарантия Рассрочка', 'Sony PlayStation 5 Про'), false);
+});
+
 test('matches Dyson by code, R-Pro edition and complete colour combination', () => {
   const matcher = api.PriceFlowAvitoMatcher, layout = matcher.titleLayout(['Title', 'Price']);
   const plan = matcher.planTitle([
