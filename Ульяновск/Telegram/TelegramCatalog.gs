@@ -628,6 +628,12 @@ function tcExpand_(header, item) {
     const mixed = /^(?:iphone\s+)?(\d+e?)(?:\s+|$)(.*)$/i.exec(i);
     if (mixed && (mixed[1] === mixedHeader[1] || mixed[1] === mixedHeader[1] + 'e')) return 'iPhone ' + mixed[1] + (mixed[2] ? ' ' + mixed[2].trim() : '');
   }
+  // In the mixed MacBook section the leading article is not a model. The
+  // family stated in the row wins, so Air rows never inherit Neo from header.
+  if (/^macbook\s+neo\s*(?:\\|\/)\s*air$/i.test(rawHeader)) {
+    const family = /\b(neo|air)\b/i.exec(i);
+    if (family) return 'MacBook ' + family[1].replace(/^./, function(letter) { return letter.toUpperCase(); }) + ' ' + i.slice(family.index + family[0].length).trim();
+  }
   // In Uniseil posts a section can already contain the model ("iPhone 16 Pro")
   // while each line starts with it again ("16 Pro 128GB …").  Keep one model
   // name only; duplicated text previously made diagnostics and exact matching
@@ -648,9 +654,9 @@ function tcExpand_(header, item) {
 }
 function tcCategory_(value) { const v = tcNorm_(value); if (/iphone|galaxy|pixel|xiaomi|samsung|honor|huawei|oneplus|realme/.test(v)) return 'телефоны'; if (/macbook/.test(v)) return 'макбуки'; if (/ipad/.test(v)) return 'айпады'; if (/watch/.test(v)) return 'часы'; if (/airpods|наушники|колонки/.test(v)) return 'наушники'; if (/playstation|\bps[345]\b|xbox/.test(v)) return 'пс'; if (/dyson/.test(v)) return 'дайсон'; if (/imac/.test(v)) return 'аймаки'; return 'прочее'; }
 function tcPhone_(value) {
-  const text = String(value || ''), specs = /(\d{1,2})\s*\/\s*(\d{2,4})\s*(гб|gb|тб|tb)/i.exec(text);
+  const text = String(value || ''), specs = /(\d{1,2})\s*\/\s*(\d{1,4})\s*(гб|gb|тб|tb)/i.exec(text);
   const memory = specs ? null : /(?:^|\s)(\d{1,4})\s?(гб|gb|тб|tb)(?=\s|$)/i.exec(text);
-  const unit = function(amount, suffix) { return amount + ' ' + suffix.toUpperCase().replace('GB', 'ГБ').replace('TB', 'ТБ'); };
+  const unit = function(amount, suffix) { return /тб|tb/i.test(suffix) ? String(Number(amount) * 1024) + ' ГБ' : amount + ' ГБ'; };
   const sim = /\b(?:2\s*(?:sim|сим)|dual\s*-?\s*sim)\b/i.test(text) ? '2 SIM' : /sim\s*\+\s*e\s*-?sim/i.test(text) ? 'SIM + eSIM' : /e\s*-?sim/i.test(text) ? 'eSIM' : /\bsim\b/i.test(text) ? 'SIM' : '';
   return { model: tcModel_(text), memory: specs ? unit(specs[2], specs[3]) : memory ? unit(memory[1], memory[2]) : '', ram: specs ? unit(specs[1], 'GB') : '', color: tcColor_(text), config: sim, country: tcCountry_(text) };
 }
@@ -685,7 +691,7 @@ function tcColor_(value) {
     ['ultramarine','ультрамарин'],['graphite','графитовый'],['coral','коралловый'],['teal','бирюзовый'],['lavender','лавандовый'],['lilac','фиолетовый'],['violet','фиолетовый'],['indigo','индиго'],['porcelain','фарфоровый'],['hazel','ореховый'],['aloe','алоэ'],['peony','пионовый'],['wintergreen','зимний зеленый'],['charcoal','угольный'],['sage','шалфейный'],['mint','мятный'],['cream','кремовый'],
     // Supplier shade names are intentionally grouped into the closest Avito
     // colour rather than blocking a sale over a cosmetic naming difference.
-    ['jetblack','черный'],['jet black','черный'],['black','черный'],['graphite','черный'],['charcoal','черный'],['midnight','черный'],['silver shadow','серый'],['silvershadow','серый'],['lightgray','серый'],['light gray','серый'],['graygreen','зеленый'],['gray green','зеленый'],['whitesilver','белый'],['white silver','белый'],['cobalt violet','фиолетовый'],['cobaltviolet','фиолетовый'],['violet shadow','фиолетовый'],['violetshadow','фиолетовый'],['navy','синий'],['cobalt blue','синий'],['cobaltblue','синий'],['sky blue','голубой'],['skyblue','голубой'],['icy blue','голубой'],['icyblue','голубой'],['silver blue','голубой'],['silverblue','голубой'],['titanium','титан'],['lemongrass','лимонный'],['obsidian','черный'],['snow','белый'],['bay','голубой'],['fog','серый'],['starlight','сияющая звезда'],['natural','натуральный'],['desert','пустынный'],
+    ['jetblack','черный'],['jet black','черный'],['black','черный'],['graphite','черный'],['charcoal','черный'],['midnight','черный'],['silver shadow','серый'],['silvershadow','серый'],['lightgray','серый'],['light gray','серый'],['graygreen','зеленый'],['gray green','зеленый'],['whitesilver','белый'],['white silver','белый'],['cobalt violet','фиолетовый'],['cobaltviolet','фиолетовый'],['violet shadow','фиолетовый'],['violetshadow','фиолетовый'],['navy','синий'],['cobalt blue','синий'],['cobaltblue','синий'],['sky blue','голубой'],['skyblue','голубой'],['icy blue','голубой'],['icyblue','голубой'],['silver blue','голубой'],['silverblue','голубой'],['titanium','титан'],['lemongrass','лимонный'],['obsidian','черный'],['snow','белый'],['bay','голубой'],['fog','серый'],['olive','оливковый'],['starlight','сияющая звезда'],['natural','натуральный'],['desert','пустынный'],
     ['черный','черный'],['белый','белый'],['синий','синий'],['голубой','голубой'],['зеленый','зеленый'],['розовый','розовый'],['желтый','желтый'],['серебристый','серебристый'],['серебряный','серебристый'],['серый','серый'],['оранжевый','оранжевый'],['фиолетовый','фиолетовый'],['лавандовый','лавандовый'],['бирюзовый','бирюзовый'],['графитовый','графитовый'],['коралловый','коралловый'],['красный','красный'],['золотистый','золотистый'],
     ['black','черный'],['white','белый'],['blue','синий'],['green','зеленый'],['pink','розовый'],['yellow','желтый'],['silver','серебристый'],['gray','серый'],['grey','серый'],['orange','оранжевый'],['purple','фиолетовый'],['violet','фиолетовый'],['red','красный'],['gold','золотистый']
   ];
@@ -711,6 +717,17 @@ function tcColorGroup_(value) {
 // из списка Avito; для синего учитывается конкретная модель.
 function tcAvitoColor_(source, detected) {
   const v = tcColorKey_(source);
+  // Android supplier colour marketing names are SKU colours, not cosmetic
+  // hints. Keep this dictionary local to Android field normalisation.
+  if (/\b(?:galaxy|pixel)\b/i.test(v)) {
+    if (/titanium\s+(?:black|jetblack)|awesome\s+graphite|\bobsidian\b/.test(v)) return 'черный';
+    if (/titanium\s+whitesilver/.test(v)) return 'белый';
+    if (/titanium\s+gray|\bgraphite\b/.test(v)) return 'серый';
+    if (/awesome\s+olive/.test(v)) return 'зеленый';
+    if (/\bcream\b/.test(v)) return 'бежевый';
+    if (/lavender|cobalt\s+violet|violet\s+shadow/.test(v)) return 'фиолетовый';
+    if (/sky\s+blue|icy\s*blue/.test(v)) return 'голубой';
+  }
   if (/iphone\s+(?:14(?:\s+plus)?|15(?!\s+pro\b)(?:\s+plus)?|16(?!\s+pro\b)(?:\s+plus)?|air|17(?!\s+pro\b))/i.test(v) && /\b(?:blue|ultramarine|teal|sky blue|bay)\b/i.test(v)) return 'голубой';
   const pairs = [['натуральный','серый'],['серый космос','серый'],['графитовый','черный'],['угольный','черный'],['обсидиан','черный'],['титан','серый'],['пустынный','золотистый'],['кремовый','бежевый'],['ореховый','бежевый'],['фарфоровый','белый'],['сияющая звезда','белый'],['темно фиолетовый','фиолетовый'],['лавандовый','фиолетовый'],['ультрамарин','голубой'],['бирюзовый','голубой'],['индиго','синий'],['полночный','черный'],['темно зеленый','зеленый'],['зимний зеленый','зеленый'],['шалфейный','зеленый'],['мятный','зеленый'],['алоэ','зеленый'],['розовое золото','розовый'],['коралловый','розовый'],['пионовый','розовый'],['лимонный','желтый']];
   const hit = pairs.find(function(pair) { return tcColorKey_(detected) === pair[0]; });

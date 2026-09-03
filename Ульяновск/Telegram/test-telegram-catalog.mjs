@@ -390,3 +390,50 @@ test('matches four iPad Air M4 colours, eight Watch Ultra 2 rows, and current Ai
   const headphones = matcher.planTitle([{ title:'AirPods Pro 2', price:20000, search:'AirPods Pro 2' }, { title:'AirPods 4', price:15000, search:'AirPods 4' }], 'наушники', layout, [['AirPods Pro 2', ''], ['AirPods 4', '']]);
   assert.equal(headphones.matched, 2);
 });
+
+test('parses MacBook Neo / Air rows by their own family and removes the article', () => {
+  assert.equal(api.tcExpand_('MacBook Neo \\ Air', 'MDHJ4 Air 13 M5 16/1TB Blue'), 'MacBook Air 13 M5 16/1TB Blue');
+  assert.equal(api.tcExpand_('MacBook Neo \\ Air', 'MHFD4 Neo 16/512 Silver'), 'MacBook Neo 16/512 Silver');
+});
+
+test('normalizes audited Android 1TB, RAM and model-specific colours without relaxing SKU fields', () => {
+  const android = api.tcPhone_('Galaxy S26 Ultra 16/1TB Titanium Whitesilver');
+  assert.deepEqual({ memory:android.memory, ram:android.ram, color:android.color }, { memory:'1024 ГБ', ram:'16 ГБ', color:'белый' });
+  assert.equal(api.tcPhone_('Galaxy Z Fold8 12/256 Graphite').color, 'серый');
+  assert.equal(api.tcPhone_('Galaxy A56 12/256 Awesome Olive').color, 'зеленый');
+  assert.equal(api.tcPhone_('Pixel 10 12/256 Obsidian').color, 'черный');
+  const matcher = api.PriceFlowAvitoMatcher, layout = { model:0, sim:1, memory:2, color:3, ram:4, price:5 };
+  const source = [{ model:'Galaxy Z Fold8', memory:'1024 ГБ', color:'серый', sim:'', ram:'16 ГБ', price:100000, search:'Galaxy Z Fold8 16/1TB Graphite' }];
+  const plan = matcher.planPhone(source, layout, [['Galaxy Z Fold8', 'Не знаю', '1024 ГБ', 'серый', '12 ГБ', '']]);
+  assert.deepEqual([...plan.reasons], ['Нет нужной RAM']);
+});
+
+test('matches all 24 audited Android SKUs only on the complete normalized SKU', () => {
+  const matcher = api.PriceFlowAvitoMatcher, layout = { model:0, sim:1, memory:2, color:3, ram:4, price:5 };
+  const sku = [
+    ['Galaxy S25 Ultra', '256 ГБ', 'черный', '12 ГБ'], ['Galaxy S25 Ultra', '256 ГБ', 'белый', '12 ГБ'], ['Galaxy S25 Ultra', '256 ГБ', 'серый', '12 ГБ'], ['Galaxy S25 Ultra', '1024 ГБ', 'черный', '12 ГБ'], ['Galaxy S25 Ultra', '1024 ГБ', 'фиолетовый', '12 ГБ'],
+    ['Galaxy A56', '128 ГБ', 'зеленый', '8 ГБ'], ['Galaxy A56', '256 ГБ', 'зеленый', '12 ГБ'], ['Galaxy S26', '256 ГБ', 'черный', '12 ГБ'],
+    ['Galaxy S26 Ultra', '1024 ГБ', 'черный', '16 ГБ'], ['Galaxy S26 Ultra', '1024 ГБ', 'фиолетовый', '16 ГБ'], ['Galaxy S26 Ultra', '1024 ГБ', 'голубой', '16 ГБ'], ['Galaxy S26 Ultra', '1024 ГБ', 'белый', '16 ГБ'],
+    ['Galaxy Z Flip8', '256 ГБ', 'серый', '12 ГБ'], ['Galaxy Z Flip8', '512 ГБ', 'серый', '12 ГБ'],
+    ['Galaxy Z Fold8', '256 ГБ', 'серый', '12 ГБ'], ['Galaxy Z Fold8', '512 ГБ', 'серый', '12 ГБ'], ['Galaxy Z Fold8', '1024 ГБ', 'бежевый', '16 ГБ'], ['Galaxy Z Fold8', '1024 ГБ', 'серый', '16 ГБ'], ['Galaxy Z Fold8', '1024 ГБ', 'фиолетовый', '16 ГБ'],
+    ['Galaxy Z Fold8 Ultra', '256 ГБ', 'серый', '12 ГБ'], ['Galaxy Z Fold8 Ultra', '512 ГБ', 'серый', '12 ГБ'], ['Galaxy Z Fold8 Ultra', '1024 ГБ', 'бежевый', '16 ГБ'], ['Galaxy Z Fold8 Ultra', '1024 ГБ', 'фиолетовый', '16 ГБ'], ['Pixel 10', '256 ГБ', 'черный', '12 ГБ']
+  ];
+  const source = sku.map((item, index) => ({ model:item[0], memory:item[1], color:item[2], sim:'', ram:item[3], price:50000 + index, search:item.join(' ') }));
+  const targets = sku.map((item) => [item[0], 'Не знаю', item[1], item[2], item[3], '']);
+  const plan = matcher.planPhone(source, layout, targets);
+  assert.equal(plan.matched, 24);
+  assert.equal(plan.updates.length, 24);
+  assert.equal(plan.missing.length, 0);
+});
+
+test('keeps AirPods 4 ANC separate and prices each AirPods Max 2026 colour independently', () => {
+  const matcher = api.PriceFlowAvitoMatcher, layout = matcher.titleLayout(['Title', 'Price']);
+  const airpods = matcher.planTitle([{ title:'AirPods 4', price:15000, search:'AirPods 4' }, { title:'AirPods 4 ANC', price:18000, search:'AirPods 4 ANC' }], 'наушники', layout, [['AirPods 4', ''], ['AirPods 4 ANC', '']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(airpods.updates)), [{ row:0, price:15000 }, { row:1, price:18000 }]);
+  const max = matcher.planTitle([
+    { title:'AirPods Max 2 2026 Type-C Blue', price:40100, search:'AirPods Max 2 2026 Blue' },
+    { title:'AirPods Max 2 2026 Type-C Orange', price:38800, search:'AirPods Max 2 2026 Orange' },
+    { title:'AirPods Max 2 2026 Type-C Purple', price:39800, search:'AirPods Max 2 2026 Purple' }
+  ], 'наушники', layout, [['AirPods Max 2026 Blue', ''], ['AirPods Max 2026 Orange', ''], ['AirPods Max 2026 Purple', '']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(max.updates)), [{ row:0, price:40100 }, { row:1, price:38800 }, { row:2, price:39800 }]);
+});
