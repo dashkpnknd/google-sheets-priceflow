@@ -308,6 +308,35 @@ test('price-template matcher supports separate iPhone and Android blocks', () =>
   assert.doesNotMatch(source, /tcSyncAvitoPrices_|19GKgYl_RYR5Ezl6_L_bjIGkHmM2_vsWp5X1ZTV4rAF0/);
 });
 
+test('writes sparse template Price changes in one batch without overwriting formulas', () => {
+  const calls = [];
+  const values = [[100], [200], [300], [400]];
+  const formulas = [[''], [''], [''], ['']];
+  const sheet = {
+    getRange(startRow, column, height) {
+      return {
+        getValues: () => values.slice(startRow - 2, startRow - 2 + height).map((row) => row.slice()),
+        getFormulas: () => formulas.slice(startRow - 2, startRow - 2 + height).map((row) => row.slice()),
+        setValues: (next) => {
+          calls.push({ startRow, column, height, next });
+          next.forEach((row, index) => { values[startRow - 2 + index] = row.slice(); });
+        }
+      };
+    }
+  };
+  api.PriceFlowTemplateMatcher.writePrices(sheet, 2, 4, [{ row: 0, price: 101 }, { row: 2, price: '' }], 4);
+  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [{ startRow: 2, column: 5, height: 4, next: [[101], [200], [''], [400]] }]);
+
+  calls.length = 0;
+  formulas[1] = ['=SUM(A1:A2)'];
+  api.PriceFlowTemplateMatcher.writePrices(sheet, 2, 4, [{ row: 0, price: 102 }, { row: 2, price: 302 }], 4);
+  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [
+    { startRow: 2, column: 5, height: 1, next: [[102]] },
+    { startRow: 4, column: 5, height: 1, next: [[302]] }
+  ]);
+  assert.deepEqual(JSON.parse(JSON.stringify(values)), [[102], [200], [302], [400]]);
+});
+
 test('template phone matching preserves every explicit SKU field and reports its first failed field', () => {
   const matcher = api.PriceFlowAvitoMatcher;
   const layout = { model:0, sim:1, memory:2, color:3, ram:4, price:5 };
