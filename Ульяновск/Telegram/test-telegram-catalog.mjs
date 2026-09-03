@@ -212,7 +212,7 @@ test('shared matcher preserves Ulyanovsk title safety and only plans Price', () 
   const layout = matcher.titleLayout(['Title', 'Price', 'DateEnd']);
   const plan = matcher.planTitle([{ title:'MacBook Air 13 M5 16/512 Blue', price:120000 }], 'макбуки', layout, [['MacBook Air 15 M5 16/512 Blue', 90000, '2099-01-01']]);
   assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row:0, price:'' }]);
-  assert.equal(matcher.runRegressionTests().passed, 23);
+  assert.equal(matcher.runRegressionTests().passed, 25);
 });
 
 test('shared matcher keeps iPad mini generations separate', () => {
@@ -403,11 +403,24 @@ test('uses the agreed Android diagnostic order and preserves technical model bou
   assert.equal(api.tcIsAsis_('MacBook Air 13 M5 (Мятая 📦)'), true);
 });
 
-test('matches four iPad Air M4 colours, eight Watch Ultra 2 rows, and current AirPods', () => {
+test('matches iPad colours exactly while keeping Wi-Fi and Nano Glass non-blocking', () => {
   const matcher = api.PriceFlowAvitoMatcher;
   const layout = matcher.titleLayout(['Title', 'Price']);
-  const ipad = matcher.planTitle([{ title:'iPad Air 11 M4 256GB Wi-Fi Blue', price:65000, search:'iPad Air 11 M4 256GB Wi-Fi Blue' }], 'айпады', layout, ['Blue','Purple','Starlight','Space Gray'].map((color) => [`iPad Air 11 M4 256 ГБ Wi-Fi ${color}`, '']));
+  const ipad = matcher.planTitle([
+    { title:'iPad Air 11 M4 256GB Wi-Fi Blue', price:65000, search:'iPad Air 11 M4 256GB Wi-Fi Blue' },
+    { title:'iPad Air 11 M4 256GB Purple', price:65500, search:'iPad Air 11 M4 256GB Purple' },
+    { title:'iPad Air 11 M4 256GB Starlight', price:64300, search:'iPad Air 11 M4 256GB Starlight' },
+    { title:'iPad Air 11 M4 256GB Space Gray', price:64000, search:'iPad Air 11 M4 256GB Space Gray' }
+  ], 'айпады', layout, ['Blue','Purple','Starlight','Space Gray'].map((color) => [`iPad Air 11 M4 256 ГБ Wi-Fi ${color}`, '']));
   assert.equal(ipad.matched, 4);
+  assert.deepEqual(JSON.parse(JSON.stringify(ipad.updates)), [{ row:0, price:65000 }, { row:1, price:65500 }, { row:2, price:64300 }, { row:3, price:64000 }]);
+  const absent = matcher.planTitle([{ title:'iPad Air 11 M4 256GB Blue', price:65000, search:'iPad Air 11 M4 256GB Blue' }], 'айпады', layout, [['iPad Air 11 M4 256 ГБ Starlight', 64000]]);
+  assert.deepEqual(JSON.parse(JSON.stringify(absent.updates)), [{ row:0, price:'' }]);
+});
+
+test('matches eight Watch Ultra 2 rows and current AirPods', () => {
+  const matcher = api.PriceFlowAvitoMatcher;
+  const layout = matcher.titleLayout(['Title', 'Price']);
   const watch = matcher.planTitle([{ title:'Apple Watch Ultra 2 Black Ocean Band', price:70000, search:'Apple Watch Ultra 2 Black Ocean Band' }], 'часы', layout, Array.from({ length:8 }, (_, index) => [`Watch Ultra 2 strap ${index + 1}`, '']));
   assert.equal(watch.matched, 8);
   const headphones = matcher.planTitle([{ title:'AirPods Pro 2', price:20000, search:'AirPods Pro 2' }, { title:'AirPods 4', price:15000, search:'AirPods 4' }], 'наушники', layout, [['AirPods Pro 2', ''], ['AirPods 4', '']]);
