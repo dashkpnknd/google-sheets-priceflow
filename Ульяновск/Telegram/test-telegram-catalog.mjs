@@ -529,6 +529,36 @@ test('matches iPad colours exactly while keeping Wi-Fi and Nano Glass non-blocki
   assert.deepEqual(JSON.parse(JSON.stringify(absent.updates)), [{ row:0, price:'' }]);
 });
 
+test('normalizes supplier Gray and Black iPads to the template Space finishes without filling an absent SKU', () => {
+  const matcher = api.PriceFlowAvitoMatcher;
+  const layout = matcher.titleLayout(['Title', 'Price']);
+  const plan = matcher.planTitle([
+    { title:'iPad Mini 7 (A17) 2024 256GB Wi-Fi Gray', price:56800, search:'iPad Mini 7 (A17) 2024 256GB Wi-Fi Gray' },
+    { title:'iPad Air 11 (M3) 2025 256GB Wi-Fi + LTE Gray', price:77400, search:'iPad Air 11 (M3) 2025 256GB Wi-Fi + LTE Gray' },
+    { title:'iPad Air 13 (M3) 2025 128GB Wi-Fi + LTE Gray', price:75500, search:'iPad Air 13 (M3) 2025 128GB Wi-Fi + LTE Gray' },
+    { title:'iPad Air 13 (M4) 2026 128GB Wi-Fi + LTE Gray (Только Wi-Fi)', price:75300, search:'iPad Air 13 (M4) 2026 128GB Wi-Fi + LTE Gray (Только Wi-Fi)' },
+    { title:'iPad Air 13 (M4) 2026 256GB Wi-Fi + LTE Gray', price:108300, search:'iPad Air 13 (M4) 2026 256GB Wi-Fi + LTE Gray' },
+    { title:'iPad Air 13 (M4) 2026 512GB Wi-Fi + LTE Gray (Только Wi-Fi)', price:106500, search:'iPad Air 13 (M4) 2026 512GB Wi-Fi + LTE Gray (Только Wi-Fi)' },
+    { title:'iPad Pro 11 (M4) 2024 1TB Wi-Fi + LTE Black', price:128300, search:'iPad Pro 11 (M4) 2024 1TB Wi-Fi + LTE Black' },
+    { title:'iPad Pro 11 (M4) 2024 2TB Wi-Fi + LTE Black', price:134300, search:'iPad Pro 11 (M4) 2024 2TB Wi-Fi + LTE Black' }
+  ], 'айпады', layout, [
+    ['iPad Mini 7 (2024) 128GB Wi-Fi Starlight', ''],
+    ['iPad Mini 7 (2024) 256GB Wi-Fi Space Gray', ''],
+    ['iPad Air 11 M3 (2025) 256GB Wi-Fi Space Gray', ''],
+    ['iPad Air 13 M3 (2025) 128GB Wi-Fi Space Gray', ''],
+    ['iPad Air 13 M4 (2026) 128GB Wi-Fi Space Gray', ''],
+    ['iPad Air 13 M4 (2026) 256GB Wi-Fi Space Gray', ''],
+    ['iPad Air 13 M4 (2026) 512GB Wi-Fi Space Gray', ''],
+    ['iPad Pro 11 M4 (2024) 1TB Wi-Fi Space Black', ''],
+    ['iPad Pro 11 M4 (2024) 2TB Wi-Fi Space Black', '']
+  ]);
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [
+    { row:1, price:56800 }, { row:2, price:77400 }, { row:3, price:75500 }, { row:4, price:75300 },
+    { row:5, price:108300 }, { row:6, price:106500 }, { row:7, price:128300 }, { row:8, price:134300 }
+  ]);
+  assert.equal(plan.matched, 8);
+});
+
 test('matches Watches by stated series, year, size, case and Ultra strap', () => {
   const matcher = api.PriceFlowAvitoMatcher;
   const layout = matcher.titleLayout(['Title', 'Price']);
