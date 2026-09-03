@@ -20,6 +20,9 @@ const TC = {
   markupGids: [0, 998621873, 1581268057, 816391661, 72651251, 1869147184,
     385010794, 128937099, 338535652, 463783735, 933137760, 1778122432,
     739113936, 2069038397],
+  // Approved Ulyanovsk fallback for Android variants that have no exact
+  // markup-card match. Exact individual rules above it keep priority.
+  androidFallbackMarkup: 2500,
   // The only stage-2 destination. Its tab names and structure stay intact;
   // the template matcher writes only Price after the ready catalogue is built.
   priceTemplate: { spreadsheetId: '16zsIEQF1CqeQJWvskAChZQmZiRZj7NIxrzle_uKDM0I', headerRow: 1, firstDataRow: 2, sheets: {
@@ -465,13 +468,20 @@ function tcMarkupAmount_(row, rules) {
   const productKey = tcMarkupKey_(display), equalRules = rules.filter(function(rule) { return tcMarkupKey_(rule.label) === productKey; });
   const amounts = equalRules.map(function(rule) { return rule.amount; }).filter(function(amount, index, values) { return values.indexOf(amount) === index; });
   if (productKey && amounts.length === 1) return amounts[0];
+  // An explicit broad Google Pixel rule is still a client-owned markup
+  // policy, not an incomplete SKU. It therefore stays ahead of the Android
+  // fallback below.
+  if (!/^iphone\b/.test(name) && /\bpixel\b/.test(name)) {
+    const pixelAmount = tcUniqueRuleAmount_(rules, function(rule) {
+      return /^(?:google\s+)?pixel$/.test(tcNorm_(rule.label));
+    });
+    if (pixelAmount !== null) return pixelAmount;
+  }
   // A partial Android card in the markup file is not an exact product rule:
   // another colour, repeated `5G`, or a changed RAM/memory must not inherit
-  // its individual price adjustment.  Ulyanovsk's approved base Android
-  // adjustment is maintained in the markup workbook as the `A - серия`
-  // rule.  Read that amount from the workbook rather than duplicating a
-  // rouble value here.  Exact product rows above always retain priority.
-  const androidBaseAmount = tcAndroidBaseMarkupAmount_(phone, rules);
+  // its individual price adjustment. Use the Ulyanovsk Android fallback;
+  // exact product rows above always retain priority.
+  const androidBaseAmount = tcAndroidBaseMarkupAmount_(phone);
   if (androidBaseAmount !== null) return androidBaseAmount;
   // Android supplier names may repeat a technical marker (`(5G) 5G`) that is
   // not part of the catalogue model.  Resolve the markup by the parsed SKU,
@@ -514,9 +524,6 @@ function tcMarkupAmount_(row, rules) {
     // A generic Pixel rule is valid only when the rule sheet actually has
     // one.  Do not take the first concrete Pixel SKU (for example Pixel 7)
     // for a different generation.
-    if (/\bpixel\b/.test(name)) return tcUniqueRuleAmount_(rules, function(rule) {
-      return /^(?:google\s+)?pixel$/.test(tcNorm_(rule.label));
-    });
     if (/galaxy\s*buds/.test(name)) return find(/galaxy\s*buds/);
     if (/galaxy\s*watch/.test(name)) return find(/galaxy\s*watch/);
     if (/galaxy\s*tab\s*s/.test(name)) return find(/galaxy\s*tab\s*s.*сер/);
@@ -554,14 +561,10 @@ function tcUniqueRuleAmount_(rules, predicate) {
   return amounts.length === 1 ? amounts[0] : null;
 }
 
-function tcAndroidBaseMarkupAmount_(phone, rules) {
+function tcAndroidBaseMarkupAmount_(phone) {
   if (!phone || !phone.model || /^iphone\b/i.test(phone.model)) return null;
-  // The label is intentionally recognised by its category name, while the
-  // amount stays in the client-owned rules workbook.  It must be unique: a
-  // malformed or conflicting base rule fails closed instead of guessing.
-  return tcUniqueRuleAmount_(rules, function(rule) {
-    return /^a\s*(?:-|–|—)?\s*сер(?:ия|ии)(?:\s|$)/i.test(tcNorm_(rule.label));
-  });
+  const amount = Number(TC.androidFallbackMarkup);
+  return Number.isFinite(amount) ? amount : null;
 }
 
 // Key for markup resolution only.  The ready catalogue retains the complete
