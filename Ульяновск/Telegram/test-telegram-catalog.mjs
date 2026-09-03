@@ -558,6 +558,71 @@ test('matches Watches by stated series, year, size, case and Ultra strap', () =>
   assert.equal(headphones.matched, 2);
 });
 
+test('fills supplier-backed Watch and Dyson gaps despite stable naming and packaging variants', () => {
+  const matcher = api.PriceFlowAvitoMatcher;
+  const layout = matcher.titleLayout(['Title', 'Price']);
+  const watches = matcher.planTitle([
+    { title:'Apple Watch S10 (2024) 46mm Rose Gold (M/L)', price:29900, search:'Apple Watch S10 (2024) 46mm Rose Gold (M/L)' },
+    { title:'Apple Watch S10 (2024) 46mm Silver Denim (M/L)', price:30800, search:'Apple Watch S10 (2024) 46mm Silver Denim (M/L)' },
+    { title:'Apple Watch S10 (2024) 46mm Natural Milanese Loop (M/L)', price:48800, search:'Apple Watch S10 (2024) 46mm Natural Milanese Loop (M/L)' },
+    { title:'Apple Watch S10 (2024) 46mm Slate Black (M/L)', price:56800, search:'Apple Watch S10 (2024) 46mm Slate Black (M/L)' },
+    { title:'Apple Watch S11 (2025) 42mm Silver (S/M)', price:32000, search:'Apple Watch S11 (2025) 42mm Silver (S/M)' },
+    { title:'Apple Watch S11 (2025) 42mm Space Gray (M/L)', price:31000, search:'Apple Watch S11 (2025) 42mm Space Gray (M/L)' },
+    { title:'Apple Watch S11 (2025) 42mm Jet Black (S/M)', price:30400, search:'Apple Watch S11 (2025) 42mm Jet Black (S/M)' },
+    { title:'Apple Watch S11 (2025) 42mm Rose Gold (S/M)', price:30600, search:'Apple Watch S11 (2025) 42mm Rose Gold (S/M)' },
+    { title:'Apple Watch S11 (2025) 46mm Silver (M/L)', price:34800, search:'Apple Watch S11 (2025) 46mm Silver (M/L)' },
+    { title:'Apple Watch S11 (2025) 46mm Space Gray (S/M)', price:32900, search:'Apple Watch S11 (2025) 46mm Space Gray (S/M)' },
+    { title:'Apple Watch S11 (2025) 46mm Jet Black (M/L)', price:33100, search:'Apple Watch S11 (2025) 46mm Jet Black (M/L)' },
+    { title:'Apple Watch S11 (2025) 46mm Rose Gold (M/L) LTE', price:33700, search:'Apple Watch S11 (2025) 46mm Rose Gold (M/L) LTE' },
+    { title:'Watch Ultra 3 (2025) Black case Black Alpine Loop (M)', price:60300, search:'Watch Ultra 3 (2025) Black case Black Alpine Loop (M)' },
+    { title:'Watch Ultra 3 (2025) Black case Black Ocean Band (One Size)', price:60500, search:'Watch Ultra 3 (2025) Black case Black Ocean Band (One Size)' }
+  ], 'часы', layout, [
+    ['Apple Watch Series 10 (2024) 46mm Rose Gold', ''],
+    ['Apple Watch Series 10 (2024) 46mm Silver', ''],
+    ['Apple Watch Series 10 (2024) 46mm Natural Titanium', ''],
+    ['Apple Watch Series 10 (2024) 46mm Slate Titanium', ''],
+    ['Apple Watch Series 11 (2025) 42mm Silver', ''],
+    ['Apple Watch Series 11 (2025) 42mm Space Gray', ''],
+    ['Apple Watch Series 11 (2025) 42mm Jet Black', ''],
+    ['Apple Watch Series 11 (2025) 42mm Rose Gold', ''],
+    ['Apple Watch Series 11 (2025) 46mm Silver', ''],
+    ['Apple Watch Series 11 (2025) 46mm Space Gray', ''],
+    ['Apple Watch Series 11 (2025) 46mm Jet Black', ''],
+    ['Apple Watch Series 11 (2025) 46mm Rose Gold', ''],
+    ['Apple Watch Ultra 3 49mm Black Alpine Loop Black', ''],
+    ['Apple Watch Ultra 3 49mm Black Ocean Band Black', '']
+  ]);
+  assert.deepEqual(JSON.parse(JSON.stringify(watches.updates)), [
+    { row:0, price:29900 }, { row:1, price:30800 }, { row:2, price:48800 }, { row:3, price:56800 },
+    { row:4, price:32000 }, { row:5, price:31000 }, { row:6, price:30400 }, { row:7, price:30600 },
+    { row:8, price:34800 }, { row:9, price:32900 }, { row:10, price:33100 }, { row:11, price:33700 },
+    { row:12, price:60300 }, { row:13, price:60500 }
+  ]);
+
+  const dyson = matcher.planTitle([
+    { title:'Dyson HS08 Strawberry Bronze/Blush Pink (Case)', price:47600, search:'Dyson HS08 Strawberry Bronze/Blush Pink (Case)' },
+    { title:'Dyson HS08 Ceramic Patina (Diffuse)', price:38900, search:'Dyson HS08 Ceramic Patina (Diffuse)' },
+    { title:'Dyson HS09 Ceramic Pink/Rose Gold', price:42900, search:'Dyson HS09 Ceramic Pink/Rose Gold' },
+    { title:'Dyson HS09 Jasper Plum', price:43100, search:'Dyson HS09 Jasper Plum' },
+    { title:'Dyson HT01 Strawberry Bronze/Blush Pink (Case)', price:42600, search:'Dyson HT01 Strawberry Bronze/Blush Pink (Case)' }
+  ], 'дайсон', layout, [
+    ['Стайлер Dyson HS08 Strawberry Bronze/Blush Pink', ''],
+    ['Стайлер Dyson HS08 Ceramic Patina/Topaz', ''],
+    ['Стайлер Dyson HS09 Co-anda2x CeramicPink/Rose Gold', ''],
+    ['Стайлер Dyson HS09 Co-anda2x Jasper Plum', ''],
+    ['Выпрямитель Dyson HT01 Strawberry Bronze/BlushPink', '']
+  ]);
+  assert.deepEqual(JSON.parse(JSON.stringify(dyson.updates)), [
+    { row:0, price:47600 }, { row:1, price:38900 }, { row:2, price:42900 }, { row:3, price:43100 }, { row:4, price:42600 }
+  ]);
+
+  const discounted = matcher.planTitle([
+    { title:'AirPods Pro 2 Type-C (Уценка)', price:11800, search:'AirPods Pro 2 Type-C (Уценка)' }
+  ], 'наушники', layout, [['Apple AirPods Pro 2', '']]);
+  assert.equal(discounted.matched, 0);
+  assert.deepEqual(JSON.parse(JSON.stringify(discounted.updates)), []);
+});
+
 test('parses MacBook Neo / Air rows by their own family and removes the article', () => {
   assert.equal(api.tcExpand_('MacBook Neo \\ Air', 'MDHJ4 Air 13 M5 16/1TB Blue'), 'MacBook Air 13 M5 16/1TB Blue');
   assert.equal(api.tcExpand_('MacBook Neo \\ Air', 'MHFD4 Neo 16/512 Silver'), 'MacBook Neo 16/512 Silver');
