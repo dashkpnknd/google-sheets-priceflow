@@ -110,17 +110,17 @@ test('keeps one cheapest country per full phone configuration', () => {
 });
 
 test('applies Ulyanovsk markup directly from the markup-file rules', () => {
-  const rules = api.tcParseMarkupCsv_('Модель,Наценка\niPhone 13 - 17 Pro max 256,3000\niPhone 17 Pro 512/1тб  - 17 Pro Max 512/1тб,4000\nНаушники AirPods,2000\nЧасы,2500\n"iPad все, кроме Про",3000\niPad Pro,4000\nMacBook,3500\nimac/mini,3000');
+  const rules = api.tcParseMarkupCsv_('Модель,Наценка\niPhone 13 - 17 Pro max 256,3000\niPhone 17 Pro 512/1тб  - 17 Pro Max 512/1тб,4000\nНаушники AirPods,2000\nЧасы,2500\n"iPad все, кроме Про",3000\niPad Pro,4000\nMacBook,3500\nGoogle Pixel,5000\nimac/mini,3000');
   const priced = api.tcApplyUlyanovskMarkup_([
     { category: 'телефоны', name: 'iPhone 17 Pro 256GB eSIM Blue', variant: '🇯🇵', price: 98500 },
     { category: 'телефоны', name: 'iPhone 17 Pro 512GB eSIM Blue', variant: '🇯🇵', price: 119800 },
     { category: 'наушники', name: 'AirPods Pro 3', price: 20000 },
     { category: 'айпады', name: 'iPad Pro 13 256GB', price: 70000 },
-    { category: 'телефоны', name: 'Pixel 10 256GB', price: 50000 }
+    { category: 'телефоны', name: 'Pixel 10 12/256GB Obsidian', price: 58200 }
   ], rules);
-  assert.deepEqual(priced.rows.map((row) => row.price), [101500, 123800, 22000, 74000]);
-  assert.equal(priced.applied, 4);
-  assert.equal(priced.withoutRule, 1);
+  assert.deepEqual(priced.rows.map((row) => row.price), [101500, 123800, 22000, 74000, 63200]);
+  assert.equal(priced.applied, 5);
+  assert.equal(priced.withoutRule, 0);
 });
 
 test('uses exact rules from every Ulyanovsk markup tab before broad brand rules', () => {

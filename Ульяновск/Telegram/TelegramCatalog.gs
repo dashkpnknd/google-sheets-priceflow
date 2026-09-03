@@ -460,6 +460,10 @@ function tcMarkupAmount_(row, rules) {
   if (/\b(imac|mini)\b/.test(name)) return find(/imac\/mini/);
   if (/ipad/.test(name)) return find(/\bpro\b/.test(name) ? /^ipad\s+pro$/ : /ipad.*кроме\s+про/);
   if (!/^iphone\b/.test(name)) {
+    // Pixel has its own approved family rule in the public Ulyanovsk markup
+    // workbook. Read that rule instead of exposing a supplier price or
+    // duplicating the amount in code.
+    if (/\bpixel\b/.test(name)) return find(/(?:google\s+)?pixel/);
     if (/galaxy\s*buds/.test(name)) return find(/galaxy\s*buds/);
     if (/galaxy\s*watch/.test(name)) return find(/galaxy\s*watch/);
     if (/galaxy\s*tab\s*s/.test(name)) return find(/galaxy\s*tab\s*s.*сер/);
