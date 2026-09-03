@@ -41,10 +41,16 @@ const PriceFlowNobelCatalog = (function() {
   };
   LiteralReader.prototype.value = function() {
     this.white(); const c=this.s.charAt(this.i);
+    // Bitrix uses `!!'1'` / `!!''` for two Boolean component flags.  This is
+    // parsed as a constrained boolean conversion, never executed as JS.
+    if(this.s.slice(this.i,this.i+2)==='!!'){this.i+=2;return Boolean(this.value());}
     if (c === '\'' || c === '"') return this.string();
     if (c === '{') { this.i++; const out={}; this.white(); while (this.s.charAt(this.i) !== '}') { this.white(); const key=(this.s.charAt(this.i)==='\''||this.s.charAt(this.i)==='"')?this.string():this.word(); this.white(); if(this.s.charAt(this.i++)!==':')fail('N2','Ожидалось поле объекта НОБЕЛЬ.РФ.'); out[key]=this.value(); this.white(); if(this.s.charAt(this.i)===','){this.i++;this.white();if(this.s.charAt(this.i)==='}')break;}else if(this.s.charAt(this.i)!=='}')fail('N2','Ожидался разделитель объекта НОБЕЛЬ.РФ.'); } this.i++; return out; }
     if (c === '[') { this.i++; const out=[]; this.white(); while(this.s.charAt(this.i)!==']'){out.push(this.value());this.white();if(this.s.charAt(this.i)===','){this.i++;this.white();if(this.s.charAt(this.i)===']')break;}else if(this.s.charAt(this.i)!==']')fail('N2','Ожидался разделитель массива НОБЕЛЬ.РФ.');}this.i++;return out; }
-    const atom=/^(?:-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null)/.exec(this.s.slice(this.i)); if(!atom)fail('N2','Недопустимое значение конфигурации НОБЕЛЬ.РФ.'); this.i+=atom[0].length; return atom[0]==='true'?true:atom[0]==='false'?false:atom[0]==='null'?null:Number(atom[0]);
+    // Bitrix sometimes emits its own absent optional field as `undefined`.
+    // Treat that one inert literal as null; every executable token remains
+    // rejected and is never evaluated.
+    const atom=/^(?:-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null|undefined)/.exec(this.s.slice(this.i)); if(!atom)fail('N2','Недопустимое значение конфигурации НОБЕЛЬ.РФ.'); this.i+=atom[0].length; return atom[0]==='true'?true:atom[0]==='false'?false:(atom[0]==='null'||atom[0]==='undefined')?null:Number(atom[0]);
   };
   function balanced(value, start) { let quote='', escape=false, depth=0; for(let i=start;i<value.length;i++){const c=value.charAt(i);if(quote){if(escape)escape=false;else if(c==='\\')escape=true;else if(c===quote)quote='';continue;}if(c==='\''||c==='"'){quote=c;continue;}if(c==='{')depth++;if(c==='}'&&!--depth)return value.slice(start,i+1);}fail('N2','Незакрытая конфигурация карточки НОБЕЛЬ.РФ.'); }
   function configurations(html) {

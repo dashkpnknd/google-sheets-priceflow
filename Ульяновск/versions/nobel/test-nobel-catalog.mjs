@@ -28,6 +28,13 @@ test('rejects executable configuration and non-buyable/price-less offers', () =>
   assert.equal(Nobel.parsePage('телефоны', html, 't').items.length, 0);
 });
 
+test('accepts only Bitrix inert optional literals and boolean flags', () => {
+  const config = Nobel.sectionConfig("<script>new JCCatalogSectionComponent({siteId:'s1',componentPath:'/x',template:'x',parameters:'x',navParams:{NavPageCount:'1',NavNum:'1'},lazyLoad:!!'1',loadOnScroll:!!''})</script>");
+  assert.equal(config.lazyLoad, true);
+  assert.equal(config.loadOnScroll, false);
+  assert.doesNotThrow(() => Nobel.configurations("<script>new JCCatalogItem({x:undefined})</script>"));
+});
+
 test('keeps primary price even if Nobel is lower, otherwise marks fallback', () => {
   const layout = { model:0, memory:1, color:2, sim:3, ram:-1, price:4 };
   const rows = [['iPhone 17 Pro','256 ГБ','синий','SIM + eSIM',''], ['iPhone 17 Pro','512 ГБ','синий','SIM + eSIM','']];
