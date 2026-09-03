@@ -136,7 +136,7 @@ function syncTelegramCatalog_() {
 
 /** Stage 2 reads only the completed local catalogue and writes Price only. */
 function tcSyncPriceTemplate_() {
-  const report = PriceFlowTemplateMatcher.sync({ city:'ulyanovsk', sourceSpreadsheet:SpreadsheetApp.getActiveSpreadsheet(), templateSpreadsheetId:TC.priceTemplate.spreadsheetId, headerRow:TC.priceTemplate.headerRow, firstDataRow:TC.priceTemplate.firstDataRow, sheets:TC.priceTemplate.sheets, allowIphoneAirAlias:false, supplierModels:tcReadySupplierModels_() });
+  const report = PriceFlowTemplateMatcher.sync({ city:'ulyanovsk', sourceSpreadsheet:SpreadsheetApp.getActiveSpreadsheet(), templateSpreadsheetId:TC.priceTemplate.spreadsheetId, headerRow:TC.priceTemplate.headerRow, firstDataRow:TC.priceTemplate.firstDataRow, sheets:TC.priceTemplate.sheets, allowIphoneAirAlias:true, supplierModels:tcReadySupplierModels_() });
   // Script Properties hold the compact technical result; no audit sheet is created.
   PropertiesService.getScriptProperties().setProperty(TC.props.templateLastReport, JSON.stringify({ at:report.at, updated:report.updated, skippedByReason:report.skippedByReason, ambiguous:Object.keys(report.sheets).reduce(function(all, name) { return all.concat((report.sheets[name].ambiguous || []).map(function(item) { return { sheet:name, title:item.title, prices:item.prices }; })); }, []).slice(0, 50) }));
   return report;

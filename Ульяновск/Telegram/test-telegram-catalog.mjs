@@ -257,10 +257,16 @@ test('template phone matching preserves every explicit SKU field and reports its
   assert.deepEqual([...plan.reasons], ['', 'Нет нужной SIM', 'Нет нужной памяти']);
 });
 
-test('iPhone Air alias is available only after the explicit owner approval flag', () => {
+test('approved iPhone 17 Air alias preserves memory and colour while unknown SIM does not restrict it', () => {
   const matcher = api.PriceFlowAvitoMatcher;
   assert.notEqual(matcher.phoneModel('iPhone Air'), matcher.phoneModel('iPhone 17 Air'));
   assert.equal(matcher.phoneModel('iPhone Air', { allowIphoneAirAlias:true }), matcher.phoneModel('iPhone 17 Air', { allowIphoneAirAlias:true }));
+  const layout = { model:0, sim:1, memory:2, color:3, ram:-1, price:4 };
+  const plan = matcher.planPhone([
+    { model:'iPhone 17 Air', memory:'256 ГБ', color:'белый', sim:'eSIM', price:80000, search:'iPhone 17 Air 256GB White eSIM' },
+    { model:'iPhone 17 Air', memory:'256 ГБ', color:'белый', sim:'SIM + eSIM', price:82000, search:'iPhone 17 Air 256GB White SIM + eSIM' }
+  ], layout, [['iPhone Air', 'Не знаю', '256 ГБ', 'белый', '']], { allowIphoneAirAlias:true });
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row:0, price:80000 }]);
 });
 
 test('excludes special conditions in every ready-catalogue field', () => {
