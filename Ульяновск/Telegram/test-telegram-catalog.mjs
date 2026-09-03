@@ -325,6 +325,33 @@ test('fills 19 of 20 exact base iPhone 17 SKUs and leaves only 512GB violet eSIM
   assert.equal(plan.updates.some((update) => update.row === missing && update.price !== ''), false);
 });
 
+test('splits iPhone 16e / 16 and fills only the eight audited iPhone 16 colours', () => {
+  const parsed = api.tcParsePost_([
+    'iPhone 16e \\ 16',
+    '16 128GB White 🇮🇳 (Sim + E-Sim) — 60 300 ₽',
+    '16 128GB Black 🇮🇳 (Sim + E-Sim) — 61 000 ₽',
+    '16 128GB Pink 🇮🇳 (Sim + E-Sim) — 61 900 ₽',
+    '16 128GB Teal 🇮🇳 (Sim + E-Sim) — 59 900 ₽',
+    '16 128GB Ultramarine 🇺🇸 (E-Sim) — 59 700 ₽',
+    '16 256GB Black 🇮🇳 (Sim + E-Sim) — 66 100 ₽',
+    '16 256GB Teal 🇮🇳 (Sim + E-Sim) — 65 600 ₽',
+    '16 512GB Pink 🇦🇺 (Sim + E-Sim) — 87 700 ₽',
+    '16 512GB Ultramarine 🇦🇺 (Sim + E-Sim) — 85 000 ₽',
+    '16e 128GB Black 🇺🇸 (E-Sim) — 44 900 ₽'
+  ].join('\n'), 'opt_uniseil', '102');
+  assert.equal(api.tcPhone_(parsed[0].name + ' ' + parsed[0].variant).model, 'iPhone 16');
+  assert.equal(api.tcPhone_(parsed.at(-1).name + ' ' + parsed.at(-1).variant).model, 'iPhone 16e');
+  const sourceRows = parsed.map((row) => { const phone = api.tcPhone_(row.name + ' ' + row.variant); return { model:phone.model, memory:phone.memory, color:phone.color, sim:phone.config, ram:phone.ram, price:row.price, search:row.name + ' ' + row.variant }; });
+  const targets = [
+    ['128 ГБ', 'белый'], ['128 ГБ', 'голубой'], ['128 ГБ', 'розовый'], ['128 ГБ', 'черный'],
+    ['256 ГБ', 'голубой'], ['256 ГБ', 'черный'], ['512 ГБ', 'голубой'], ['512 ГБ', 'розовый'],
+    ['128 ГБ', 'зеленый']
+  ].map(([memory, color]) => ['iPhone 16', 'Не знаю', memory, color, '']);
+  const plan = api.PriceFlowAvitoMatcher.planPhone(sourceRows, { model:0, sim:1, memory:2, color:3, ram:-1, price:4 }, targets);
+  assert.equal(plan.updates.filter((update) => update.price !== '').length, 8);
+  assert.equal(plan.reasons[8], 'Нет нужного цвета');
+});
+
 test('distinguishes an absent ready-catalogue model from a first-stage transmission failure', () => {
   const matcher = api.PriceFlowAvitoMatcher;
   const layout = { model:0, sim:1, memory:2, color:3, ram:4, price:5 };

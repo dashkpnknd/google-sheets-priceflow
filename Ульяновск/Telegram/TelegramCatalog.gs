@@ -106,7 +106,7 @@ function syncTelegramCatalog_() {
     const cheapest = tcChooseCheapestCountry_(mirror.rows);
     const rules = tcLoadUlyanovskMarkup_(), markup = tcApplyUlyanovskMarkup_(cheapest.rows, rules);
     const rows = markup.rows;
-    tcAssertIphone17Transferred_(sourceRows, rows);
+    tcAssertBaseIphonesTransferred_(sourceRows, rows);
     const byCategory = {};
     rows.forEach(function(row) { (byCategory[row.category] = byCategory[row.category] || []).push(row); });
     let written = 0; const skippedSheets = [];
@@ -322,7 +322,7 @@ function tcSourceText_(product) { return [tcDisplay_(product), product && produc
 function tcIsAsis_(value) { return /(?:\b(?:asis|асис|cpo|цпо|open\s*box|refurb(?:ished)?|defect(?:ive)?|faulty|damaged|used|active|б\/?у|бу)\b|уцен|витрин|демо|пред\s*актив|предактив|активир|распак|брак|вскрыт[а-я]*\s*(?:короб|упаков)|поврежд[а-я]*\s*(?:короб|упаков)|мят(?:ая|ый|ой|ую|ые|ых)?\s*(?:короб|упаков))/iu.test(String(value || '')); }
 function tcSupplierModels_(rows) { return Array.from(new Set((rows || []).map(function(row) { return tcPhone_(tcSourceText_(row)).model; }).filter(Boolean).map(tcNorm_))); }
 function tcReadySupplierModels_() { try { const stored = JSON.parse(PropertiesService.getScriptProperties().getProperty(TC.props.supplierModels) || '[]'); return Array.isArray(stored) ? stored : []; } catch (error) { return []; } }
-function tcAssertIphone17Transferred_(sourceRows, catalogueRows) { const source = tcSupplierModels_(sourceRows), catalogue = tcSupplierModels_(catalogueRows); if (source.indexOf('iphone 17') >= 0 && catalogue.indexOf('iphone 17') < 0) throw new Error('iPhone 17 найден у поставщика, но не передан в общую таблицу; синхронизация шаблона отменена.'); }
+function tcAssertBaseIphonesTransferred_(sourceRows, catalogueRows) { const source = tcSupplierModels_(sourceRows), catalogue = tcSupplierModels_(catalogueRows); const missing = source.filter(function(model) { return /^iphone\s+\d+$/.test(model) && catalogue.indexOf(model) < 0; }); if (missing.length) throw new Error(missing.join(', ') + ' найден у поставщика, но не передан в общую таблицу; синхронизация шаблона отменена.'); }
 function tcOutputPhoneModel_(phone, full, fallback) {
   const model = phone.model || fallback;
   return tcIsAsis_(full) && !/^\(asis\)\s*/i.test(model) ? '(ASIS) ' + model : model;
@@ -623,9 +623,10 @@ function tcExpand_(header, item) {
   // A current supplier section intentionally combines two base models. Each
   // price row begins with its actual model, so never assign the header's 17e
   // to an ordinary 17 row.
-  if (/^iphone\s+17e\s*(?:\\|\/)\s*17$/i.test(rawHeader)) {
-    const mixed = /^(?:iphone\s+)?(17e|17)(?:\s+|$)(.*)$/i.exec(i);
-    if (mixed) return 'iPhone ' + mixed[1] + (mixed[2] ? ' ' + mixed[2].trim() : '');
+  const mixedHeader = /^iphone\s+(\d+)e\s*(?:\\|\/)\s*\1$/i.exec(rawHeader);
+  if (mixedHeader) {
+    const mixed = /^(?:iphone\s+)?(\d+e?)(?:\s+|$)(.*)$/i.exec(i);
+    if (mixed && (mixed[1] === mixedHeader[1] || mixed[1] === mixedHeader[1] + 'e')) return 'iPhone ' + mixed[1] + (mixed[2] ? ' ' + mixed[2].trim() : '');
   }
   // In Uniseil posts a section can already contain the model ("iPhone 16 Pro")
   // while each line starts with it again ("16 Pro 128GB …").  Keep one model
