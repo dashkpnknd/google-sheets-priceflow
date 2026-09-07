@@ -9,6 +9,7 @@ const TC = {
   // @astoredirect is the supplier's showcase. Its linked price feed publishes
   // the actual parsable text catalogue, so this is the default source.
   defaultChannel: 'astoredirectprice',
+  catalogSpreadsheetId: '1aCROiDUeMYgLInNHTe6zakg01rGCo9CMLpCo5TJ7zZg',
   // Fixed Elektrostal Avito workbook. Only Price is changed in these existing tabs.
   avito: { spreadsheetId: '1m5URqsUhyT164JjNFNTZFlZ1AucbXh9qNjCFTG120jQ', headerRow: 1, firstDataRow: 2, sheets: {
     'телефоны': { sheetId: 0, kind: 'phone', diagnostic: true }, 'макбуки': { sheetId: 1408694438, kind: 'title', diagnostic: true },
@@ -150,7 +151,7 @@ function syncTelegramCatalog_() {
 
 /** Shared stage 2 reads only the completed catalogue after SpreadsheetApp.flush(). */
 function tcSyncAvitoPrices_() {
-  return PriceFlowAvitoMatcher.sync({ city:'elektrostal', sourceSpreadsheet:SpreadsheetApp.getActiveSpreadsheet(), avitoSpreadsheetId:TC.avito.spreadsheetId, headerRow:TC.avito.headerRow, firstDataRow:TC.avito.firstDataRow, sheets:TC.avito.sheets, allowIphoneAirAlias:true, supplierModels:tcReadySupplierModels_() });
+  return PriceFlowAvitoMatcher.sync({ city:'elektrostal', sourceSpreadsheet:SpreadsheetApp.openById(TC.catalogSpreadsheetId), avitoSpreadsheetId:TC.avito.spreadsheetId, headerRow:TC.avito.headerRow, firstDataRow:TC.avito.firstDataRow, sheets:TC.avito.sheets, allowIphoneAirAlias:true, supplierModels:tcReadySupplierModels_() });
 }
 function tcAvitoPriceSummary_(report) {
   const reasons = Object.keys(report.skippedByReason || {}).map(function(reason) { return reason + ': ' + report.skippedByReason[reason]; });
