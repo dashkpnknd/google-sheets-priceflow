@@ -171,36 +171,41 @@ test('parses the supplier 1-unit price from the volume-price format without choo
   assert.deepEqual([...rows.map((row) => row.price)], [97400, 100000]);
 });
 
-test('uses every permanent price message from the current Telegram navigation', () => {
+test('can still read permanent price-message links from Telegram navigation', () => {
   const html = '<div class="tgme_widget_message_wrap"><div class="tgme_widget_message_text">Навигация по прайсу</div>' +
     '<a href="https://t.me/astoredirectprice/8765">iPhone</a><a href="https://t.me/astoredirectprice/8783">Galaxy S</a>' +
     '<a href="https://t.me/astoredirectprice/8765">duplicate</a></div>';
   assert.deepEqual([...api.tcNavigationPostIds_(html, 'astoredirectprice')], [8765, 8783]);
 });
 
-test('reads every declared continuation of a current price section', () => {
+test('recognises declared continuation labels in a price section', () => {
   assert.deepEqual(JSON.parse(JSON.stringify(api.tcContinuationInfo_('iPhone 17\nпозиции'))), null);
   assert.deepEqual(JSON.parse(JSON.stringify(api.tcContinuationInfo_('📱 iPhone (часть 1/3)\n17 128GB Black — 70 000 ₽'))), { section:'📱 iphone', label:'📱 iPhone', part:1, total:3 });
-  assert.match(source, /continuation\.part < continuation\.total/);
-  assert.match(source, /Не найдено ожидаемое продолжение/);
+  assert.equal(api.tcContinuationInfo_('📱 iPhone (часть 3/3)\n17 128GB Black — 70 000 ₽').part, 3);
 });
 
-test('includes continuation rows in the ready Elektrostal catalogue', () => {
+test('reads every Telegram history page, including product posts absent from navigation', () => {
   const message = (id, text) => '<div class="tgme_widget_message_wrap"><div data-post="astoredirectprice/' + id + '"></div><div class="tgme_widget_message_text">' + text.replace(/\n/g, '<br>') + '</div></div>';
-  const navigation = '<div class="tgme_widget_message_wrap"><div class="tgme_widget_message_text">Навигация по прайсу</div><a href="https://t.me/astoredirectprice/100">iPhone</a></div>';
   const pages = {
-    'https://t.me/s/astoredirectprice': navigation,
-    'https://t.me/s/astoredirectprice/100': message(100, 'iPhone (часть 1/2)\niPhone 17 256GB Black (eSim) — 70 000 ₽'),
-    'https://t.me/s/astoredirectprice/101': message(101, 'iPhone (часть 2/2)\niPhone 17 256GB Blue (eSim) — 71 000 ₽')
+    'https://t.me/s/astoredirectprice': message(102, 'Навигация по прайсу') + message(101, 'iPhone\niPhone 17 256GB Black (eSim) — 70 000 ₽') + '<a href="/s/astoredirectprice?before=100" class="tme_messages_more">more</a>',
+    'https://t.me/s/astoredirectprice?before=100': message(100, 'iPhone\niPhone 16 128GB Blue (eSim) — 61 000 ₽'),
+    'https://t.me/s/astoredirectprice?before=80': ''
   };
   context.UrlFetchApp = { fetch(url) { return { getResponseCode: () => 200, getContentText: () => pages[url] || '' }; } };
   const rows = api.tcFetchRows_('astoredirectprice');
-  assert.deepEqual(Array.from(rows, row => [row.post, row.price]), [[100, 70000], [101, 71000]]);
+  assert.deepEqual(Array.from(rows, row => [row.post, row.price]), [['101', 70000], ['100', 61000]]);
+  assert.match(source, /every post in the public channel is an active price/);
 });
 
-test('does not reject the whole current catalogue for a navigation-only message without prices', () => {
-  assert.match(source, /if \(!postRows\.length\) return;/);
-  assert.doesNotMatch(source, /не вернул подтверждённые цены из прайс-сообщения/);
+test('does not duplicate a Telegram post repeated at a page boundary', () => {
+  const message = (id) => '<div class="tgme_widget_message_wrap"><div data-post="astoredirectprice/' + id + '"></div><div class="tgme_widget_message_text">iPhone\niPhone 17 256GB Black (eSim) — 70 000 ₽</div></div>';
+  const pages = {
+    'https://t.me/s/astoredirectprice': message(101) + '<a href="/s/astoredirectprice?before=100" class="tme_messages_more">more</a>',
+    'https://t.me/s/astoredirectprice?before=100': message(101),
+    'https://t.me/s/astoredirectprice?before=80': ''
+  };
+  context.UrlFetchApp = { fetch(url) { return { getResponseCode: () => 200, getContentText: () => pages[url] || '' }; } };
+  assert.equal(api.tcFetchRows_('astoredirectprice').length, 1);
 });
 
 test('parses a history page and exposes the previous page cursor for full-channel reading', () => {

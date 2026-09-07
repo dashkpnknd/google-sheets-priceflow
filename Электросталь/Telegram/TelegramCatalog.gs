@@ -355,43 +355,59 @@ function tcElektrostalMarkupAmount_(row) {
 }
 
 function tcFetchRows_(channel) {
-  // The current navigation is the supplier's authoritative assortment.  Old
-  // historical posts must never revive a SKU after it disappears there.
-  const navigationResponse = UrlFetchApp.fetch('https://t.me/s/' + channel, { muteHttpExceptions:true });
-  if (navigationResponse.getResponseCode() !== 200) throw new Error('Telegram не открыл навигацию прайса: HTTP ' + navigationResponse.getResponseCode());
-  const navigationHtml = navigationResponse.getContentText();
-  const postIds = tcNavigationPostIds_(navigationHtml, channel);
-  if (!postIds.length) throw new Error('В текущей навигации Telegram не найдены ссылки на прайс. Каталог не изменён.');
-  const rows = [];
-  postIds.forEach(function(postId) {
-    const response = UrlFetchApp.fetch('https://t.me/s/' + channel + '/' + postId, { muteHttpExceptions:true });
-    if (response.getResponseCode() !== 200) throw new Error('Telegram не открыл прайс-сообщение ' + postId + ': HTTP ' + response.getResponseCode());
-    const html = response.getContentText(), postRows = tcParseDirectPost_(html, channel, postId), continuation = tcContinuationInfo_(tcDirectPostText_(html, postId));
-    // Navigation also contains section headers and information messages
-    // (for example 9561). They are valid current navigation entries but not
-    // price sources. A real HTTP/read failure remains fatal; only a cleanly
-    // read message with no confirmed price is skipped.
-    if (!postRows.length) return;
-    rows.push.apply(rows, postRows);
-    // The supplier navigation points at the first post of a section. A long
-    // section continues in immediately following posts marked "(часть 2/3)".
-    // Read every declared part; a missing/mislabelled part fails closed rather
-    // than silently clearing live Avito prices from an incomplete catalogue.
-    if (continuation && continuation.part < continuation.total) {
-      for (let part = continuation.part + 1; part <= continuation.total; part++) {
-        const continuationId = postId + part - continuation.part;
-        const next = UrlFetchApp.fetch('https://t.me/s/' + channel + '/' + continuationId, { muteHttpExceptions:true });
-        if (next.getResponseCode() !== 200) throw new Error('Telegram не открыл продолжение прайс-сообщения ' + continuationId + ': HTTP ' + next.getResponseCode());
-        const text = tcDirectPostText_(next.getContentText(), continuationId), info = tcContinuationInfo_(text);
-        if (!text || !info || info.section !== continuation.section || info.part !== part || info.total !== continuation.total) {
-          throw new Error('Не найдено ожидаемое продолжение «' + continuation.label + '», часть ' + part + '/' + continuation.total + '. Каталог не изменён.');
-        }
-        rows.push.apply(rows, tcParsePost_(text, channel, continuationId));
-      }
+  // For this supplier every post in the public channel is an active price.
+  // Do not use the navigation post as a filter: it can lag behind new product
+  // sections and silently leave those models out of the ready catalogue.
+  const initialUrl = 'https://t.me/s/' + channel;
+  const initial = tcTelegramPage_(initialUrl, channel), rows = initial.rows;
+  const firstCursor = tcTelegramBefore_(initial.previous);
+  if (firstCursor) {
+    // Telegram page IDs are monotonic.  Requesting each twenty-message window
+    // in parallel is complete even if a deleted post makes windows overlap,
+    // and keeps a full public-channel read inside Apps Script's time limit.
+    const requests = [];
+    for (let before = firstCursor; before > 0; before -= 20) {
+      requests.push('https://t.me/s/' + channel + '?before=' + before);
     }
-  });
+    for (let start = 0; start < requests.length; start += 25) {
+      tcTelegramPages_(requests.slice(start, start + 25), channel).forEach(function(page) {
+        rows.push.apply(rows, page.rows);
+      });
+    }
+  }
   if (!rows.length) throw new Error('В актуальном прайсе Telegram не найдено ни одной подтверждённой цены. Каталог не изменён.');
-  return rows.filter(tcIncludeParsedElektrostalRow_);
+  return tcUniqueRows_(rows).filter(tcIncludeParsedElektrostalRow_);
+}
+
+function tcTelegramPage_(url, channel) {
+  const response = UrlFetchApp.fetch(url, { muteHttpExceptions:true });
+  if (response.getResponseCode() !== 200) throw new Error('Telegram не открыл страницу прайса: HTTP ' + response.getResponseCode());
+  return tcParsePreview_(response.getContentText(), channel);
+}
+
+function tcTelegramPages_(urls, channel) {
+  const requests = urls.map(function(url) { return { url:url, muteHttpExceptions:true }; });
+  const responses = UrlFetchApp.fetchAll ? UrlFetchApp.fetchAll(requests) : requests.map(function(request) { return UrlFetchApp.fetch(request.url, request); });
+  return responses.map(function(response) {
+    if (response.getResponseCode() !== 200) throw new Error('Telegram не открыл страницу прайса: HTTP ' + response.getResponseCode());
+    return tcParsePreview_(response.getContentText(), channel);
+  });
+}
+
+function tcTelegramBefore_(path) {
+  const match = /[?&]before=(\d+)/.exec(String(path || ''));
+  return match ? Number(match[1]) : 0;
+}
+
+/** Telegram repeats the edge post while paging; keep each parsed row once. */
+function tcUniqueRows_(rows) {
+  const seen = {};
+  return rows.filter(function(row) {
+    const key = [row.post, row.category, row.name, row.variant, row.price].join('|');
+    if (seen[key]) return false;
+    seen[key] = true;
+    return true;
+  });
 }
 
 /** Extracts the permanent price-post IDs from the current pinned navigation. */
