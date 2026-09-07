@@ -6,11 +6,12 @@
 
 ## Установка в Apps Script
 
-Скопировать в связанный с таблицей Apps Script три файла:
+Скопировать в связанный с готовым каталогом Apps Script четыре файла:
 
 1. `TelegramCatalog.gs` — файл типа **Script**.
 2. `../../PriceFlowAvitoMatcher.gs` — файл типа **Script** (отдельный файл `PriceFlowAvitoMatcher`).
-3. `TelegramCatalogSidebar.html` — файл типа **HTML**.
+3. `../../PriceFlowTemplateMatcher.gs` — файл типа **Script** (отдельный файл `PriceFlowTemplateMatcher`).
+4. `TelegramCatalogSidebar.html` — файл типа **HTML**.
 
 Затем обновить Google Таблицу, открыть меню **«Каталог поставщика»**, указать магазин/город `Электросталь | Электросталь` и `@astoredirectprice`, нажать **«Подключить Telegram-канал»**.
 
@@ -35,4 +36,4 @@ cd 'Электросталь/Telegram'
 node test-telegram-catalog.mjs
 ```
 
-В Apps Script проверять один триггер `syncTelegramCatalog` и успешные запуски в разделе «Выполнения».
+В Apps Script проверять один триггер `syncTelegramCatalog`, а после ручной пересборки — один одноразовый `syncTelegramPriceTemplate`. Шаблон цен обновляется только после успешной записи готового каталога.

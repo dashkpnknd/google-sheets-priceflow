@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
-const source = fs.readFileSync(new URL('../../PriceFlowAvitoMatcher.gs', import.meta.url), 'utf8') + '\n' + fs.readFileSync(new URL('./TelegramCatalog.gs', import.meta.url), 'utf8') + `
-globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcModel_,tcColor_,tcAndroidTechnicalModifiers_,tcLayouts_,tcLayoutFor_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcApplyElektrostalMarkup_,tcElektrostalMarkupAmount_,tcExpand_,tcFetchRows_,tcNavigationPostIds_,tcParsePreview_,tcContinuationInfo_,tcEligibleForCatalogue_,tcEnsureTrigger_,tcScheduleAvitoPriceSync_,PriceFlowAvitoMatcher};`;
+const source = fs.readFileSync(new URL('../../PriceFlowAvitoMatcher.gs', import.meta.url), 'utf8') + '\n' + fs.readFileSync(new URL('../../PriceFlowTemplateMatcher.gs', import.meta.url), 'utf8') + '\n' + fs.readFileSync(new URL('./TelegramCatalog.gs', import.meta.url), 'utf8') + `
+globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcModel_,tcColor_,tcAndroidTechnicalModifiers_,tcLayouts_,tcLayoutFor_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcApplyElektrostalMarkup_,tcElektrostalMarkupAmount_,tcExpand_,tcFetchRows_,tcNavigationPostIds_,tcParsePreview_,tcContinuationInfo_,tcEligibleForCatalogue_,tcEnsureTrigger_,tcSchedulePriceTemplateSync_,PriceFlowAvitoMatcher,PriceFlowTemplateMatcher};`;
 const parseCsv = (value) => String(value).trim().split(/\r?\n/).map((line) => {
   const cells = []; let current = ''; let quoted = false;
   for (let index = 0; index < line.length; index++) {
@@ -47,12 +47,19 @@ test('accepts the public supplier price channel handle and t.me URLs', () => {
   assert.equal(api.tcChannel_('https://t.me/+private'), '');
 });
 
-test('runs Avito reconciliation as a later one-off stage', () => {
+test('runs client-template reconciliation as a later one-off stage', () => {
   scheduledTriggers.splice(0, scheduledTriggers.length);
-  api.tcScheduleAvitoPriceSync_(60000);
-  assert.deepEqual(JSON.parse(JSON.stringify(scheduledTriggers.map((trigger) => [trigger.handler, trigger.mode, trigger.delay]))), [['syncTelegramAvitoPrices', 'once', 60000]]);
+  api.tcSchedulePriceTemplateSync_(60000);
+  assert.deepEqual(JSON.parse(JSON.stringify(scheduledTriggers.map((trigger) => [trigger.handler, trigger.mode, trigger.delay]))), [['syncTelegramPriceTemplate', 'once', 60000]]);
   api.tcEnsureTrigger_();
   assert.deepEqual(JSON.parse(JSON.stringify(scheduledTriggers.map((trigger) => [trigger.handler, trigger.mode]))), [['syncTelegramCatalog', 'recurring']]);
+});
+
+test('uses the shared template matcher and the agreed pair of Elektrostal books', () => {
+  assert.match(source, /PriceFlowTemplateMatcher\.sync\(/);
+  assert.match(source, /catalogSpreadsheetId: '1aCROiDUeMYgLInNHTe6zakg01rGCo9CMLpCo5TJ7zZg'/);
+  assert.match(source, /templateSpreadsheetId:TC\.priceTemplate\.spreadsheetId/);
+  assert.doesNotMatch(source, /PriceFlowAvitoMatcher\.sync\(/);
 });
 
 test('routes all standard source product families to client tabs', () => {
@@ -304,11 +311,11 @@ test('supports a title/price template and reports concise outcome', () => {
   assert.match(summary, /Без правила наценки: 20/);
 });
 
-test('Electrostal passes only the ready catalogue contract to shared matcher', () => {
-  assert.match(source, /PriceFlowAvitoMatcher\.sync/);
+test('Electrostal passes only the ready catalogue contract to the shared template matcher', () => {
+  assert.match(source, /PriceFlowTemplateMatcher\.sync/);
   assert.doesNotMatch(source, /tcReadReadyCatalog_/);
-  assert.match(source, /function syncTelegramAvitoPrices\(\)/);
-  assert.match(source, /tcScheduleAvitoPriceSync_\(\)/);
+  assert.match(source, /function syncTelegramPriceTemplate\(\)/);
+  assert.match(source, /tcSchedulePriceTemplateSync_\(\)/);
   assert.equal(api.tcEligibleForCatalogue_({ name:'Galaxy S26 12/256 Blue Актив' }), false);
   assert.equal(api.tcEligibleForCatalogue_({ name:'MacBook Air Мятая коробка' }), false);
   assert.equal(api.tcEligibleForCatalogue_({ name:'iPhone 17 CPO' }), false);

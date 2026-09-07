@@ -10,21 +10,22 @@ const TC = {
   // the actual parsable text catalogue, so this is the default source.
   defaultChannel: 'astoredirectprice',
   catalogSpreadsheetId: '1aCROiDUeMYgLInNHTe6zakg01rGCo9CMLpCo5TJ7zZg',
-  // Fixed Elektrostal Avito workbook. Only Price is changed in these existing tabs.
-  avito: { spreadsheetId: '1m5URqsUhyT164JjNFNTZFlZ1AucbXh9qNjCFTG120jQ', headerRow: 1, firstDataRow: 2, sheets: {
-    'телефоны': { sheetId: 0, kind: 'phone', diagnostic: true }, 'макбуки': { sheetId: 1408694438, kind: 'title', diagnostic: true },
-    'айпады': { sheetId: 1701833314, kind: 'title', diagnostic: true }, 'часы': { sheetId: 747664003, kind: 'title', diagnostic: true },
-    'наушники': { sheetId: 1484866470, kind: 'title', diagnostic: true }, 'пс': { sheetId: 1501757691, kind: 'title', diagnostic: true },
-    'дайсон': { sheetId: 1343291674, kind: 'title', diagnostic: true }
+  // The client price template is the sole stage-2 destination. Its layout
+  // stays intact: only existing Price columns and adjacent diagnostics change.
+  priceTemplate: { spreadsheetId: '1m5URqsUhyT164JjNFNTZFlZ1AucbXh9qNjCFTG120jQ', headerRow: 1, firstDataRow: 2, sheets: {
+    'телефоны': { sheetName: 'телефоны', kind: 'phone' }, 'макбуки': { sheetName: 'макбуки', kind: 'title' },
+    'айпады': { sheetName: 'айпады', kind: 'title' }, 'часы': { sheetName: 'часы', kind: 'title' },
+    'наушники': { sheetName: 'наушники', kind: 'title' }, 'пс': { sheetName: 'пс', kind: 'title' },
+    'дайсон': { sheetName: 'дайсон', kind: 'title' }
   } },
-  props: { project: 'ES_TC_PROJECT', channel: 'ES_TC_CHANNEL', last: 'ES_TC_LAST', status: 'ES_TC_STATUS', supplierModels: 'ES_TC_READY_SUPPLIER_MODELS' }
+  props: { project: 'ES_TC_PROJECT', channel: 'ES_TC_CHANNEL', last: 'ES_TC_LAST', status: 'ES_TC_STATUS', templateLastReport: 'ES_TC_TEMPLATE_LAST_REPORT', supplierModels: 'ES_TC_READY_SUPPLIER_MODELS' }
 };
 
 function onOpen() {
   SpreadsheetApp.getUi().createMenu('Каталог поставщика')
     .addItem('Подключить Telegram-канал', 'showTelegramCatalogSidebar')
     .addSeparator().addItem('Пересобрать каталог сейчас', 'runTelegramCatalogNow')
-    .addItem('Синхронизировать цены Avito', 'runAvitoPriceSyncNow').addToUi();
+    .addItem('Синхронизировать шаблон цен', 'runPriceTemplateSyncNow').addToUi();
 }
 
 function showTelegramCatalogSidebar() {
@@ -57,10 +58,10 @@ function saveTelegramCatalogSetup(form) {
   return Object.assign(getTelegramCatalogSetup(), { message: tcSummary_(result) });
 }
 
-function runTelegramCatalogNow() { tcEnsureTrigger_(); const result = syncTelegramCatalog_(); return Object.assign(getTelegramCatalogSetup(), { message: tcSummary_(result) + ' Синхронизация цен Avito запланирована отдельным этапом.' }); }
-function runAvitoPriceSyncNow() {
-  const report = syncTelegramAvitoPrices();
-  return Object.assign(report, { message: report.skipped ? 'Цены Avito ожидают завершения сборки каталога.' : tcAvitoPriceSummary_(report) });
+function runTelegramCatalogNow() { tcEnsureTrigger_(); const result = syncTelegramCatalog_(); return Object.assign(getTelegramCatalogSetup(), { message: tcSummary_(result) + ' Синхронизация шаблона запланирована отдельным этапом.' }); }
+function runPriceTemplateSyncNow() {
+  const report = syncTelegramPriceTemplate();
+  return Object.assign(report, { message: report.skipped ? 'Шаблон цен ожидает завершения сборки каталога.' : tcPriceTemplateSummary_(report) });
 }
 function syncTelegramCatalog() {
   // A trigger may survive a copied project. Until the user has connected a
@@ -74,27 +75,27 @@ function tcEnsureTrigger_() {
     const handler = t.getHandlerFunction();
     // Remove only this product's current trigger and the trigger of the
     // previous Telegram price-updater. Other project automations stay intact.
-    if (handler === 'syncTelegramCatalog' || handler === 'syncTelegramSupplier' || handler === 'syncTelegramAvitoPrices') ScriptApp.deleteTrigger(t);
+    if (handler === 'syncTelegramCatalog' || handler === 'syncTelegramSupplier' || handler === 'syncTelegramPriceTemplate') ScriptApp.deleteTrigger(t);
   });
   ScriptApp.newTrigger('syncTelegramCatalog').timeBased().everyMinutes(TC.everyMinutes).create();
 }
 
-function tcScheduleAvitoPriceSync_(delayMs) {
+function tcSchedulePriceTemplateSync_(delayMs) {
   ScriptApp.getProjectTriggers().forEach(function(t) {
-    if (t.getHandlerFunction() === 'syncTelegramAvitoPrices') ScriptApp.deleteTrigger(t);
+    if (t.getHandlerFunction() === 'syncTelegramPriceTemplate') ScriptApp.deleteTrigger(t);
   });
-  ScriptApp.newTrigger('syncTelegramAvitoPrices').timeBased().after(Number(delayMs || 60000)).create();
+  ScriptApp.newTrigger('syncTelegramPriceTemplate').timeBased().after(Number(delayMs || 60000)).create();
 }
 
-function syncTelegramAvitoPrices() {
+function syncTelegramPriceTemplate() {
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(1000)) {
-    tcScheduleAvitoPriceSync_(2 * 60 * 1000);
+    tcSchedulePriceTemplateSync_(2 * 60 * 1000);
     return { skipped: true, updated: 0, sheets: {} };
   }
   try {
     tcAssertCommonInvariants_();
-    return tcSyncAvitoPrices_();
+    return tcSyncPriceTemplate_();
   } finally { lock.releaseLock(); }
 }
 
@@ -109,7 +110,7 @@ function syncTelegramCatalog_() {
     // sole city-wide product exclusion is iPhone 13/14 in markup below; do
     // not remove current iPhone 15/16/17 based on a supplier label.
     // Special-condition stock is excluded before any city price calculation
-    // or catalogue write, not merely before the Avito stage.
+    // or catalogue write, not merely before the client-template stage.
     const sourceRows = tcFetchRows_(channel).filter(tcEligibleForCatalogue_);
     // Remember which source sections were actually received before project
     // exclusions. This lets an intentionally empty section clear old prices,
@@ -131,31 +132,31 @@ function syncTelegramCatalog_() {
       if (!sheet) throw new Error('Нет листа «' + name + '» в стандартной таблице.');
       written += tcWriteSheet_(sheet, entries);
     });
-    // The catalogue tabs are the contract between the two stages.  Flush the
-    // just-written, marked-up catalogue and read it back before touching
-    // Avito, so a Telegram parsing representation can never diverge from the
-    // actual price source used by the client.
+    // The catalogue tabs are the contract between the two stages. Flush the
+    // completed, marked-up catalogue before scheduling the template matcher.
     SpreadsheetApp.flush();
     p.setProperty(TC.props.supplierModels, JSON.stringify(tcSupplierModels_(sourceRows)));
-    tcScheduleAvitoPriceSync_();
+    tcSchedulePriceTemplateSync_();
     const now = new Date(); p.setProperty(TC.props.last, String(now.getTime()));
     p.setProperty(TC.props.status, 'Каталог обновлён: ' + written + ' позиций.');
     return {
       rows: rows.length, written: written,
       cheapest: 0, markedUp: markup.applied, withoutMarkup: markup.withoutRule,
       excluded: markup.excluded,
-      skippedSheets: skippedSheets, priceSync: { queued: true }
+      skippedSheets: skippedSheets, templateSync: { queued: true }
     };
   } finally { lock.releaseLock(); }
 }
 
-/** Shared stage 2 reads only the completed catalogue after SpreadsheetApp.flush(). */
-function tcSyncAvitoPrices_() {
-  return PriceFlowAvitoMatcher.sync({ city:'elektrostal', sourceSpreadsheet:SpreadsheetApp.openById(TC.catalogSpreadsheetId), avitoSpreadsheetId:TC.avito.spreadsheetId, headerRow:TC.avito.headerRow, firstDataRow:TC.avito.firstDataRow, sheets:TC.avito.sheets, allowIphoneAirAlias:true, supplierModels:tcReadySupplierModels_() });
+/** Shared stage 2 reads only the completed catalogue and writes Price only. */
+function tcSyncPriceTemplate_() {
+  const report = PriceFlowTemplateMatcher.sync({ city:'elektrostal', sourceSpreadsheet:SpreadsheetApp.openById(TC.catalogSpreadsheetId), templateSpreadsheetId:TC.priceTemplate.spreadsheetId, headerRow:TC.priceTemplate.headerRow, firstDataRow:TC.priceTemplate.firstDataRow, sheets:TC.priceTemplate.sheets, allowIphoneAirAlias:true, supplierModels:tcReadySupplierModels_() });
+  PropertiesService.getScriptProperties().setProperty(TC.props.templateLastReport, JSON.stringify({ at:report.at, updated:report.updated, skippedByReason:report.skippedByReason, ambiguous:Object.keys(report.sheets).reduce(function(all, name) { return all.concat((report.sheets[name].ambiguous || []).map(function(item) { return { sheet:name, title:item.title, prices:item.prices }; })); }, []).slice(0, 50) }));
+  return report;
 }
-function tcAvitoPriceSummary_(report) {
+function tcPriceTemplateSummary_(report) {
   const reasons = Object.keys(report.skippedByReason || {}).map(function(reason) { return reason + ': ' + report.skippedByReason[reason]; });
-  return 'Цены Avito: обновлено ' + Number(report.updated || 0) + '. ' + (reasons.length ? 'Пропуски — ' + reasons.join(', ') + '.' : 'Пропусков нет.');
+  return 'Шаблон цен: обновлено ' + Number(report.updated || 0) + '. ' + (reasons.length ? 'Пропуски — ' + reasons.join(', ') + '.' : 'Пропусков нет.');
 }
 function tcRunCommonRegressionTests() { return PriceFlowAvitoMatcher.runRegressionTests(); }
 function tcAssertCommonInvariants_() { return tcRunCommonRegressionTests(); }
