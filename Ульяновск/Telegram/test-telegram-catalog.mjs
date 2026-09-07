@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const source = fs.readFileSync(new URL('../../PriceFlowAvitoMatcher.gs', import.meta.url), 'utf8') + '\n' + fs.readFileSync(new URL('../../PriceFlowTemplateMatcher.gs', import.meta.url), 'utf8') + '\n' + fs.readFileSync(new URL('./TelegramCatalog.gs', import.meta.url), 'utf8') + `
-globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcColor_,tcColorGroup_,tcModel_,tcAndroidTechnicalModifiers_,tcIsAsis_,tcLayouts_,tcTargetRow_,tcParsePost_,tcParseSupplierSheetCsv_,tcLine_,tcExpand_,tcSummary_,tcProductSort_,tcAddTwoSimMirror_,tcChooseCheapestCountry_,tcSupplierColorKey_,tcParseMarkupCsv_,tcApplyUlyanovskMarkup_,tcMarkupAmount_,tcMarkupKey_,tcAndroidMarkupKey_,tcEnsureTrigger_,tcSchedulePriceTemplateSync_,PriceFlowAvitoMatcher,PriceFlowTemplateMatcher};`;
+globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcColor_,tcColorGroup_,tcModel_,tcAndroidTechnicalModifiers_,tcIsAsis_,tcLayouts_,tcTargetRow_,tcParsePost_,tcParseSupplierSheetCsv_,tcLine_,tcExpand_,tcSummary_,tcProductSort_,tcAddTwoSimMirror_,tcParseMarkupCsv_,tcApplyUlyanovskMarkup_,tcMarkupAmount_,tcMarkupKey_,tcAndroidMarkupKey_,tcEnsureTrigger_,tcSchedulePriceTemplateSync_,PriceFlowAvitoMatcher,PriceFlowTemplateMatcher};`;
 const parseCsv = (value) => String(value).trim().split(/\r?\n/).map((line) => {
   const cells = []; let current = ''; let quoted = false;
   for (let index = 0; index < line.length; index++) {
@@ -115,68 +115,16 @@ test('adds exactly one 2 SIM variant at the SIM + eSIM price when the Ulyanovsk 
   assert.equal(api.tcAddTwoSimMirror_(sourceRows, false).rows.length, 2);
 });
 
-test('keeps one cheapest country per full phone configuration', () => {
-  const rows = [
-    { category: 'телефоны', name: 'iPhone 17 Pro 256GB SIM + eSIM Blue', variant: '🇯🇵', price: 103000 },
-    { category: 'телефоны', name: 'iPhone 17 Pro 256GB SIM + eSIM Blue', variant: '🇮🇳', price: 101000 },
-    { category: 'телефоны', name: 'iPhone 17 Pro 256GB eSIM Blue', variant: '🇯🇵', price: 98000 },
-    { category: 'телефоны', name: 'iPhone 17 Pro 512GB SIM + eSIM Blue', variant: '🇯🇵', price: 120000 }
+test('keeps all countries in stage 1 and takes the cheapest exact SKU in stage 2', () => {
+  const source = [
+    { model:'Galaxy Z Fold8', memory:'512 ГБ', ram:'12 ГБ', color:'серый', sim:'Не знаю', price:137400, search:'Galaxy Z Fold8 12/512 Graphite 🇪🇺' },
+    { model:'Galaxy Z Fold8', memory:'512 ГБ', ram:'12 ГБ', color:'серый', sim:'Не знаю', price:138900, search:'Galaxy Z Fold8 12/512 Graphite 🇮🇳' },
+    { model:'Galaxy Z Fold8', memory:'512 ГБ', ram:'12 ГБ', color:'фиолетовый', sim:'Не знаю', price:139400, search:'Galaxy Z Fold8 12/512 Lavender 🇪🇺' }
   ];
-  const selected = api.tcChooseCheapestCountry_(rows);
-  assert.equal(selected.rows.length, 3);
-  assert.equal(selected.removed, 1);
-  assert.equal(selected.rows.find((row) => row.price === 101000).variant, '🇮🇳');
-  assert.ok(selected.rows.some((row) => api.tcPhone_(row.name).config === 'eSIM'));
-});
-
-test('uses the cheapest Dyson item when only the supplier Case option differs', () => {
-  const selected = api.tcChooseCheapestCountry_([
-    { category:'дайсон', name:'Dyson HD16 Jasper Plum', variant:'🇪🇺', price:38900 },
-    { category:'дайсон', name:'Dyson HD16 Jasper Plum (Case)', variant:'🇮🇳', price:40600 }
-  ]);
-  assert.equal(selected.rows.length, 1);
-  assert.equal(selected.rows[0].price, 38900);
-});
-
-test('selects the cheapest country within the exact Samsung supplier finish', () => {
-  const rows = [
-    { category:'телефоны', name:'Galaxy Z Fold8 12/512GB Graphite', variant:'🇪🇺', price:132400 },
-    { category:'телефоны', name:'Galaxy Z Fold8 12/512GB Graphite', variant:'🇮🇳', price:133900 },
-    { category:'телефоны', name:'Galaxy S25 12/256GB Silver Shadow', variant:'🇪🇺', price:50800 },
-    { category:'телефоны', name:'Galaxy S25 12/256GB Gray', variant:'🇮🇳', price:50000 },
-    { category:'телефоны', name:'Galaxy Z Fold8 16/1TB Lavender', variant:'🇪🇺', price:170300 },
-    { category:'телефоны', name:'Galaxy Z Fold8 16/1TB Lavender', variant:'🇮🇳', price:172400 },
-    { category:'телефоны', name:'Galaxy Z Fold8 Ultra 12/512GB Graphite', variant:'🇪🇺', price:147400 },
-    { category:'телефоны', name:'Galaxy Z Fold8 Ultra 12/512GB Graphite', variant:'🇮🇳', price:148400 },
-    { category:'телефоны', name:'Galaxy Z Fold8 Ultra 16/1TB Cream', variant:'🇪🇺', price:192400 },
-    { category:'телефоны', name:'Galaxy Z Flip8 12/256GB Pink', variant:'🇪🇺', price:73400 },
-    { category:'телефоны', name:'Galaxy Z Flip8 12/256GB Pink', variant:'🇮🇳', price:74300 }
-  ];
-  const selected = api.tcChooseCheapestCountry_(rows);
-  assert.equal(selected.rows.length, 7);
-  assert.equal(selected.rows.find((row) => /Fold8 12\/512/.test(row.name)).price, 132400);
-  assert.equal(selected.rows.find((row) => /Silver Shadow/.test(row.name)).price, 50800);
-  assert.ok(selected.rows.some((row) => /Cream/.test(row.name)));
-  assert.notEqual(api.tcSupplierColorKey_('Galaxy S25 12/256GB Silver Shadow', api.tcPhone_('Galaxy S25 12/256GB Silver Shadow')), api.tcSupplierColorKey_('Galaxy S25 12/256GB Gray', api.tcPhone_('Galaxy S25 12/256GB Gray')));
-  assert.equal(api.tcPhone_('Galaxy S25 12/256GB Silver Shadow').color, 'серый');
-  assert.equal(api.tcPhone_('Galaxy S25 12/256GB Gray').color, '');
-  assert.equal(api.tcPhone_('Galaxy Z Fold8 Ultra 16/1TB Cream').color, 'бежевый');
-  const matcher = api.PriceFlowAvitoMatcher, layout = { model:0, sim:1, memory:2, color:3, ram:4, price:5 };
-  const plan = matcher.planPhone(selected.rows.map((row) => {
-    const phone = api.tcPhone_(row.name + ' ' + row.variant);
-    return { model:phone.model, memory:phone.memory, ram:phone.ram, color:phone.color, sim:phone.config, price:row.price + 5000, search:row.name };
-  }), layout, [
-    ['Galaxy S25', 'Не знаю', '256 ГБ', 'серый', '12 ГБ', ''],
-    ['Galaxy Z Fold8', 'Не знаю', '512 ГБ', 'серый', '12 ГБ', ''],
-    ['Galaxy Z Fold8', 'Не знаю', '1024 ГБ', 'фиолетовый', '16 ГБ', ''],
-    ['Galaxy Z Fold8 Ultra', 'Не знаю', '512 ГБ', 'серый', '12 ГБ', ''],
-    ['Galaxy Z Fold8 Ultra', 'Не знаю', '1024 ГБ', 'бежевый', '16 ГБ', ''],
-    ['Galaxy Z Flip8', 'Не знаю', '256 ГБ', 'розовый', '12 ГБ', '']
-  ], {});
-  assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [
-    { row:0, price:55800 }, { row:1, price:137400 }, { row:2, price:175300 },
-    { row:3, price:152400 }, { row:4, price:197400 }, { row:5, price:78400 }
-  ]);
+  const layout = { model:0, sim:1, memory:2, color:3, ram:4, price:5 };
+  const plan = api.PriceFlowAvitoMatcher.planPhone(source, layout, [['Galaxy Z Fold8', 'Не знаю', '512 ГБ', 'серый', '12 ГБ', '']], {});
+  assert.equal(source.length, 3);
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row:0, price:137400 }]);
 });
 
 test('applies Ulyanovsk markup directly from the markup-file rules', () => {
@@ -327,9 +275,9 @@ test('supports a title/price template and reports concise outcome', () => {
   const layout = api.tcLayouts_(headers)[0];
   const row = api.tcTargetRow_(headers, layout, { name: 'Dyson HD16 Ceramic Pink', variant: '🇯🇵', price: 27890 });
   assert.deepEqual([...row], ['Dyson HD16 Ceramic Pink', 27890]);
-  const summary = api.tcSummary_({ rows: 120, written: 120, cheapest: 10, markedUp: 100, withoutMarkup: 20 });
+  const summary = api.tcSummary_({ rows: 120, written: 120, markedUp: 100, withoutMarkup: 20 });
   assert.match(summary, /120 позиций/);
-  assert.match(summary, /самых дешёвых вариантов: 10/);
+  assert.doesNotMatch(summary, /самых дешёвых вариантов/);
   assert.match(summary, /Наценка из файла применена к 100/);
   assert.match(summary, /Без правила наценки: 20/);
 });
@@ -434,6 +382,8 @@ test('excludes special conditions in every ready-catalogue field', () => {
   assert.deepEqual([...plan.reasons], ['Нет модели в общей таблице']);
   assert.equal(matcher.eligible('Galaxy S26 распакованный'), false);
   assert.equal(matcher.eligible('Galaxy S26 брак'), false);
+  assert.equal(matcher.eligible('Galaxy S26 Актив'), false);
+  assert.equal(matcher.eligible('Galaxy S26 б/у'), false);
 });
 
 test('uses the agreed PS5 Slim fallback and isolates ordinary PS5 and OnTrac', () => {

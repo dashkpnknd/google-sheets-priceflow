@@ -11,18 +11,19 @@ const TC = {
   defaultChannel: 'astoredirectprice',
   // Fixed Elektrostal Avito workbook. Only Price is changed in these existing tabs.
   avito: { spreadsheetId: '19Kj6HeZphLA-AgfpSKrKzn3rT1GwWSLAhd0GxCfpCPs', headerRow: 2, firstDataRow: 3, sheets: {
-    'телефоны': { sheetId: 838348454, kind: 'phone' }, 'макбуки': { sheetId: 539164146, kind: 'title' },
-    'айпады': { sheetId: 1754463282, kind: 'title' }, 'часы': { sheetId: 1224239507, kind: 'title' },
-    'наушники': { sheetId: 1413308519, kind: 'title' }, 'пс': { sheetId: 391955201, kind: 'title' },
-    'дайсон': { sheetId: 714982435, kind: 'title' }
+    'телефоны': { sheetId: 838348454, kind: 'phone', diagnostic: true }, 'макбуки': { sheetId: 539164146, kind: 'title', diagnostic: true },
+    'айпады': { sheetId: 1754463282, kind: 'title', diagnostic: true }, 'часы': { sheetId: 1224239507, kind: 'title', diagnostic: true },
+    'наушники': { sheetId: 1413308519, kind: 'title', diagnostic: true }, 'пс': { sheetId: 391955201, kind: 'title', diagnostic: true },
+    'дайсон': { sheetId: 714982435, kind: 'title', diagnostic: true }
   } },
-  props: { project: 'ES_TC_PROJECT', channel: 'ES_TC_CHANNEL', last: 'ES_TC_LAST', status: 'ES_TC_STATUS' }
+  props: { project: 'ES_TC_PROJECT', channel: 'ES_TC_CHANNEL', last: 'ES_TC_LAST', status: 'ES_TC_STATUS', supplierModels: 'ES_TC_READY_SUPPLIER_MODELS' }
 };
 
 function onOpen() {
   SpreadsheetApp.getUi().createMenu('Каталог поставщика')
     .addItem('Подключить Telegram-канал', 'showTelegramCatalogSidebar')
-    .addSeparator().addItem('Пересобрать каталог сейчас', 'runTelegramCatalogNow').addToUi();
+    .addSeparator().addItem('Пересобрать каталог сейчас', 'runTelegramCatalogNow')
+    .addItem('Синхронизировать цены Avito', 'runAvitoPriceSyncNow').addToUi();
 }
 
 function showTelegramCatalogSidebar() {
@@ -55,7 +56,11 @@ function saveTelegramCatalogSetup(form) {
   return Object.assign(getTelegramCatalogSetup(), { message: tcSummary_(result) });
 }
 
-function runTelegramCatalogNow() { tcEnsureTrigger_(); const result = syncTelegramCatalog_(); return Object.assign(getTelegramCatalogSetup(), { message: tcSummary_(result) }); }
+function runTelegramCatalogNow() { tcEnsureTrigger_(); const result = syncTelegramCatalog_(); return Object.assign(getTelegramCatalogSetup(), { message: tcSummary_(result) + ' Синхронизация цен Avito запланирована отдельным этапом.' }); }
+function runAvitoPriceSyncNow() {
+  const report = syncTelegramAvitoPrices();
+  return Object.assign(report, { message: report.skipped ? 'Цены Avito ожидают завершения сборки каталога.' : tcAvitoPriceSummary_(report) });
+}
 function syncTelegramCatalog() {
   // A trigger may survive a copied project. Until the user has connected a
   // channel, it should silently do nothing rather than repeatedly fail.
@@ -68,12 +73,32 @@ function tcEnsureTrigger_() {
     const handler = t.getHandlerFunction();
     // Remove only this product's current trigger and the trigger of the
     // previous Telegram price-updater. Other project automations stay intact.
-    if (handler === 'syncTelegramCatalog' || handler === 'syncTelegramSupplier') ScriptApp.deleteTrigger(t);
+    if (handler === 'syncTelegramCatalog' || handler === 'syncTelegramSupplier' || handler === 'syncTelegramAvitoPrices') ScriptApp.deleteTrigger(t);
   });
   ScriptApp.newTrigger('syncTelegramCatalog').timeBased().everyMinutes(TC.everyMinutes).create();
 }
 
+function tcScheduleAvitoPriceSync_(delayMs) {
+  ScriptApp.getProjectTriggers().forEach(function(t) {
+    if (t.getHandlerFunction() === 'syncTelegramAvitoPrices') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('syncTelegramAvitoPrices').timeBased().after(Number(delayMs || 60000)).create();
+}
+
+function syncTelegramAvitoPrices() {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(1000)) {
+    tcScheduleAvitoPriceSync_(2 * 60 * 1000);
+    return { skipped: true, updated: 0, sheets: {} };
+  }
+  try {
+    tcAssertCommonInvariants_();
+    return tcSyncAvitoPrices_();
+  } finally { lock.releaseLock(); }
+}
+
 function syncTelegramCatalog_() {
+  tcAssertCommonInvariants_();
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(1000)) return { rows: 0, written: 0, skippedSheets: [] };
   try {
@@ -110,27 +135,33 @@ function syncTelegramCatalog_() {
     // Avito, so a Telegram parsing representation can never diverge from the
     // actual price source used by the client.
     SpreadsheetApp.flush();
-    const priceSync = tcSyncAvitoPrices_();
+    p.setProperty(TC.props.supplierModels, JSON.stringify(tcSupplierModels_(sourceRows)));
+    tcScheduleAvitoPriceSync_();
     const now = new Date(); p.setProperty(TC.props.last, String(now.getTime()));
     p.setProperty(TC.props.status, 'Каталог обновлён: ' + written + ' позиций.');
     return {
       rows: rows.length, written: written,
       cheapest: 0, markedUp: markup.applied, withoutMarkup: markup.withoutRule,
       excluded: markup.excluded,
-      skippedSheets: skippedSheets, priceSync: priceSync
+      skippedSheets: skippedSheets, priceSync: { queued: true }
     };
   } finally { lock.releaseLock(); }
 }
 
 /** Shared stage 2 reads only the completed catalogue after SpreadsheetApp.flush(). */
 function tcSyncAvitoPrices_() {
-  return PriceFlowAvitoMatcher.sync({ city:'elektrostal', sourceSpreadsheet:SpreadsheetApp.getActiveSpreadsheet(), avitoSpreadsheetId:TC.avito.spreadsheetId, headerRow:TC.avito.headerRow, firstDataRow:TC.avito.firstDataRow, sheets:TC.avito.sheets });
+  return PriceFlowAvitoMatcher.sync({ city:'elektrostal', sourceSpreadsheet:SpreadsheetApp.getActiveSpreadsheet(), avitoSpreadsheetId:TC.avito.spreadsheetId, headerRow:TC.avito.headerRow, firstDataRow:TC.avito.firstDataRow, sheets:TC.avito.sheets, allowIphoneAirAlias:true, supplierModels:tcReadySupplierModels_() });
 }
+function tcAvitoPriceSummary_(report) {
+  const reasons = Object.keys(report.skippedByReason || {}).map(function(reason) { return reason + ': ' + report.skippedByReason[reason]; });
+  return 'Цены Avito: обновлено ' + Number(report.updated || 0) + '. ' + (reasons.length ? 'Пропуски — ' + reasons.join(', ') + '.' : 'Пропусков нет.');
+}
+function tcRunCommonRegressionTests() { return PriceFlowAvitoMatcher.runRegressionTests(); }
+function tcAssertCommonInvariants_() { return tcRunCommonRegressionTests(); }
+function tcSupplierModels_(rows) { return Array.from(new Set((rows || []).map(function(row) { return tcPhone_(tcDisplay_(row)).model; }).filter(Boolean).map(tcNorm_))); }
+function tcReadySupplierModels_() { try { const stored = JSON.parse(PropertiesService.getScriptProperties().getProperty(TC.props.supplierModels) || '[]'); return Array.isArray(stored) ? stored : []; } catch (error) { return []; } }
 function tcEligibleForCatalogue_(row) { return Boolean(row) && !tcHasSpecialCondition_(tcDisplay_(row)); }
-function tcHasSpecialCondition_(value) {
-  const text = tcNorm_(value).replace(/[\u2010-\u2015]/g, '-');
-  return /(?:(?:^|[^a-zа-я])(?:asis|асис|cpo|цпо|open[-\s]*box|refurb(?:ished)?|витрин(?:а|ный)|демо(?:\s*образец)?|уцен(?:ка|енный)|пред\s*актив)(?=$|[^a-zа-я])|мят(?:ая|ый)\s*(?:коробк|упаковк|📦)|(?:вскрыт|поврежд)[а-яё]*\s*(?:коробк|упаковк))/.test(text);
-}
+function tcHasSpecialCondition_(value) { return /(?:\b(?:asis|асис|cpo|цпо|open\s*box|refurb(?:ished)?|defect(?:ive)?|faulty|damaged|used|active)\b|(?:^|[^a-zа-я])(?:б\/?у|бу)(?=$|[^a-zа-я])|уцен|витрин|демо|(?:пред\s*)?актив(?:ир)?|распак|брак|вскрыт[а-я]*\s*(?:короб|упаков)|поврежд[а-я]*\s*(?:короб|упаков)|мят(?:ая|ый|ой|ую|ые|ых))/iu.test(String(value || '')); }
 
 function tcWriteSheet_(sheet, products) {
   tcRemoveCountryColumns_(sheet);
@@ -511,7 +542,7 @@ function tcCategory_(value) {
   if (/playstation|\bps[345]\b|xbox/.test(v)) return 'пс';
   if (/dyson/.test(v)) return 'дайсон';
   if (/imac/.test(v)) return 'аймаки';
-  if (/iphone|galaxy|pixel|xiaomi|samsung|honor|huawei|oneplus|realme|redmi/.test(v)) return 'телефоны';
+  if (/iphone|galaxy|pixel|xiaomi|redmi|poco|samsung|honor|huawei|oneplus|realme|oppo|vivo|nothing|tecno/.test(v)) return 'телефоны';
   return 'прочее';
 }
 function tcPhone_(value) {
@@ -519,7 +550,7 @@ function tcPhone_(value) {
   const memory = specs ? null : /(?:^|\s)(\d{1,4})\s?(гб|gb|тб|tb)(?=\s|$)/i.exec(text);
   const unit = function(amount, suffix) { return amount + ' ' + suffix.toUpperCase().replace('GB', 'ГБ').replace('TB', 'ТБ'); };
   const sim = /\b(?:2\s*(?:sim|сим)|dual\s*-?\s*sim)\b/i.test(text) ? '2 SIM' : /sim\s*\+\s*e\s*-?sim/i.test(text) ? 'SIM + eSIM' : /e\s*-?sim/i.test(text) ? 'eSIM' : /\bsim\b/i.test(text) ? 'SIM' : '';
-  return { model: tcModel_(text), memory: specs ? unit(specs[2], specs[3]) : memory ? unit(memory[1], memory[2]) : '', ram: specs ? unit(specs[1], 'GB') : '', color: tcColor_(text), config: sim, country: tcCountry_(text) };
+  return { model: tcModel_(text), memory: specs ? unit(specs[2], specs[3]) : memory ? unit(memory[1], memory[2]) : '', ram: specs ? unit(specs[1], 'GB') : '', color: tcColor_(text), config: sim, country: tcCountry_(text), technical: tcAndroidTechnicalModifiers_(text) };
 }
 function tcModel_(value) {
   const text = String(value || '').replace(/\(\s*asis\s*\)/gi, ' ').replace(/\s+/g, ' ').trim();
@@ -527,16 +558,23 @@ function tcModel_(value) {
   if (iphone) return 'iPhone ' + iphone[1].replace(/\s+/g, ' ').trim();
   return tcAndroidIdentity_(text);
 }
-/** Full Android identity: brand/model/modifier and declared radio version. */
+/** Android model only; technical network attributes are kept separately. */
 function tcAndroidIdentity_(value) {
-  let text = tcNorm_(value).replace(/\b\d{1,2}\s*\/\s*\d{2,4}\s*(?:гб|gb|тб|tb)?\b/g, ' ').replace(/\b\d+\s*(?:гб|gb|тб|tb)\b/g, ' ').replace(/\b(?:sim|esim|dual\s*sim)\b/g, ' ');
+  let text = tcNorm_(value).replace(/\b\d{1,2}\s*\/\s*\d{2,4}\s*(?:гб|gb|тб|tb)?\b/g, ' ').replace(/\b\d+\s*(?:гб|gb|тб|tb)\b/g, ' ').replace(/\b(?:sim|esim|dual\s*sim|4g|5g|nfc|lte)\b/g, ' ');
   text = text.replace(/\b(?:black|white|blue|green|pink|yellow|purple|gray|grey|silver|gold|черный|белый|синий|голубой|зеленый|розовый|фиолетовый|серый|серебристый|золотистый|ultramarine|lavender|graphite|mint|obsidian|lemongrass)\b/g, ' ').replace(/\s+/g, ' ').trim();
-  const match = /\b(?:samsung\s+)?galaxy\s+(?:z\s*(?:fold|flip)\s*\d+(?:\s*(?:fe|pro|plus))?|(?:s|a|m)\s*\d+(?:\s*(?:ultra|fe|pro\+?|plus))?)\b|\b(?:xiaomi|redmi|oneplus|pixel|honor|huawei|oppo|realme)\s+[a-z0-9][a-z0-9+\- ]*/i.exec(text);
+  const match = /\b(?:samsung\s+)?galaxy\s+(?:z\s*(?:fold|flip)\s*\d+(?:\s*(?:fe|pro|plus))?|(?:s|a|m)\s*\d+(?:\s*(?:ultra|fe|pro\+?|plus))?)\b|\b(?:xiaomi|redmi|poco|oneplus|pixel|honor|huawei|oppo|vivo|realme|nothing|tecno)\s+[a-z0-9][a-z0-9+\- ]*/i.exec(text);
   if (!match) return '';
   const base = match[0].replace(/\s+/g, ' ').trim();
-  const tech = Array.from(new Set((text.match(/\b(?:4g|5g|nfc|lte)\b/g) || []))).sort().join(' ');
-  const display = base.replace(/\b(galaxy|pixel|xiaomi|redmi|oneplus|honor|huawei|oppo|realme)\b/g, function(word) { return word.charAt(0).toUpperCase() + word.slice(1); });
-  return (display + (tech ? ' ' + tech : '')).trim();
+  const display = base.replace(/\b(galaxy|pixel|xiaomi|redmi|poco|oneplus|honor|huawei|oppo|vivo|realme|nothing|tecno)\b/g, function(word) { return word.charAt(0).toUpperCase() + word.slice(1); });
+  return display.trim();
+}
+function tcAndroidTechnicalModifiers_(value) {
+  const text = tcNorm_(value), modifiers = [];
+  if (/\b4\s*g\b/.test(text)) modifiers.push('4G');
+  if (/\b5\s*g\b/.test(text)) modifiers.push('5G');
+  if (/\bnfc\b/.test(text)) modifiers.push('NFC');
+  if (/\blte\b/.test(text)) modifiers.push('LTE');
+  return modifiers.join(' ');
 }
 function tcCountry_(value) { const flag = /(🇺🇸|🇯🇵|🇭🇰|🇰🇷|🇮🇳|🇨🇦|🇸🇬|🇦🇪|🇷🇺|🇨🇳)/u.exec(String(value || '')); const names = {'🇺🇸':'США','🇯🇵':'Япония','🇭🇰':'Гонконг','🇰🇷':'Корея','🇮🇳':'Индия','🇨🇦':'Канада','🇸🇬':'Сингапур','🇦🇪':'ОАЭ','🇷🇺':'Россия','🇨🇳':'Китай'}; return flag ? names[flag[1]] + ' ' + flag[1] : ''; }
 // Цвет из Telegram может стоять в любом месте строки и быть отделён скобками,

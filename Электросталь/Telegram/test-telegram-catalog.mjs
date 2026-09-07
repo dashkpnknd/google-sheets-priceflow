@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const source = fs.readFileSync(new URL('../../PriceFlowAvitoMatcher.gs', import.meta.url), 'utf8') + '\n' + fs.readFileSync(new URL('./TelegramCatalog.gs', import.meta.url), 'utf8') + `
-globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcModel_,tcColor_,tcLayouts_,tcLayoutFor_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcApplyElektrostalMarkup_,tcElektrostalMarkupAmount_,tcExpand_,tcFetchRows_,tcNavigationPostIds_,tcParsePreview_,tcContinuationInfo_,tcEligibleForCatalogue_,PriceFlowAvitoMatcher};`;
+globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcModel_,tcColor_,tcAndroidTechnicalModifiers_,tcLayouts_,tcLayoutFor_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcApplyElektrostalMarkup_,tcElektrostalMarkupAmount_,tcExpand_,tcFetchRows_,tcNavigationPostIds_,tcParsePreview_,tcContinuationInfo_,tcEligibleForCatalogue_,tcEnsureTrigger_,tcScheduleAvitoPriceSync_,PriceFlowAvitoMatcher};`;
 const parseCsv = (value) => String(value).trim().split(/\r?\n/).map((line) => {
   const cells = []; let current = ''; let quoted = false;
   for (let index = 0; index < line.length; index++) {
@@ -15,7 +15,18 @@ const parseCsv = (value) => String(value).trim().split(/\r?\n/).map((line) => {
   }
   cells.push(current); return cells;
 });
-const context = { console, Utilities: { parseCsv } };
+const scheduledTriggers = [];
+const context = {
+  console, Utilities: { parseCsv },
+  ScriptApp: {
+    getProjectTriggers: () => scheduledTriggers.slice(),
+    deleteTrigger: (trigger) => { const index = scheduledTriggers.indexOf(trigger); if (index >= 0) scheduledTriggers.splice(index, 1); },
+    newTrigger: (handler) => ({ timeBased: () => ({
+      everyMinutes: () => ({ create: () => scheduledTriggers.push({ handler, mode:'recurring', getHandlerFunction() { return handler; } }) }),
+      after: (delay) => ({ create: () => scheduledTriggers.push({ handler, mode:'once', delay, getHandlerFunction() { return handler; } }) })
+    }) })
+  }
+};
 vm.createContext(context); vm.runInContext(source, context);
 const api = context.API;
 
@@ -34,6 +45,14 @@ test('accepts the public supplier price channel handle and t.me URLs', () => {
   assert.equal(api.tcChannel_('https://t.me/opt_uniseil'), 'opt_uniseil');
   assert.equal(api.tcChannel_('https://t.me/s/opt_uniseil'), 'opt_uniseil');
   assert.equal(api.tcChannel_('https://t.me/+private'), '');
+});
+
+test('runs Avito reconciliation as a later one-off stage', () => {
+  scheduledTriggers.splice(0, scheduledTriggers.length);
+  api.tcScheduleAvitoPriceSync_(60000);
+  assert.deepEqual(JSON.parse(JSON.stringify(scheduledTriggers.map((trigger) => [trigger.handler, trigger.mode, trigger.delay]))), [['syncTelegramAvitoPrices', 'once', 60000]]);
+  api.tcEnsureTrigger_();
+  assert.deepEqual(JSON.parse(JSON.stringify(scheduledTriggers.map((trigger) => [trigger.handler, trigger.mode]))), [['syncTelegramCatalog', 'recurring']]);
 });
 
 test('routes all standard source product families to client tabs', () => {
@@ -281,6 +300,17 @@ test('supports a title/price template and reports concise outcome', () => {
 test('Electrostal passes only the ready catalogue contract to shared matcher', () => {
   assert.match(source, /PriceFlowAvitoMatcher\.sync/);
   assert.doesNotMatch(source, /tcReadReadyCatalog_/);
-  assert.equal(api.tcEligibleForCatalogue_({ name:'Galaxy S26 12/256 Blue Актив' }), true);
+  assert.match(source, /function syncTelegramAvitoPrices\(\)/);
+  assert.match(source, /tcScheduleAvitoPriceSync_\(\)/);
+  assert.equal(api.tcEligibleForCatalogue_({ name:'Galaxy S26 12/256 Blue Актив' }), false);
+  assert.equal(api.tcEligibleForCatalogue_({ name:'MacBook Air Мятая коробка' }), false);
   assert.equal(api.tcEligibleForCatalogue_({ name:'iPhone 17 CPO' }), false);
+});
+
+test('keeps Android radio attributes out of the model while preserving explicit model boundaries', () => {
+  const poco = api.tcPhone_('POCO X7 Pro 5G NFC 8/256GB Black');
+  assert.equal(poco.model, 'Poco x7 pro');
+  assert.equal(poco.technical, '5G NFC');
+  assert.equal(api.tcModel_('Pixel 10 Pro Fold 16/512GB'), 'Pixel 10 pro fold');
+  assert.notEqual(api.tcModel_('Pixel 10 Pro 16/512GB'), api.tcModel_('Pixel 10 Pro Fold 16/512GB'));
 });

@@ -131,10 +131,9 @@ function syncTelegramCatalog_() {
     const book = SpreadsheetApp.getActiveSpreadsheet();
     const sourceRows = tcFetchSupplierSheetRows_(channel).filter(function(row) { return !tcIsAsis_(tcSourceText_(row)); });
     const mirror = tcAddTwoSimMirror_(sourceRows, p.getProperty(TC.props.mirrorTwoSim) === 'true');
-    // Одна и та же конфигурация может быть у поставщика из нескольких стран.
-    // Для Ульяновска берём только вариант с минимальной закупочной ценой.
-    const cheapest = tcChooseCheapestCountry_(mirror.rows);
-    const rules = tcLoadUlyanovskMarkup_(), markup = tcApplyUlyanovskMarkup_(cheapest.rows, rules);
+    // Первый этап всегда сохраняет все страны и все переданные позиции.
+    // Самая дешёвая точная конфигурация выбирается только вторым этапом.
+    const rules = tcLoadUlyanovskMarkup_(), markup = tcApplyUlyanovskMarkup_(mirror.rows, rules);
     const rows = markup.rows;
     const byCategory = {};
     rows.forEach(function(row) { (byCategory[row.category] = byCategory[row.category] || []).push(row); });
@@ -154,7 +153,7 @@ function syncTelegramCatalog_() {
     p.setProperty(TC.props.status, 'Каталог обновлён: ' + written + ' позиций.');
     return {
       rows: rows.length, written: written, mirrored: mirror.mirrored,
-      cheapest: cheapest.removed, markedUp: markup.applied, withoutMarkup: markup.withoutRule,
+      markedUp: markup.applied, withoutMarkup: markup.withoutRule,
       withoutMarkupItems: markup.withoutMarkupItems,
       skippedSheets: skippedSheets, templateSync: { queued: true }
     };
@@ -311,12 +310,10 @@ function tcTextCompare_(left, right) {
 function tcChannel_(value) { const v = String(value || '').trim().replace(/^https?:\/\/(?:t\.me|telegram\.me)\/(?:s\/)?/i, '').replace(/^@/, ''); return /^[A-Za-z][A-Za-z0-9_]{4,}$/.test(v) ? v.toLowerCase() : ''; }
 function tcSummary_(result) {
   const mirror = Number(result.mirrored || 0);
-  const cheapest = Number(result.cheapest || 0);
   const markedUp = Number(result.markedUp || 0);
   const withoutMarkup = Number(result.withoutMarkup || 0);
   return 'Каталог получен: ' + result.rows + ' позиций. Записано в листы: ' + result.written +
     (mirror ? '. Добавлено вариантов «2 SIM»: ' + mirror : '') +
-    (cheapest ? '. Оставлено самых дешёвых вариантов: ' + cheapest : '') +
     '. Наценка из файла применена к ' + markedUp + ' позициям' +
     (withoutMarkup ? '. Без правила наценки: ' + withoutMarkup : '') +
     '. Далее обновляется автоматически каждые 15 минут.';
@@ -336,7 +333,7 @@ function tcWriteMarkupDiagnostics_(book, missingMarkupRows) {
 function tcNorm_(value) { return String(value || '').trim().toLocaleLowerCase('ru-RU'); }
 function tcDisplay_(product) { return [product.name, product.variant].filter(Boolean).join(' ').replace(/[\u{1F1E6}-\u{1F1FF}]{2}/gu, '').replace(/\s+/g, ' ').trim(); }
 function tcSourceText_(product) { return [tcDisplay_(product), product && product.section, product && product.sourceRow].filter(Boolean).join(' '); }
-function tcIsAsis_(value) { return /(?:\b(?:asis|асис|cpo|цпо|open\s*box|refurb(?:ished)?|defect(?:ive)?|faulty|damaged|used|active|б\/?у|бу)\b|уцен|витрин|демо|пред\s*актив|предактив|активир|распак|брак|вскрыт[а-я]*\s*(?:короб|упаков)|поврежд[а-я]*\s*(?:короб|упаков)|мят(?:ая|ый|ой|ую|ые|ых))/iu.test(String(value || '')); }
+function tcIsAsis_(value) { return /(?:\b(?:asis|асис|cpo|цпо|open\s*box|refurb(?:ished)?|defect(?:ive)?|faulty|damaged|used|active)\b|(?:^|[^a-zа-я])(?:б\/?у|бу)(?=$|[^a-zа-я])|уцен|витрин|демо|(?:пред\s*)?актив(?:ир)?|распак|брак|вскрыт[а-я]*\s*(?:короб|упаков)|поврежд[а-я]*\s*(?:короб|упаков)|мят(?:ая|ый|ой|ую|ые|ых))/iu.test(String(value || '')); }
 function tcSupplierModels_(rows) { return Array.from(new Set((rows || []).map(function(row) { return tcPhone_(tcSourceText_(row)).model; }).filter(Boolean).map(tcNorm_))); }
 function tcReadySupplierModels_() { try { const stored = JSON.parse(PropertiesService.getScriptProperties().getProperty(TC.props.supplierModels) || '[]'); return Array.isArray(stored) ? stored : []; } catch (error) { return []; } }
 function tcOutputPhoneModel_(phone, full, fallback) {
