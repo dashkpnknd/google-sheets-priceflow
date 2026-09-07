@@ -502,6 +502,11 @@ function tcMarkupAmount_(row, rules) {
     return null;
   }
 
+  // The approved Apple range begins with iPhone 13.  Do not infer a markup
+  // for older models simply because their name starts with "iPhone".
+  const iphoneModel = /^iphone\s+(\d+)(?:e)?\b/i.exec(name);
+  if (!iphoneModel || Number(iphoneModel[1]) < 13 || Number(iphoneModel[1]) > 17) return null;
+
   const memoryMatch = /^(\d+)\s*(ГБ|GB|ТБ|TB)$/i.exec(String(phone.memory || '').trim());
   const memoryGb = memoryMatch ? Number(memoryMatch[1]) * (/тб|tb/i.test(memoryMatch[2]) ? 1024 : 1) : 0;
   const premium = /^iphone\s+17\s+(?:pro|max|pro\s+max)\b/.test(name) && memoryGb >= 512;
@@ -692,6 +697,10 @@ function tcExpand_(header, item) {
     const repeated = new RegExp('^' + escaped + '(?:\\s+|$)', 'i');
     return 'iPhone ' + tail + (repeated.test(i) ? ' ' + i.replace(repeated, '').trim() : ' ' + i);
   }
+  // The supplier's iPad rows usually contain only capacity and connectivity.
+  // Preserve the model and generation from the section heading, otherwise the
+  // ready catalogue cannot identify the product or find its markup rule.
+  if (/^ipad\b/i.test(h) && !/^ipad\b/i.test(i)) return h + ' ' + i;
   if (/^macbook\b/i.test(h) && !/^macbook\b/i.test(i)) return h + ' ' + i;
   if (/^dyson\b/i.test(h) && !/^dyson\b/i.test(i)) return h + ' ' + i;
   if (/^airpods\b/i.test(h) && !/^airpods\b/i.test(i)) return h + ' ' + i;

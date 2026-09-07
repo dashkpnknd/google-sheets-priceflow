@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const source = fs.readFileSync(new URL('../../PriceFlowAvitoMatcher.gs', import.meta.url), 'utf8') + '\n' + fs.readFileSync(new URL('../../PriceFlowTemplateMatcher.gs', import.meta.url), 'utf8') + '\n' + fs.readFileSync(new URL('./TelegramCatalog.gs', import.meta.url), 'utf8') + `
-globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcColor_,tcColorGroup_,tcModel_,tcAndroidTechnicalModifiers_,tcIsAsis_,tcLayouts_,tcTargetRow_,tcParsePost_,tcLine_,tcExpand_,tcSummary_,tcProductSort_,tcAddTwoSimMirror_,tcChooseCheapestCountry_,tcSupplierColorKey_,tcParseMarkupCsv_,tcApplyUlyanovskMarkup_,tcMarkupAmount_,tcMarkupKey_,tcAndroidMarkupKey_,PriceFlowAvitoMatcher,PriceFlowTemplateMatcher};`;
+globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcColor_,tcColorGroup_,tcModel_,tcAndroidTechnicalModifiers_,tcIsAsis_,tcLayouts_,tcTargetRow_,tcParsePost_,tcParseSupplierSheetCsv_,tcLine_,tcExpand_,tcSummary_,tcProductSort_,tcAddTwoSimMirror_,tcChooseCheapestCountry_,tcSupplierColorKey_,tcParseMarkupCsv_,tcApplyUlyanovskMarkup_,tcMarkupAmount_,tcMarkupKey_,tcAndroidMarkupKey_,PriceFlowAvitoMatcher,PriceFlowTemplateMatcher};`;
 const parseCsv = (value) => String(value).trim().split(/\r?\n/).map((line) => {
   const cells = []; let current = ''; let quoted = false;
   for (let index = 0; index < line.length; index++) {
@@ -218,6 +218,34 @@ test('parses a complete public-channel product post', () => {
   assert.equal(rows[1].price, 42990);
 });
 
+test('keeps every supplied iPad Air 11 M3 memory and colour in the ready catalogue', () => {
+  const rows = api.tcParseSupplierSheetCsv_([
+    'iPad Air 11 (M3) 2025,',
+    '512GB Wi-Fi Blue 🇺🇸,78 300',
+    '512GB Wi-Fi Starlight 🇺🇸,80 300',
+    '512GB Wi-Fi Purple 🇺🇸,80 700',
+    '1TB Wi-Fi Purple 🇺🇸,86 300'
+  ].join('\n'), 'supplier-id');
+  assert.equal(rows.length, 4);
+  assert.ok(rows.every((row) => row.category === 'айпады'));
+  const marked = api.tcApplyUlyanovskMarkup_(rows, api.tcParseMarkupCsv_('Модель,Наценка\n"iPad все, кроме Про",3000'));
+  assert.deepEqual(JSON.parse(JSON.stringify(marked.rows.map((row) => row.price))), [81300, 83300, 83700, 89300]);
+});
+
+test('keeps supplied iPhone 14 Pro Max variants and does not price iPhone 12', () => {
+  const rows = api.tcParseSupplierSheetCsv_([
+    'iPhone 14 Pro Max,',
+    '14 Pro Max 128GB Deep Purple 🇦🇪 (Sim + E-Sim),60 100',
+    '14 Pro Max 1TB Silver 🇦🇪 (Sim + E-Sim),85 100'
+  ].join('\n'), 'supplier-id');
+  const rules = api.tcParseMarkupCsv_('Модель,Наценка\niPhone 13 - 17 Pro max 256,3000');
+  const marked = api.tcApplyUlyanovskMarkup_(rows, rules);
+  assert.deepEqual(JSON.parse(JSON.stringify(marked.rows.map((row) => row.price))), [63100, 88100]);
+  const older = api.tcApplyUlyanovskMarkup_([{ category:'телефоны', name:'iPhone 12 128GB Starlight', price:33100 }], rules);
+  assert.equal(older.rows.length, 0);
+  assert.equal(older.withoutRule, 1);
+});
+
 test('does not drop Google and Honor brand sections with Android positions', () => {
   const pixels = api.tcParsePost_('Google\nPixel 7 8/128GB Lemongrass 🇺🇸 — 23 500 ₽', 'opt_uniseil', '101');
   const honors = api.tcParsePost_('Honor\nHonor x8d 8/256GB Gray 🇷🇺 — 19 000 ₽', 'opt_uniseil', '102');
@@ -397,6 +425,15 @@ test('uses the agreed PS5 Slim fallback and isolates ordinary PS5 and OnTrac', (
   assert.deepEqual(JSON.parse(JSON.stringify(ps.ambiguous)), [{ row:0, title:'PlayStation 5 Slim', prices:[60800,70100] }]);
   const ontrac = matcher.planTitle([{ title:'AirPods Pro 3', price:20000, search:'AirPods Pro 3' }], 'наушники', title, [['Dyson OnTrac', '12000']]);
   assert.deepEqual(JSON.parse(JSON.stringify(ontrac.updates)), [{ row:0, price:'' }]);
+});
+
+test('matches a Russian Slim + drive title with the supplier Disk SKU', () => {
+  const matcher = api.PriceFlowAvitoMatcher;
+  const layout = matcher.titleLayout(['Title', 'Price']);
+  const plan = matcher.planTitle([
+    { title:'PlayStation 5 Slim Disk 1TB CFI-2118A (2 ревизия)', price:71600, search:'PlayStation 5 Slim Disk 1TB CFI-2118A (2 ревизия)' }
+  ], 'пс', layout, [['Sony PlayStation 5 Slim + Дисковод', '']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row:0, price:71600 }]);
 });
 
 test('does not price a bare PS5 from an accessory and keeps DualSense colours separate', () => {
