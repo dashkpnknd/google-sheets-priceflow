@@ -532,6 +532,22 @@ test('matches all 20 canonical MacBook RAM/SSD keys including 1024GB and 1TB spe
   assert.equal(plan.matched, 20);
 });
 
+test('keeps the Ulyanovsk MacBook markup at 3,500 and preserves chip tiers', () => {
+  const rows = [
+    { category:'макбуки', name:'MacBook Air 13 Silver M5 16/512GB', price:135300 },
+    { category:'макбуки', name:'MacBook Air 13 Midnight M5 16/512GB', price:128300 },
+    { category:'макбуки', name:'MacBook Air 15 Starlight M5 16/1TB', price:154100 },
+    { category:'макбуки', name:'MacBook Neo Blush M5 8/512GB', price:72300 }
+  ];
+  const marked = api.tcApplyUlyanovskMarkup_(rows, api.tcParseMarkupCsv_('Модель,Наценка\nMacBook,3500'));
+  assert.deepEqual(marked.rows.map((row) => row.price), [138800, 131800, 157600, 75800]);
+
+  const matcher = api.PriceFlowAvitoMatcher;
+  assert.equal(matcher.titleMatches('макбуки', 'MacBook Pro 14 M5 24/1TB Silver', 'MacBook Pro 14 M5 Pro 24/1TB Silver'), false);
+  assert.equal(matcher.titleMatches('макбуки', 'MacBook Pro 14 M5 Pro 24/1TB Silver', 'MacBook Pro 14 M5 Pro 24/1TB Silver'), true);
+  assert.equal(matcher.titleMatches('макбуки', 'MacBook 13 Neo (2026) 8/512 Blush', 'MacBook Neo Blush M5 8/512GB'), true);
+});
+
 test('keeps explicit Android and MacBook colours as separate SKU fields', () => {
   const matcher = api.PriceFlowAvitoMatcher;
   const layout = { model:0, sim:1, memory:2, color:3, ram:4, price:5 };
