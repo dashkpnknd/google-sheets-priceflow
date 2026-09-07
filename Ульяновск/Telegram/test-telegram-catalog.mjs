@@ -164,12 +164,13 @@ test('applies Ulyanovsk markup directly from the markup-file rules', () => {
   const priced = api.tcApplyUlyanovskMarkup_([
     { category: 'телефоны', name: 'iPhone 17 Pro 256GB eSIM Blue', variant: '🇯🇵', price: 98500 },
     { category: 'телефоны', name: 'iPhone 17 Pro 512GB eSIM Blue', variant: '🇯🇵', price: 119800 },
+    { category: 'телефоны', name: 'iPhone 17 Pro Max 2TB eSIM Blue', variant: '🇯🇵', price: 150000 },
     { category: 'наушники', name: 'AirPods Pro 3', price: 20000 },
     { category: 'айпады', name: 'iPad Pro 13 256GB', price: 70000 },
     { category: 'телефоны', name: 'Pixel 10 12/256GB Obsidian', price: 58200 }
   ], rules);
-  assert.deepEqual(priced.rows.map((row) => row.price), [101500, 123800, 22000, 74000, 63200]);
-  assert.equal(priced.applied, 5);
+  assert.deepEqual(priced.rows.map((row) => row.price), [101500, 123800, 154000, 22000, 74000, 63200]);
+  assert.equal(priced.applied, 6);
   assert.equal(priced.withoutRule, 0);
 });
 
@@ -232,7 +233,7 @@ test('keeps every supplied iPad Air 11 M3 memory and colour in the ready catalog
   assert.deepEqual(JSON.parse(JSON.stringify(marked.rows.map((row) => row.price))), [81300, 83300, 83700, 89300]);
 });
 
-test('keeps supplied iPhone 14 Pro Max variants and does not price iPhone 12', () => {
+test('keeps supplied iPhone 14 Pro Max variants and prices iPhone 12 at +3,000', () => {
   const rows = api.tcParseSupplierSheetCsv_([
     'iPhone 14 Pro Max,',
     '14 Pro Max 128GB Deep Purple 🇦🇪 (Sim + E-Sim),60 100',
@@ -242,8 +243,8 @@ test('keeps supplied iPhone 14 Pro Max variants and does not price iPhone 12', (
   const marked = api.tcApplyUlyanovskMarkup_(rows, rules);
   assert.deepEqual(JSON.parse(JSON.stringify(marked.rows.map((row) => row.price))), [63100, 88100]);
   const older = api.tcApplyUlyanovskMarkup_([{ category:'телефоны', name:'iPhone 12 128GB Starlight', price:33100 }], rules);
-  assert.equal(older.rows.length, 0);
-  assert.equal(older.withoutRule, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(older.rows.map((row) => row.price))), [36100]);
+  assert.equal(older.withoutRule, 0);
 });
 
 test('does not drop Google and Honor brand sections with Android positions', () => {

@@ -502,10 +502,10 @@ function tcMarkupAmount_(row, rules) {
     return null;
   }
 
-  // The approved Apple range begins with iPhone 13.  Do not infer a markup
-  // for older models simply because their name starts with "iPhone".
+  // The approved Apple range is iPhone 12–17. Do not infer a markup for a
+  // future or older model simply because its name starts with "iPhone".
   const iphoneModel = /^iphone\s+(\d+)(?:e)?\b/i.exec(name);
-  if (!iphoneModel || Number(iphoneModel[1]) < 13 || Number(iphoneModel[1]) > 17) return null;
+  if (!iphoneModel || Number(iphoneModel[1]) < 12 || Number(iphoneModel[1]) > 17) return null;
 
   const memoryMatch = /^(\d+)\s*(ГБ|GB|ТБ|TB)$/i.exec(String(phone.memory || '').trim());
   const memoryGb = memoryMatch ? Number(memoryMatch[1]) * (/тб|tb/i.test(memoryMatch[2]) ? 1024 : 1) : 0;
