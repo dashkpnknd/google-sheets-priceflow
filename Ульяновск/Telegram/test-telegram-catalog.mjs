@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const source = fs.readFileSync(new URL('../../PriceFlowAvitoMatcher.gs', import.meta.url), 'utf8') + '\n' + fs.readFileSync(new URL('../../PriceFlowTemplateMatcher.gs', import.meta.url), 'utf8') + '\n' + fs.readFileSync(new URL('./TelegramCatalog.gs', import.meta.url), 'utf8') + `
-globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcColor_,tcColorGroup_,tcModel_,tcAndroidTechnicalModifiers_,tcIsAsis_,tcLayouts_,tcTargetRow_,tcParsePost_,tcParseSupplierSheetCsv_,tcLine_,tcExpand_,tcSummary_,tcProductSort_,tcAddTwoSimMirror_,tcChooseCheapestCountry_,tcSupplierColorKey_,tcParseMarkupCsv_,tcApplyUlyanovskMarkup_,tcMarkupAmount_,tcMarkupKey_,tcAndroidMarkupKey_,PriceFlowAvitoMatcher,PriceFlowTemplateMatcher};`;
+globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcColor_,tcColorGroup_,tcModel_,tcAndroidTechnicalModifiers_,tcIsAsis_,tcLayouts_,tcTargetRow_,tcParsePost_,tcParseSupplierSheetCsv_,tcLine_,tcExpand_,tcSummary_,tcProductSort_,tcAddTwoSimMirror_,tcChooseCheapestCountry_,tcSupplierColorKey_,tcParseMarkupCsv_,tcApplyUlyanovskMarkup_,tcMarkupAmount_,tcMarkupKey_,tcAndroidMarkupKey_,tcEnsureTrigger_,tcSchedulePriceTemplateSync_,PriceFlowAvitoMatcher,PriceFlowTemplateMatcher};`;
 const parseCsv = (value) => String(value).trim().split(/\r?\n/).map((line) => {
   const cells = []; let current = ''; let quoted = false;
   for (let index = 0; index < line.length; index++) {
@@ -15,7 +15,19 @@ const parseCsv = (value) => String(value).trim().split(/\r?\n/).map((line) => {
   }
   cells.push(current); return cells;
 });
-const context = { console, Utilities: { parseCsv } };
+const scheduledTriggers = [];
+const context = {
+  console,
+  Utilities: { parseCsv },
+  ScriptApp: {
+    getProjectTriggers: () => scheduledTriggers.slice(),
+    deleteTrigger: (trigger) => { const index = scheduledTriggers.indexOf(trigger); if (index >= 0) scheduledTriggers.splice(index, 1); },
+    newTrigger: (handler) => ({ timeBased: () => ({
+      everyMinutes: () => ({ create: () => scheduledTriggers.push({ handler, mode:'recurring', getHandlerFunction() { return handler; } }) }),
+      after: (delay) => ({ create: () => scheduledTriggers.push({ handler, mode:'once', delay, getHandlerFunction() { return handler; } }) })
+    }) })
+  }
+};
 vm.createContext(context); vm.runInContext(source, context);
 const api = context.API;
 
@@ -35,6 +47,14 @@ test('accepts public channel handles and t.me URLs', () => {
   assert.equal(api.tcChannel_('https://t.me/opt_uniseil'), 'opt_uniseil');
   assert.equal(api.tcChannel_('https://t.me/s/opt_uniseil'), 'opt_uniseil');
   assert.equal(api.tcChannel_('https://t.me/+private'), '');
+});
+
+test('runs the template as a later one-off stage and clears a legacy template trigger', () => {
+  scheduledTriggers.splice(0, scheduledTriggers.length);
+  api.tcSchedulePriceTemplateSync_(60000);
+  assert.deepEqual(JSON.parse(JSON.stringify(scheduledTriggers.map((trigger) => [trigger.handler, trigger.mode, trigger.delay]))), [['syncTelegramPriceTemplate', 'once', 60000]]);
+  api.tcEnsureTrigger_();
+  assert.deepEqual(JSON.parse(JSON.stringify(scheduledTriggers.map((trigger) => [trigger.handler, trigger.mode]))), [['syncTelegramCatalog', 'recurring']]);
 });
 
 test('routes all standard source product families to client tabs', () => {
@@ -341,7 +361,8 @@ test('price-template matcher supports separate iPhone and Android blocks', () =>
     { model: 0, memory: 2, color: 3, sim: 1, ram: -1, price: 4, diagnostic: 5 },
     { model: 8, memory: 10, color: 11, sim: 9, ram: 12, price: 13, diagnostic: 14 }
   ]);
-  assert.match(source, /const templateSync = tcSyncPriceTemplate_\(\);/);
+  assert.match(source, /tcSchedulePriceTemplateSync_\(\);/);
+  assert.match(source, /function syncTelegramPriceTemplate\(\)/);
   assert.match(source, /templateSpreadsheetId:TC\.priceTemplate\.spreadsheetId/);
   assert.match(source, /function runPriceTemplateSyncNow\(\)/);
   assert.match(source, /16zsIEQF1CqeQJWvskAChZQmZiRZj7NIxrzle_uKDM0I/);

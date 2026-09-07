@@ -75,9 +75,12 @@ function saveTelegramCatalogSetup(form) {
   return Object.assign(getTelegramCatalogSetup(), { message: tcSummary_(result) });
 }
 
-function runTelegramCatalogNow() { tcEnsureTrigger_(); const result = syncTelegramCatalog_(); return Object.assign(getTelegramCatalogSetup(), { message: tcSummary_(result) }); }
+function runTelegramCatalogNow() { tcEnsureTrigger_(); const result = syncTelegramCatalog_(); return Object.assign(getTelegramCatalogSetup(), { message: tcSummary_(result) + ' Синхронизация шаблона запланирована отдельным этапом.' }); }
 // Reconciliation for the separate customer template without rebuilding stage 1.
-function runPriceTemplateSyncNow() { tcAssertUlyanovskInvariants_(); const report = tcSyncPriceTemplate_(); return Object.assign(report, { message: tcPriceTemplateSummary_(report) }); }
+function runPriceTemplateSyncNow() {
+  const report = syncTelegramPriceTemplate();
+  return Object.assign(report, { message: report.skipped ? 'Шаблон цен ожидает завершения сборки каталога.' : tcPriceTemplateSummary_(report) });
+}
 function syncTelegramCatalog() {
   // A trigger may survive a copied project. Until the user has connected a
   // channel, it should silently do nothing rather than repeatedly fail.
@@ -90,9 +93,32 @@ function tcEnsureTrigger_() {
     const handler = t.getHandlerFunction();
     // Remove only this product's current trigger and the trigger of the
     // previous Telegram price-updater. Other project automations stay intact.
-    if (handler === 'syncTelegramCatalog' || handler === 'syncTelegramSupplier') ScriptApp.deleteTrigger(t);
+    if (handler === 'syncTelegramCatalog' || handler === 'syncTelegramSupplier' || handler === 'syncTelegramPriceTemplate') ScriptApp.deleteTrigger(t);
   });
   ScriptApp.newTrigger('syncTelegramCatalog').timeBased().everyMinutes(TC.everyMinutes).create();
+}
+
+// Stage 2 is deliberately a one-off trigger. This prevents a large supplier
+// rebuild and template matching from exhausting one Apps Script execution.
+function tcSchedulePriceTemplateSync_(delayMs) {
+  ScriptApp.getProjectTriggers().forEach(function(t) {
+    if (t.getHandlerFunction() === 'syncTelegramPriceTemplate') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('syncTelegramPriceTemplate').timeBased().after(Number(delayMs || 60000)).create();
+}
+
+function syncTelegramPriceTemplate() {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(1000)) {
+    // A manually started catalogue rebuild may still own the lock. Retry later
+    // instead of falsely reporting a completed template update.
+    tcSchedulePriceTemplateSync_(2 * 60 * 1000);
+    return { skipped: true, updated: 0, skippedByReason: {}, sheets: {} };
+  }
+  try {
+    tcAssertUlyanovskInvariants_();
+    return tcSyncPriceTemplate_();
+  } finally { lock.releaseLock(); }
 }
 
 function syncTelegramCatalog_() {
@@ -119,20 +145,18 @@ function syncTelegramCatalog_() {
       written += tcWriteSheet_(sheet, entries);
     });
     tcWriteMarkupDiagnostics_(book, markup.missingMarkupRows);
-    // The second stage remains supplier-free. It receives only this compact
-    // snapshot from a successful first-stage rebuild for truthful F/O reasons.
+    // Stage 2 receives only this compact snapshot for truthful F/O reasons.
     p.setProperty(TC.props.supplierModels, JSON.stringify(tcSupplierModels_(sourceRows)));
-    // The completed local catalogue is the only source for the external
-    // template: it already has selected country, markup and technical fields.
+    // Write all stage-1 changes before scheduling the separate template run.
     SpreadsheetApp.flush();
-    const templateSync = tcSyncPriceTemplate_();
+    tcSchedulePriceTemplateSync_();
     const now = new Date(); p.setProperty(TC.props.last, String(now.getTime()));
     p.setProperty(TC.props.status, 'Каталог обновлён: ' + written + ' позиций.');
     return {
       rows: rows.length, written: written, mirrored: mirror.mirrored,
       cheapest: cheapest.removed, markedUp: markup.applied, withoutMarkup: markup.withoutRule,
       withoutMarkupItems: markup.withoutMarkupItems,
-      skippedSheets: skippedSheets, templateSync: templateSync
+      skippedSheets: skippedSheets, templateSync: { queued: true }
     };
   } finally { lock.releaseLock(); }
 }
