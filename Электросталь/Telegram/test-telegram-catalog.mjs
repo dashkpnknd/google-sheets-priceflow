@@ -142,6 +142,13 @@ test('removes every iPhone 13 and 14 variant before the Elektrostal catalogue an
   assert.equal(priced.rows[0].price, 65000);
 });
 
+test('drops iPhone 13 and 14 while parsing the Elektrtostal supplier channel', () => {
+  const rows = api.tcParsePost_('📱 iPhone\n• iPhone 13 128GB Black — 40000 ₽\n• iPhone 14 Pro 256GB Blue — 70000 ₽\n• iPhone 15 128GB Black — 60000 ₽', 'astoredirect', '1');
+  assert.equal(rows.map((row) => row.name).join("|"), "iPhone 15 128GB Black");
+  const volume = api.tcParsePost_('📱 iPhone\n💼 Цена за объём\niPhone 13 128GB Black\n1 шт 40000 ₽\niPhone 15 128GB Black\n1 шт 60000 ₽', 'astoredirect', '2');
+  assert.equal(volume.map((row) => row.name).join("|"), "iPhone 15 128GB Black");
+});
+
 test('parses the supplier price-channel bullet format and keeps a country flag', () => {
   const rows = api.tcParsePost_('📱 iPhone\n💼 Цена за объём\n• iPhone 17 Pro 256GB Blue 🇯🇵 — 102.990 ₽', 'astoredirectprice', '6331');
   assert.equal(rows.length, 1);

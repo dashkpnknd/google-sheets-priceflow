@@ -309,6 +309,9 @@ function tcSummary_(result) {
 function tcNorm_(value) { return String(value || '').trim().toLocaleLowerCase('ru-RU'); }
 function tcDisplay_(product) { return [product.name, product.variant].filter(Boolean).join(' ').replace(/[\u{1F1E6}-\u{1F1FF}]{2}/gu, '').replace(/\s+/g, ' ').trim(); }
 
+/** Local parser rule: iPhone 13 and 14 never enter the prepared catalogue. */
+function tcIncludeParsedElektrostalRow_(row) { return Boolean(row) && !tcExcludedElektrostalSku_(row); }
+
 function tcApplyElektrostalMarkup_(rows) {
   let applied = 0, withoutRule = 0, excluded = 0;
   const priced = rows.filter(function(row) {
@@ -387,7 +390,7 @@ function tcFetchRows_(channel) {
     }
   });
   if (!rows.length) throw new Error('В актуальном прайсе Telegram не найдено ни одной подтверждённой цены. Каталог не изменён.');
-  return rows;
+  return rows.filter(tcIncludeParsedElektrostalRow_);
 }
 
 /** Extracts the permanent price-post IDs from the current pinned navigation. */
@@ -455,7 +458,7 @@ function tcParsePost_(text, channel, post) {
     const row = tcLine_(header, line, channel, post);
     return row && Object.assign(row, { section: section });
   })
-    .filter(function(row) { return row && TC.sheets.indexOf(row.category) >= 0; });
+    .filter(function(row) { return row && TC.sheets.indexOf(row.category) >= 0 && tcIncludeParsedElektrostalRow_(row); });
 }
 
 function tcParseVolumePost_(lines, channel, post) {
@@ -486,7 +489,7 @@ function tcParseVolumePost_(lines, channel, post) {
     // later Dyson/Garmin line in one Telegram post inherited "MacBook".
     else if (/^(?:Dyson|Garmin|PlayStation|PS[345]\b|Xbox|Samsung|Galaxy|Pixel|Xiaomi|Redmi|Honor|Huawei|OnePlus|Realme|Oppo|Vivo)\b/i.test(line)) { brand = ''; section = tcNorm_(line); }
   });
-  return rows.filter(function(row) { return TC.sheets.indexOf(row.category) >= 0; });
+  return rows.filter(function(row) { return TC.sheets.indexOf(row.category) >= 0 && tcIncludeParsedElektrostalRow_(row); });
 }
 
 function tcVolumeName_(brand, value) {
