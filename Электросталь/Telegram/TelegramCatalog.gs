@@ -10,11 +10,11 @@ const TC = {
   // the actual parsable text catalogue, so this is the default source.
   defaultChannel: 'astoredirectprice',
   // Fixed Elektrostal Avito workbook. Only Price is changed in these existing tabs.
-  avito: { spreadsheetId: '19Kj6HeZphLA-AgfpSKrKzn3rT1GwWSLAhd0GxCfpCPs', headerRow: 2, firstDataRow: 3, sheets: {
-    'телефоны': { sheetId: 838348454, kind: 'phone', diagnostic: true }, 'макбуки': { sheetId: 539164146, kind: 'title', diagnostic: true },
-    'айпады': { sheetId: 1754463282, kind: 'title', diagnostic: true }, 'часы': { sheetId: 1224239507, kind: 'title', diagnostic: true },
-    'наушники': { sheetId: 1413308519, kind: 'title', diagnostic: true }, 'пс': { sheetId: 391955201, kind: 'title', diagnostic: true },
-    'дайсон': { sheetId: 714982435, kind: 'title', diagnostic: true }
+  avito: { spreadsheetId: '1m5URqsUhyT164JjNFNTZFlZ1AucbXh9qNjCFTG120jQ', headerRow: 1, firstDataRow: 2, sheets: {
+    'телефоны': { sheetId: 0, kind: 'phone', diagnostic: true }, 'макбуки': { sheetId: 1408694438, kind: 'title', diagnostic: true },
+    'айпады': { sheetId: 1701833314, kind: 'title', diagnostic: true }, 'часы': { sheetId: 747664003, kind: 'title', diagnostic: true },
+    'наушники': { sheetId: 1484866470, kind: 'title', diagnostic: true }, 'пс': { sheetId: 1501757691, kind: 'title', diagnostic: true },
+    'дайсон': { sheetId: 1343291674, kind: 'title', diagnostic: true }
   } },
   props: { project: 'ES_TC_PROJECT', channel: 'ES_TC_CHANNEL', last: 'ES_TC_LAST', status: 'ES_TC_STATUS', supplierModels: 'ES_TC_READY_SUPPLIER_MODELS' }
 };
