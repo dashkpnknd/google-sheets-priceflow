@@ -341,11 +341,9 @@ function tcElektrostalMarkupAmount_(row) {
   if (!row) return null;
   const price = Number(row.price || 0), name = tcNorm_(tcDisplay_(row));
   if (price < 5000) return null;
-  // Only the explicitly approved phone groups have a city markup.  Other
-  // product families need their own rule before they can receive a price.
+  // Электросталь: Apple has its own scale; every other product family uses
+  // the Android scale, including watches, headphones, PlayStation and Dyson.
   const apple = /\b(?:iphone|ipad|macbook|imac|apple\s+watch|airpods|apple\s+tv|apple\s+pencil)\b/.test(name);
-  const android = /\b(?:samsung|galaxy|pixel|xiaomi|redmi|honor|huawei|oneplus|realme|oppo|vivo)\b/.test(name);
-  if (!apple && !(row.category === 'телефоны' && android)) return null;
   // Apple retains its final approved band at every higher price.
   if (apple && price > 225999) return 13000;
   if (!apple && price > 225999) return 15000;

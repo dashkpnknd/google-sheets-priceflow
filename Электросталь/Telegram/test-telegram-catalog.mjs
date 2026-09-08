@@ -117,7 +117,7 @@ test('recognises colours in any part of a Telegram item without inventing a miss
   assert.equal(api.tcColor_('iPhone 17 Pro 256GB eSIM 🇯🇵'), '');
 });
 
-test('applies only approved Elektrostal Apple/Android phone markups and never exposes a supplier cost', () => {
+test('applies the Apple scale to Apple and the Android scale to every other Elektrostal product', () => {
   const priced = api.tcApplyElektrostalMarkup_([
     { category: 'телефоны', name: 'iPhone 17 128GB', price: 15700 },
     { category: 'телефоны', name: 'Samsung Galaxy S25 256GB', price: 35700 },
@@ -132,10 +132,10 @@ test('applies only approved Elektrostal Apple/Android phone markups and never ex
     { category: 'аксессуары', name: 'USB-C cable', price: 380 },
     { category: 'макбуки', name: 'MacBook Pro 14 M5 Max 36/2 ТБ', price: 304000 }
   ]);
-  assert.deepEqual(priced.rows.map((row) => row.price), [19000,41000,121500,164500,42500,136500,33000,24000,317000]);
-  assert.deepEqual(priced.rows.map((row) => row.markup), [3000,5000,10000,13000,5000,9000,4000,4000,13000]);
-  assert.equal(priced.applied, 9);
-  assert.equal(priced.withoutRule, 3);
+  assert.deepEqual(priced.rows.map((row) => row.price), [19000,41000,121500,164500,42500,136500,33000,24000,38000,78500,317000]);
+  assert.deepEqual(priced.rows.map((row) => row.markup), [3000,5000,10000,13000,5000,9000,4000,4000,5000,8000,13000]);
+  assert.equal(priced.applied, 11);
+  assert.equal(priced.withoutRule, 1);
 });
 
 test('removes every iPhone 13 and 14 variant before the Elektrostal catalogue and markup', () => {
