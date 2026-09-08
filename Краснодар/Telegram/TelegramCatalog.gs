@@ -838,16 +838,6 @@ function krsParsePost_(text, postId) {
     // in the live post.  The product rows below it are bare HS/HD codes, so
     // retain that unambiguous parent category before parsing their prices.
     if (/\bdyson\b/i.test(line)) { context = 'Dyson'; seen(context); return; }
-    // Supplier posts may publish a product title on one line and then an
-    // explicit retail/volume price line below it.  `1 шт` is the stated main
-    // price; 3+/5+ are wholesale prices and must never replace it.
-    const onePiecePrice = krsOnePieceVolumePrice_(line);
-    if (onePiecePrice !== null) {
-      if (!context) { skipped.push('цена за объём без названия товара: ' + line); return; }
-      const parsedRows = krsRowsForCountries_(context, onePiecePrice, postId);
-      (Array.isArray(parsedRows) ? parsedRows : [parsedRows]).forEach(function(row) { rows.push(row); seen(row.name); });
-      return;
-    }
     if (/^\d+\s*шт\s+/i.test(line)) { skipped.push('неподдерживаемая объёмная цена: ' + line); return; }
     const parsed = krsInlineLine_(line, context, postId);
     if (parsed === 'skip') { seen(krsExpand_(context, line.replace(/\s*[—–-].*$/, ''))); return; }
@@ -868,10 +858,6 @@ function krsInlineLine_(line, context, postId) {
   if (match[3]) return 'skip';
   const price = Number(match[2].replace(/\s/g, '')); if (!price) return 'skip';
   return krsRowsForCountries_(krsExpand_(context, match[1]), price, postId);
-}
-function krsOnePieceVolumePrice_(line) {
-  const match = /^1\s*шт\s*[—–-]?\s*([\d\s]+)\s*(?:₽|р\.?|rub)?(?:\s*[·•]\s*(?:3|5)\+\s*[—–-]?\s*[\d\s]+\s*(?:₽|р\.?|rub)?)*\s*$/iu.exec(String(line || ''));
-  return match ? Number(match[1].replace(/\s/g, '')) : null;
 }
 function krsRowsForCountries_(name, price, postId) {
   const flags = Array.from(new Set(String(name).match(/[\u{1F1E6}-\u{1F1FF}]{2}/gu) || []));
