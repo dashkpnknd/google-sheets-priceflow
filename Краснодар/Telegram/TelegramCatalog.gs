@@ -870,6 +870,12 @@ function krsExpand_(context, item) {
   const flags = /^((?:[\u{1F1E6}-\u{1F1FF}]{2})+)\s*/u.exec(value);
   const core = (flags ? value.slice(flags[0].length) : value).replace(/^(?:[📍•·▪◦📱🎧🎮💼💻🔘🏠🕹️📸🔌🔥⚠️🔈⌚🤖👱🏽‍♀️\uFE0F]+\s*)+/u, '').trim();
   const suffix = flags ? ' ' + flags[1] : '';
+  // The live Краснодар Android post currently contains no section heading:
+  // its confirmed rows start directly with `S26`, `S26 Plus`, etc.  These
+  // unambiguous Samsung families must be expanded before category detection;
+  // unknown bare codes remain untouched and therefore fail closed.
+  if (!ctx && /^(?:s|a|m)\d+(?:\s+(?:ultra|plus|fe))?\b/i.test(core)) return 'Samsung Galaxy ' + core + suffix;
+  if (!ctx && /^z\s*(?:fold|flip)\d+(?:\s+ultra)?\b/i.test(core)) return 'Samsung Galaxy ' + core + suffix;
   if (!ctx) return core + suffix;
   if (/^iphone\s+\d+(?:e)?(?:\s+(?:pro max|pro|plus|air|mini))?$/i.test(ctx) && /^\d/.test(core)) return 'iPhone ' + core + suffix;
   if (/^iphone\s+air$/i.test(ctx) && !/^iphone\b/i.test(core)) return 'iPhone ' + core + suffix;
