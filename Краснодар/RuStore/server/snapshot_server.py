@@ -148,7 +148,9 @@ async def main() -> None:
                     set_status("needs_reauth", error="Telegram session is not authorized")
                     await asyncio.sleep(interval)
                     continue
-                count = await collect(client, int(os.environ.get("TG_HISTORY_LIMIT", "1000")))
+                # Краснодар must read the complete available channel history,
+                # not a count-limited prefix of Telegram posts.
+                count = await collect(client, None)
                 logging.warning("snapshot refreshed: %s posts", count)
             except Exception as error:
                 logging.exception("snapshot refresh failed")
