@@ -5,7 +5,9 @@
  */
 const TC = {
   sheets: ['телефоны', 'макбуки', 'айпады', 'часы', 'наушники', 'пс', 'дайсон', 'аймаки'],
-  everyMinutes: 15,
+  // A complete public-channel read needs hundreds of Telegram requests.
+  // Hourly refresh remains current without exhausting Apps Script UrlFetch.
+  everyHours: 1,
   // @astoredirect is the supplier's showcase. Its linked price feed publishes
   // the actual parsable text catalogue, so this is the default source.
   defaultChannel: 'astoredirectprice',
@@ -77,7 +79,7 @@ function tcEnsureTrigger_() {
     // previous Telegram price-updater. Other project automations stay intact.
     if (handler === 'syncTelegramCatalog' || handler === 'syncTelegramSupplier' || handler === 'syncTelegramPriceTemplate') ScriptApp.deleteTrigger(t);
   });
-  ScriptApp.newTrigger('syncTelegramCatalog').timeBased().everyMinutes(TC.everyMinutes).create();
+  ScriptApp.newTrigger('syncTelegramCatalog').timeBased().everyHours(TC.everyHours).create();
 }
 
 function tcSchedulePriceTemplateSync_(delayMs) {
@@ -305,7 +307,7 @@ function tcSummary_(result) {
     '. Наценка Электростали применена к ' + markedUp + ' позициям' +
     (withoutMarkup ? '. Без правила наценки: ' + withoutMarkup : '') +
     (excluded ? '. Исключены iPhone 13/14: ' + excluded : '') +
-    '. Далее обновляется автоматически каждые 15 минут.';
+    '. Далее обновляется автоматически каждый час.';
 }
 function tcNorm_(value) { return String(value || '').trim().toLocaleLowerCase('ru-RU'); }
 function tcDisplay_(product) { return [product.name, product.variant].filter(Boolean).join(' ').replace(/[\u{1F1E6}-\u{1F1FF}]{2}/gu, '').replace(/\s+/g, ' ').trim(); }

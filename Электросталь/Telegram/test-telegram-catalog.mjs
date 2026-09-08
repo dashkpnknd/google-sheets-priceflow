@@ -22,7 +22,7 @@ const context = {
     getProjectTriggers: () => scheduledTriggers.slice(),
     deleteTrigger: (trigger) => { const index = scheduledTriggers.indexOf(trigger); if (index >= 0) scheduledTriggers.splice(index, 1); },
     newTrigger: (handler) => ({ timeBased: () => ({
-      everyMinutes: () => ({ create: () => scheduledTriggers.push({ handler, mode:'recurring', getHandlerFunction() { return handler; } }) }),
+      everyHours: () => ({ create: () => scheduledTriggers.push({ handler, mode:'recurring', getHandlerFunction() { return handler; } }) }),
       after: (delay) => ({ create: () => scheduledTriggers.push({ handler, mode:'once', delay, getHandlerFunction() { return handler; } }) })
     }) })
   }
