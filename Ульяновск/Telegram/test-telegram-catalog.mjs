@@ -287,7 +287,7 @@ test('shared matcher preserves Ulyanovsk title safety and only plans Price', () 
   const layout = matcher.titleLayout(['Title', 'Price', 'DateEnd']);
   const plan = matcher.planTitle([{ title:'MacBook Air 13 M5 16/512 Blue', price:120000 }], 'макбуки', layout, [['MacBook Air 15 M5 16/512 Blue', 90000, '2099-01-01']]);
   assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row:0, price:'' }]);
-  assert.equal(matcher.runRegressionTests().passed, 29);
+  assert.equal(matcher.runRegressionTests().passed, 33);
 });
 
 test('shared matcher keeps iPad mini generations separate', () => {
@@ -386,15 +386,21 @@ test('excludes special conditions in every ready-catalogue field', () => {
   assert.equal(matcher.eligible('Galaxy S26 б/у'), false);
 });
 
-test('uses the agreed PS5 Slim fallback and isolates ordinary PS5 and OnTrac', () => {
+test('requires the explicit PS5 Slim Digital or Disc SKU and isolates ordinary PS5 and OnTrac', () => {
   const matcher = api.PriceFlowAvitoMatcher;
   const title = matcher.titleLayout(['Title', 'Price']);
   const ps = matcher.planTitle([
     { title:'PlayStation 5 Slim Digital 825 GB', price:60800, search:'PlayStation 5 Slim Digital 825 GB' },
     { title:'PlayStation 5 Slim Disc 1 TB', price:70100, search:'PlayStation 5 Slim Disc 1 TB' }
-  ], 'пс', title, [['PlayStation 5 Slim', ''], ['PlayStation 5', '']]);
-  assert.deepEqual(JSON.parse(JSON.stringify(ps.updates)), [{ row:0, price:60800 }]);
-  assert.deepEqual(JSON.parse(JSON.stringify(ps.ambiguous)), [{ row:0, title:'PlayStation 5 Slim', prices:[60800,70100] }]);
+  ], 'пс', title, [
+    ['PlayStation 5 Slim', ''],
+    ['PlayStation 5 Slim Digital', ''],
+    ['PlayStation 5 Slim с дисководом', ''],
+    ['PlayStation 5', '']
+  ]);
+  assert.deepEqual(JSON.parse(JSON.stringify(ps.updates)), [{ row:1, price:60800 }, { row:2, price:70100 }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(ps.ambiguous)), []);
+  assert.equal(ps.reasons[0], 'Нет точного SKU у поставщика');
   const ontrac = matcher.planTitle([{ title:'AirPods Pro 3', price:20000, search:'AirPods Pro 3' }], 'наушники', title, [['Dyson OnTrac', '12000']]);
   assert.deepEqual(JSON.parse(JSON.stringify(ontrac.updates)), [{ row:0, price:'' }]);
 });
