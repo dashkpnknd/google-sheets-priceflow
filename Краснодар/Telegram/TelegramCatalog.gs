@@ -834,6 +834,10 @@ function krsParsePost_(text, postId) {
   lines.forEach(function(raw) {
     const line = raw.replace(/^(?:[📍•·▪◦📱🎧🎮💼💻🔘🏠🕹️📸🔌🔥⚠️🔈⌚🤖👱🏽‍♀️\uFE0F]+\s*)+/u, '').trim();
     if (!line || /^(?:цена за объ[её]м|\d+\s*шт\s*[—-]\s*основная|указано по обычной цене|уточняйте|цены могут|конфигурац|если в прайсе|нашли дешевле)/i.test(line)) return;
+    // Emoji + skin-tone / ZWJ sequences may precede the only `Dyson` title
+    // in the live post.  The product rows below it are bare HS/HD codes, so
+    // retain that unambiguous parent category before parsing their prices.
+    if (/\bdyson\b/i.test(line)) { context = 'Dyson'; seen(context); return; }
     if (/^\d+\s*шт\s+/i.test(line)) { skipped.push('неподдерживаемая объёмная цена: ' + line); return; }
     const parsed = krsInlineLine_(line, context, postId);
     if (parsed === 'skip') { seen(krsExpand_(context, line.replace(/\s*[—–-].*$/, ''))); return; }
@@ -880,6 +884,7 @@ function krsExpand_(context, item) {
   if (/^iphone\s+\d+(?:e)?(?:\s+(?:pro max|pro|plus|air|mini))?$/i.test(ctx) && /^\d/.test(core)) return 'iPhone ' + core + suffix;
   if (/^iphone\s+air$/i.test(ctx) && !/^iphone\b/i.test(core)) return 'iPhone ' + core + suffix;
   if (/^macbook\b/i.test(ctx) && !/^macbook\b/i.test(core)) return 'MacBook ' + core + suffix;
+  if (/^dyson\b/i.test(ctx) && !/^dyson\b/i.test(core)) return 'Dyson ' + core + suffix;
   if (/^(?:apple\s+)?watch\b/i.test(ctx) && !/^(?:apple\s+)?watch\b/i.test(core)) return 'Apple Watch ' + core + suffix;
   if (/^airpods\b/i.test(ctx) && !/^airpods\b/i.test(core)) return 'AirPods ' + core + suffix;
   if (/^(?:samsung|galaxy|pixel|xiaomi|redmi|honor|huawei|oneplus|realme|oppo|vivo)$/i.test(ctx) && !/^(?:samsung|galaxy|pixel|xiaomi|redmi|honor|huawei|oneplus|realme|oppo|vivo)\b/i.test(core) && /\d/.test(core)) return ctx + ' ' + core + suffix;
