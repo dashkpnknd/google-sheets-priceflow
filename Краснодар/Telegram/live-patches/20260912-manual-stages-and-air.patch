@@ -1,0 +1,89 @@
+--- a/TelegramCatalog.gs
++++ b/TelegramCatalog.gs
+@@ -52,7 +52,7 @@
+   return Object.assign(getTelegramCatalogSetup(), { message: tcSummary_(result) });
+ }
+ 
+-function runTelegramCatalogNow() { tcEnsureTrigger_(); const result = syncTelegramCatalog_(); return Object.assign(getTelegramCatalogSetup(), { message: tcSummary_(result) + ' Синхронизация шаблона запланирована отдельным этапом.' }); }
++function runTelegramCatalogNow() { const result = syncTelegramCatalog_(); return Object.assign(getTelegramCatalogSetup(), { message: tcSummary_(result) + ' Этап 1 завершён; этап 2 запускается только отдельной явной функцией.' }); }
+ // Reconciliation for the separate customer template without rebuilding stage 1.
+ function runPriceTemplateSyncNow() {
+   const report = syncTelegramPriceTemplate();
+@@ -63,31 +63,10 @@
+   return syncTelegramCatalog_();
+ }
+ 
+-function tcEnsureTrigger_() {
+-  ScriptApp.getProjectTriggers().forEach(function(t) {
+-    const handler = t.getHandlerFunction();
+-    // Remove only this product's current trigger and the trigger of the
+-    // previous Telegram price-updater. Other project automations stay intact.
+-    if (handler === 'syncTelegramCatalog' || handler === 'syncTelegramSupplier' || handler === 'syncTelegramPriceTemplate') ScriptApp.deleteTrigger(t);
+-  });
+-  ScriptApp.newTrigger('syncTelegramCatalog').timeBased().everyMinutes(TC.everyMinutes).create();
+-}
+-
+-// Stage 2 is deliberately a one-off trigger. This prevents a large supplier
+-// rebuild and template matching from exhausting one Apps Script execution.
+-function tcSchedulePriceTemplateSync_(delayMs) {
+-  ScriptApp.getProjectTriggers().forEach(function(t) {
+-    if (t.getHandlerFunction() === 'syncTelegramPriceTemplate') ScriptApp.deleteTrigger(t);
+-  });
+-  ScriptApp.newTrigger('syncTelegramPriceTemplate').timeBased().after(Number(delayMs || 60000)).create();
+-}
+-
+ function syncTelegramPriceTemplate() {
+   const lock = LockService.getScriptLock();
+   if (!lock.tryLock(1000)) {
+-    // A manually started catalogue rebuild may still own the lock. Retry later
+-    // instead of falsely reporting a completed template update.
+-    tcSchedulePriceTemplateSync_(2 * 60 * 1000);
++    // Manual invocation must not schedule a retry or create a trigger.
+     return { skipped: true, updated: 0, skippedByReason: {}, sheets: {} };
+   }
+   try {
+@@ -122,14 +101,13 @@
+     });
+     // Stage 2 receives only this compact snapshot for truthful F/O reasons.
+     p.setProperty(TC.props.supplierModels, JSON.stringify(tcSupplierModels_(sourceRows)));
+-    // Write all stage-1 changes before scheduling the separate template run.
++    // Stage 1 ends after flushing the bound catalogue. Stage 2 is manual only.
+     SpreadsheetApp.flush();
+-    tcSchedulePriceTemplateSync_();
+     const now = new Date(); p.setProperty(TC.props.last, String(now.getTime()));
+     p.setProperty(TC.props.status, 'Каталог обновлён: ' + written + ' позиций.');
+     return {
+       rows: rows.length, written: written,
+-      skippedSheets: skippedSheets, templateSync: { queued: true }
++      skippedSheets: skippedSheets, templateSync: { queued: false }
+     };
+   } finally { lock.releaseLock(); }
+ }
+@@ -828,6 +806,9 @@
+ // Этот адаптер сохраняет его формат строк, но оставляет общее ядро Ульяновска
+ // ответственным за запись готового каталога и второй этап.
+ function krsInitialContext_(value) { return krsExpand_('', String(value || '').replace(/\r/g, '').trim()); }
++function krsSplitPackedIphoneAirRows_(value) {
++  return String(value || '').replace(/(\s*[—–-]\s*[\d\s]+(?:\s*(?:₽|р\.?|rub))?)(?=(?:[\u{1F1E6}-\u{1F1FF}]{2})+\s*Air\s+(?:256|512|1024)\b)/giu, '$1\n');
++}
+ function krsIsUnsupportedIphoneShort_(context, value) {
+   const ctx = String(context || '').replace(/[.·•]{3,}/g, '').trim(), core = String(value || '').trim();
+   if (!/^iphone\s+(?:air|\d+(?:e)?(?:\s+(?:pro max|pro|plus|air|mini))?)$/i.test(ctx) || !/^\d/.test(core)) return false;
+@@ -837,7 +818,7 @@
+   return String(value || '').replace(/^(iPhone\s+(?:Air|\d+(?:e)?(?:\s+(?:Pro Max|Pro|Plus|Air|Mini))?)\s+)(256|512|1024)(?=\s|$)/i, '$1$2 ГБ');
+ }
+ function krsParsePost_(text, postId, sourceContext) {
+-  const lines = String(text || '').replace(/\r/g, '').split('\n').map(function(line) { return line.trim(); }).filter(Boolean);
++  const lines = krsSplitPackedIphoneAirRows_(text).replace(/\r/g, '').split('\n').map(function(line) { return line.trim(); }).filter(Boolean);
+   const rows = [], skipped = [], categories = {}; let context = krsInitialContext_(sourceContext);
+   const seen = function(value) { const category = krsCategory_(value); if (category !== 'прочее') categories[category] = true; };
+   lines.forEach(function(raw) {
+@@ -893,7 +874,7 @@
+   if (!ctx) return krsNormalizeBareIphoneMemory_(core + suffix);
+   if (/^iphone\s+(?:air|\d+(?:e)?(?:\s+(?:pro max|pro|plus|air|mini))?)$/i.test(ctx) && /^(?:256|512|1024)(?=\s|$)/.test(core)) return krsNormalizeBareIphoneMemory_(ctx + ' ' + core + suffix);
+   if (/^iphone\s+\d+(?:e)?(?:\s+(?:pro max|pro|plus|air|mini))?$/i.test(ctx) && /^\d/.test(core)) return krsNormalizeBareIphoneMemory_('iPhone ' + core + suffix);
+-  if (/^iphone\s+air$/i.test(ctx) && !/^iphone\b/i.test(core)) return 'iPhone ' + core + suffix;
++  if (/^iphone\s+air$/i.test(ctx) && !/^iphone\b/i.test(core)) return krsNormalizeBareIphoneMemory_('iPhone ' + core + suffix);
+   if (/^macbook\b/i.test(ctx) && !/^macbook\b/i.test(core)) return 'MacBook ' + core + suffix;
+   if (/^dyson\b/i.test(ctx) && !/^dyson\b/i.test(core)) return 'Dyson ' + core + suffix;
+   if (/^(?:apple\s+)?watch\b/i.test(ctx) && !/^(?:apple\s+)?watch\b/i.test(core)) return 'Apple Watch ' + core + suffix;
