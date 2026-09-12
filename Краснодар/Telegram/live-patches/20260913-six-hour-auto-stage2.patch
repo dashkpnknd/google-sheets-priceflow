@@ -1,0 +1,30 @@
+--- a/TelegramCatalog.gs
++++ b/TelegramCatalog.gs
+@@ -55,1 +55,1 @@
+-function runTelegramCatalogNow() { const result = syncTelegramCatalog_(); return Object.assign(getTelegramCatalogSetup(), { message: tcSummary_(result) + ' Этап 1 завершён; этап 2 запускается только отдельной явной функцией.' }); }
++function runTelegramCatalogNow() { const result = syncTelegramCatalog_(); return Object.assign(getTelegramCatalogSetup(), { message: tcSummary_(result) + ' Этап 2 запланирован одноразово.' }); }
+@@ -63,4 +63,11 @@
+   return syncTelegramCatalog_();
+ }
+ 
++function tcSchedulePriceTemplateOnce_() {
++  ScriptApp.getProjectTriggers().forEach(function(t) {
++    if (t.getHandlerFunction() === 'syncTelegramPriceTemplate') ScriptApp.deleteTrigger(t);
++  });
++  ScriptApp.newTrigger('syncTelegramPriceTemplate').timeBased().after(60 * 1000).create();
++}
++
+ function syncTelegramPriceTemplate() {
+@@ -103,8 +110,9 @@
+     p.setProperty(TC.props.supplierModels, JSON.stringify(tcSupplierModels_(sourceRows)));
+-    // Stage 1 ends after flushing the bound catalogue. Stage 2 is manual only.
+-    SpreadsheetApp.flush();
++    // Only a successful stage 1 may queue one deduplicated one-off stage 2.
++    SpreadsheetApp.flush();
++    tcSchedulePriceTemplateOnce_();
+     const now = new Date(); p.setProperty(TC.props.last, String(now.getTime()));
+     p.setProperty(TC.props.status, 'Каталог обновлён: ' + written + ' позиций.');
+     return {
+       rows: rows.length, written: written,
+-      skippedSheets: skippedSheets, templateSync: { queued: false }
++      skippedSheets: skippedSheets, templateSync: { queued: true }
