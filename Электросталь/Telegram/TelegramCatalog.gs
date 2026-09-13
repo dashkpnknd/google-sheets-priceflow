@@ -20,7 +20,7 @@ const TC = {
     'наушники': { sheetName: 'наушники', kind: 'title' }, 'пс': { sheetName: 'пс', kind: 'title' },
     'дайсон': { sheetName: 'дайсон', kind: 'title' }
   } },
-  props: { project: 'ES_TC_PROJECT', channel: 'ES_TC_CHANNEL', last: 'ES_TC_LAST', status: 'ES_TC_STATUS', templateLastReport: 'ES_TC_TEMPLATE_LAST_REPORT', supplierModels: 'ES_TC_READY_SUPPLIER_MODELS' }
+  props: { project: 'ES_TC_PROJECT', channel: 'ES_TC_CHANNEL', historyFloor: 'ES_TC_HISTORY_FLOOR', last: 'ES_TC_LAST', status: 'ES_TC_STATUS', templateLastReport: 'ES_TC_TEMPLATE_LAST_REPORT', supplierModels: 'ES_TC_READY_SUPPLIER_MODELS' }
 };
 
 function onOpen() {
@@ -358,15 +358,12 @@ function tcFetchRows_(channel) {
   // For this supplier every post in the public channel is an active price.
   // Do not use the navigation post as a filter: it can lag behind new product
   // sections and silently leave those models out of the ready catalogue.
-  const initialUrl = 'https://t.me/s/' + channel;
+  const floor = tcTelegramHistoryFloor_(), initialUrl = 'https://t.me/s/' + channel;
   const initial = tcTelegramPage_(initialUrl, channel), rows = initial.rows;
   const firstCursor = tcTelegramBefore_(initial.previous);
   if (firstCursor) {
-    // Telegram page IDs are monotonic.  Requesting each twenty-message window
-    // in parallel is complete even if a deleted post makes windows overlap,
-    // and keeps a full public-channel read inside Apps Script's time limit.
     const requests = [];
-    for (let before = firstCursor; before > 0; before -= 20) {
+    for (let before = firstCursor; before > floor; before -= 20) {
       requests.push('https://t.me/s/' + channel + '?before=' + before);
     }
     for (let start = 0; start < requests.length; start += 25) {
@@ -377,6 +374,12 @@ function tcFetchRows_(channel) {
   }
   if (!rows.length) throw new Error('В актуальном прайсе Telegram не найдено ни одной подтверждённой цены. Каталог не изменён.');
   return tcUniqueRows_(rows).filter(tcIncludeParsedElektrostalRow_);
+}
+
+function tcTelegramHistoryFloor_() {
+  const value = String(PropertiesService.getScriptProperties().getProperty(TC.props.historyFloor) || '').trim();
+  if (!/^[1-9]\d*$/.test(value)) throw new Error('Не задан или некорректен ES_TC_HISTORY_FLOOR. Каталог не изменён.');
+  return Number(value);
 }
 
 function tcTelegramPage_(url, channel) {

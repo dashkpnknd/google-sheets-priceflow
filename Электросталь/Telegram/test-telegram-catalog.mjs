@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const source = fs.readFileSync(new URL('../../PriceFlowAvitoMatcher.gs', import.meta.url), 'utf8') + '\n' + fs.readFileSync(new URL('../../PriceFlowTemplateMatcher.gs', import.meta.url), 'utf8') + '\n' + fs.readFileSync(new URL('./TelegramCatalog.gs', import.meta.url), 'utf8') + `
-globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcModel_,tcColor_,tcAndroidTechnicalModifiers_,tcLayouts_,tcLayoutFor_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcApplyElektrostalMarkup_,tcElektrostalMarkupAmount_,tcExpand_,tcFetchRows_,tcNavigationPostIds_,tcParsePreview_,tcContinuationInfo_,tcEligibleForCatalogue_,tcEnsureTrigger_,tcSchedulePriceTemplateSync_,PriceFlowAvitoMatcher,PriceFlowTemplateMatcher};`;
+globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcModel_,tcColor_,tcAndroidTechnicalModifiers_,tcLayouts_,tcLayoutFor_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcApplyElektrostalMarkup_,tcElektrostalMarkupAmount_,tcExpand_,tcFetchRows_,tcNavigationPostIds_,tcParsePreview_,tcContinuationInfo_,tcEligibleForCatalogue_,tcEnsureTrigger_,tcSchedulePriceTemplateSync_,syncTelegramCatalog_,PriceFlowAvitoMatcher,PriceFlowTemplateMatcher};`;
 const parseCsv = (value) => String(value).trim().split(/\r?\n/).map((line) => {
   const cells = []; let current = ''; let quoted = false;
   for (let index = 0; index < line.length; index++) {
@@ -18,6 +18,7 @@ const parseCsv = (value) => String(value).trim().split(/\r?\n/).map((line) => {
 const scheduledTriggers = [];
 const context = {
   console, Utilities: { parseCsv },
+  PropertiesService: { getScriptProperties: () => ({ getProperty: key => key === 'ES_TC_HISTORY_FLOOR' ? '11738' : '' }) },
   ScriptApp: {
     getProjectTriggers: () => scheduledTriggers.slice(),
     deleteTrigger: (trigger) => { const index = scheduledTriggers.indexOf(trigger); if (index >= 0) scheduledTriggers.splice(index, 1); },
@@ -184,28 +185,114 @@ test('recognises declared continuation labels in a price section', () => {
   assert.equal(api.tcContinuationInfo_('📱 iPhone (часть 3/3)\n17 128GB Black — 70 000 ₽').part, 3);
 });
 
-test('reads every Telegram history page, including product posts absent from navigation', () => {
+test('a configured history floor never requests its terminal Telegram page', () => {
   const message = (id, text) => '<div class="tgme_widget_message_wrap"><div data-post="astoredirectprice/' + id + '"></div><div class="tgme_widget_message_text">' + text.replace(/\n/g, '<br>') + '</div></div>';
-  const pages = {
-    'https://t.me/s/astoredirectprice': message(102, 'Навигация по прайсу') + message(101, 'iPhone\niPhone 17 256GB Black (eSim) — 70 000 ₽') + '<a href="/s/astoredirectprice?before=100" class="tme_messages_more">more</a>',
-    'https://t.me/s/astoredirectprice?before=100': message(100, 'iPhone\niPhone 16 128GB Blue (eSim) — 61 000 ₽'),
-    'https://t.me/s/astoredirectprice?before=80': ''
+  const root = 'https://t.me/s/astoredirectprice';
+  const requested = [];
+  const pageFor = (url) => {
+    if (url === root) return message(102, 'Навигация по прайсу') + message(101, 'iPhone\niPhone 17 256GB Black (eSim) — 70 000 ₽') + '<a href="/s/astoredirectprice?before=11758" class="tme_messages_more">more</a>';
+    if (url.endsWith('before=11758')) return message(100, 'iPhone\niPhone 16 128GB Blue (eSim) — 61 000 ₽');
+    throw new Error('Unexpected URL: ' + url);
   };
-  context.UrlFetchApp = { fetch(url) { return { getResponseCode: () => 200, getContentText: () => pages[url] || '' }; } };
+  context.UrlFetchApp = {
+    fetch(url) { requested.push(url); return { getResponseCode: () => 200, getContentText: () => pageFor(url) }; },
+    fetchAll(requests) { requested.push(...requests.map(request => request.url)); return requests.map((request) => ({ getResponseCode: () => 200, getContentText: () => pageFor(request.url) })); }
+  };
   const rows = api.tcFetchRows_('astoredirectprice');
   assert.deepEqual(Array.from(rows, row => [row.post, row.price]), [['101', 70000], ['100', 61000]]);
+  assert.equal(requested.includes(root + '?before=11738'), false);
   assert.match(source, /every post in the public channel is an active price/);
 });
 
 test('does not duplicate a Telegram post repeated at a page boundary', () => {
   const message = (id) => '<div class="tgme_widget_message_wrap"><div data-post="astoredirectprice/' + id + '"></div><div class="tgme_widget_message_text">iPhone\niPhone 17 256GB Black (eSim) — 70 000 ₽</div></div>';
-  const pages = {
-    'https://t.me/s/astoredirectprice': message(101) + '<a href="/s/astoredirectprice?before=100" class="tme_messages_more">more</a>',
-    'https://t.me/s/astoredirectprice?before=100': message(101),
-    'https://t.me/s/astoredirectprice?before=80': ''
+  const root = 'https://t.me/s/astoredirectprice';
+  const pageFor = (url) => {
+    if (url.endsWith('before=1')) return '<div class="tgme_channel_info"></div><a href="/s/astoredirectprice?after=1" class="tme_messages_more">newer</a>';
+    if (url === root) return '<div class="tgme_channel_info"></div>' + message(101) + '<a href="/s/astoredirectprice?before=100" class="tme_messages_more">more</a>';
+    return '<div class="tgme_channel_info"></div>' + message(101) + '<a href="/s/astoredirectprice?before=1" class="tme_messages_more">more</a>';
   };
-  context.UrlFetchApp = { fetch(url) { return { getResponseCode: () => 200, getContentText: () => pages[url] || '' }; } };
+  context.UrlFetchApp = {
+    fetch(url) { return { getResponseCode: () => 200, getContentText: () => pageFor(url) }; },
+    fetchAll(requests) { return requests.map((request) => ({ getResponseCode: () => 200, getContentText: () => pageFor(request.url) })); }
+  };
   assert.equal(api.tcFetchRows_('astoredirectprice').length, 1);
+});
+
+test('an empty or invalid history floor blocks the catalogue before any write', () => {
+  const saved = {
+    LockService: context.LockService,
+    PropertiesService: context.PropertiesService,
+    SpreadsheetApp: context.SpreadsheetApp,
+    UrlFetchApp: context.UrlFetchApp,
+    tcAssertCommonInvariants_: context.tcAssertCommonInvariants_,
+    tcSchedulePriceTemplateSync_: context.tcSchedulePriceTemplateSync_
+  };
+  let spreadsheetAccesses = 0;
+  let stage2Schedules = 0;
+  try {
+    context.tcAssertCommonInvariants_ = () => {};
+    context.LockService = { getScriptLock: () => ({ tryLock: () => true, releaseLock: () => {} }) };
+    context.SpreadsheetApp = { getActiveSpreadsheet: () => { spreadsheetAccesses++; return {}; } };
+    context.tcSchedulePriceTemplateSync_ = () => { stage2Schedules++; };
+    context.UrlFetchApp = { fetch: () => { throw new Error('Telegram must not be called'); } };
+    ['', 'not-a-number'].forEach(floor => {
+      context.PropertiesService = { getScriptProperties: () => ({
+        getProperty: key => key === 'ES_TC_CHANNEL' ? 'astoredirectprice' : key === 'ES_TC_HISTORY_FLOOR' ? floor : '',
+        setProperty: () => {}
+      }) };
+      assert.throws(() => api.syncTelegramCatalog_(), /ES_TC_HISTORY_FLOOR/);
+    });
+    assert.equal(spreadsheetAccesses, 0);
+    assert.equal(stage2Schedules, 0);
+  } finally {
+    Object.assign(context, saved);
+  }
+});
+
+test('fails closed on a Telegram transport error before writing or scheduling stage 2', () => {
+  const saved = {
+    LockService: context.LockService,
+    PropertiesService: context.PropertiesService,
+    SpreadsheetApp: context.SpreadsheetApp,
+    UrlFetchApp: context.UrlFetchApp,
+    tcAssertCommonInvariants_: context.tcAssertCommonInvariants_,
+    tcSchedulePriceTemplateSync_: context.tcSchedulePriceTemplateSync_
+  };
+  let spreadsheetAccesses = 0;
+  let stage2Schedules = 0;
+  const root = 'https://t.me/s/astoredirectprice';
+  const message = '<div class="tgme_widget_message_wrap"><div data-post="astoredirectprice/100"></div><div class="tgme_widget_message_text">iPhone 15 128GB</div></div>';
+  const historyPage = '<div class="tgme_channel_info"></div>' + message + '<a href="/s/astoredirectprice?before=11758" class="tme_messages_more"></a>';
+
+  try {
+    context.tcAssertCommonInvariants_ = () => {};
+    context.LockService = { getScriptLock: () => ({ tryLock: () => true, releaseLock: () => {} }) };
+    context.PropertiesService = {
+      getScriptProperties: () => ({
+        getProperty: key => key === 'ES_TC_CHANNEL' ? 'astoredirectprice' : key === 'ES_TC_HISTORY_FLOOR' ? '11738' : '',
+        setProperty: () => {}
+      })
+    };
+    context.SpreadsheetApp = {
+      getActiveSpreadsheet: () => { spreadsheetAccesses++; return {}; },
+      flush: () => { spreadsheetAccesses++; }
+    };
+    context.tcSchedulePriceTemplateSync_ = () => { stage2Schedules++; };
+    context.UrlFetchApp = {
+      fetch: url => ({
+        getResponseCode: () => 200,
+        getContentText: () => url === root ? historyPage : ''
+      }),
+      fetchAll: () => { throw new Error('Address unavailable'); }
+    };
+
+    assert.throws(() => api.syncTelegramCatalog_(), /Address unavailable/);
+    assert.equal(spreadsheetAccesses, 0);
+    assert.equal(stage2Schedules, 0);
+  } finally {
+    Object.assign(context, saved);
+  }
 });
 
 test('parses a history page and exposes the previous page cursor for full-channel reading', () => {
