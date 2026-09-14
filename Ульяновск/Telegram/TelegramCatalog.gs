@@ -6,7 +6,14 @@
  */
 const TC = {
   sheets: ['телефоны', 'макбуки', 'айпады', 'часы', 'наушники', 'пс', 'дайсон', 'аймаки'],
-  everyMinutes: 15,
+  // The working catalogue is intentionally paced: one recurring city cycle
+  // every six hours, plus a single stage-2 continuation after a successful
+  // stage 1.
+  everyHours: 6,
+  minSourceRows: {
+    'телефоны': 500, 'макбуки': 20, 'айпады': 40, 'часы': 40,
+    'наушники': 20, 'пс': 10, 'дайсон': 50, 'аймаки': 1
+  },
   // Current Uniseil price sheet. The synchronizer discovers this link again
   // from the latest public channel menu before every run, so a supplier link
   // replacement does not bring back historical Telegram products.
@@ -70,12 +77,12 @@ function saveTelegramCatalogSetup(form) {
   const p = PropertiesService.getScriptProperties();
   p.setProperty(TC.props.project, project); p.setProperty(TC.props.channel, channel);
   p.setProperty(TC.props.mirrorTwoSim, String(Boolean(form && form.mirrorTwoSim)));
-  tcEnsureTrigger_();
   const result = syncTelegramCatalog_();
+  tcEnsureTrigger_();
   return Object.assign(getTelegramCatalogSetup(), { message: tcSummary_(result) });
 }
 
-function runTelegramCatalogNow() { tcEnsureTrigger_(); const result = syncTelegramCatalog_(); return Object.assign(getTelegramCatalogSetup(), { message: tcSummary_(result) + ' Синхронизация шаблона запланирована отдельным этапом.' }); }
+function runTelegramCatalogNow() { const result = syncTelegramCatalog_(); tcEnsureTrigger_(); return Object.assign(getTelegramCatalogSetup(), { message: tcSummary_(result) + ' Синхронизация шаблона запланирована отдельным этапом.' }); }
 // Reconciliation for the separate customer template without rebuilding stage 1.
 function runPriceTemplateSyncNow() {
   const report = syncTelegramPriceTemplate();
@@ -95,30 +102,38 @@ function tcEnsureTrigger_() {
     // previous Telegram price-updater. Other project automations stay intact.
     if (handler === 'syncTelegramCatalog' || handler === 'syncTelegramSupplier' || handler === 'syncTelegramPriceTemplate') ScriptApp.deleteTrigger(t);
   });
-  ScriptApp.newTrigger('syncTelegramCatalog').timeBased().everyMinutes(TC.everyMinutes).create();
+  ScriptApp.newTrigger('syncTelegramCatalog').timeBased().everyHours(TC.everyHours).create();
 }
 
 // Stage 2 is deliberately a one-off trigger. This prevents a large supplier
 // rebuild and template matching from exhausting one Apps Script execution.
 function tcSchedulePriceTemplateSync_(delayMs) {
+  tcClearPriceTemplateTriggers_();
+  ScriptApp.newTrigger('syncTelegramPriceTemplate').timeBased().after(Number(delayMs || 60000)).create();
+}
+
+function tcClearPriceTemplateTriggers_() {
   ScriptApp.getProjectTriggers().forEach(function(t) {
     if (t.getHandlerFunction() === 'syncTelegramPriceTemplate') ScriptApp.deleteTrigger(t);
   });
-  ScriptApp.newTrigger('syncTelegramPriceTemplate').timeBased().after(Number(delayMs || 60000)).create();
 }
 
 function syncTelegramPriceTemplate() {
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(1000)) {
-    // A manually started catalogue rebuild may still own the lock. Retry later
-    // instead of falsely reporting a completed template update.
-    tcSchedulePriceTemplateSync_(2 * 60 * 1000);
+    // Do not create a retry storm. A new stage 2 is scheduled only by a later
+    // successful stage 1, and this skipped attempt is visible in diagnostics.
+    tcClearPriceTemplateTriggers_();
     return { skipped: true, updated: 0, skippedByReason: {}, sheets: {} };
   }
   try {
     tcAssertUlyanovskInvariants_();
     return tcSyncPriceTemplate_();
-  } finally { lock.releaseLock(); }
+  } finally {
+    lock.releaseLock();
+    // `after()` triggers otherwise remain as disabled rows after they run.
+    tcClearPriceTemplateTriggers_();
+  }
 }
 
 function syncTelegramCatalog_() {
@@ -579,15 +594,23 @@ function tcFetchSupplierSheetRows_(channel) {
   }
   const rows = tcParseSupplierSheetCsv_(response.getContentText(), sheetId);
   if (!rows.length) throw new Error('В актуальном прайсе поставщика не найдено ни одной подтверждённой цены. Каталог не изменён.');
+  tcAssertSupplierSnapshotComplete_(rows);
   return rows;
 }
 
 function tcDiscoverSupplierSheetId_(channel) {
-  const fallback = TC.supplierSheetId;
   const response = UrlFetchApp.fetch('https://t.me/s/' + channel, { muteHttpExceptions: true });
-  if (response.getResponseCode() !== 200) return fallback;
+  if (response.getResponseCode() !== 200) throw new Error('Не удалось проверить свежую ссылку на прайс поставщика (HTTP ' + response.getResponseCode() + '). Каталог не изменён.');
   const found = /https:\/\/docs\.google\.com\/spreadsheets\/d\/([A-Za-z0-9_-]+)/i.exec(response.getContentText());
-  return found && found[1] || fallback;
+  if (!found) throw new Error('В актуальном сообщении @' + channel + ' нет ссылки на прайс. Каталог не изменён.');
+  return found[1];
+}
+
+function tcAssertSupplierSnapshotComplete_(rows) {
+  const counts = {};
+  rows.forEach(function(row) { counts[row.category] = Number(counts[row.category] || 0) + 1; });
+  const missing = TC.sheets.filter(function(name) { return Number(counts[name] || 0) < Number(TC.minSourceRows[name] || 1); });
+  if (missing.length) throw new Error('Неполный или устаревший snapshot прайса: ' + missing.map(function(name) { return name + ' (' + Number(counts[name] || 0) + '/' + TC.minSourceRows[name] + ')'; }).join(', ') + '. Каталог и этап 2 не изменены.');
 }
 
 function tcParseSupplierSheetCsv_(csv, sheetId) {

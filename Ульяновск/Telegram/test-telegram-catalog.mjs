@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const source = fs.readFileSync(new URL('../../PriceFlowAvitoMatcher.gs', import.meta.url), 'utf8') + '\n' + fs.readFileSync(new URL('../../PriceFlowTemplateMatcher.gs', import.meta.url), 'utf8') + '\n' + fs.readFileSync(new URL('./TelegramCatalog.gs', import.meta.url), 'utf8') + `
-globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcColor_,tcColorGroup_,tcModel_,tcAndroidTechnicalModifiers_,tcIsAsis_,tcLayouts_,tcTargetRow_,tcParsePost_,tcParseSupplierSheetCsv_,tcLine_,tcExpand_,tcSummary_,tcProductSort_,tcAddTwoSimMirror_,tcParseMarkupCsv_,tcApplyUlyanovskMarkup_,tcMarkupAmount_,tcMarkupKey_,tcAndroidMarkupKey_,tcEnsureTrigger_,tcSchedulePriceTemplateSync_,PriceFlowAvitoMatcher,PriceFlowTemplateMatcher};`;
+globalThis.API={TC,tcChannel_,tcCategory_,tcPhone_,tcColor_,tcColorGroup_,tcModel_,tcAndroidTechnicalModifiers_,tcIsAsis_,tcLayouts_,tcTargetRow_,tcParsePost_,tcParseSupplierSheetCsv_,tcAssertSupplierSnapshotComplete_,tcLine_,tcExpand_,tcSummary_,tcProductSort_,tcAddTwoSimMirror_,tcParseMarkupCsv_,tcApplyUlyanovskMarkup_,tcMarkupAmount_,tcMarkupKey_,tcAndroidMarkupKey_,tcEnsureTrigger_,tcSchedulePriceTemplateSync_,tcClearPriceTemplateTriggers_,PriceFlowAvitoMatcher,PriceFlowTemplateMatcher};`;
 const parseCsv = (value) => String(value).trim().split(/\r?\n/).map((line) => {
   const cells = []; let current = ''; let quoted = false;
   for (let index = 0; index < line.length; index++) {
@@ -24,6 +24,7 @@ const context = {
     deleteTrigger: (trigger) => { const index = scheduledTriggers.indexOf(trigger); if (index >= 0) scheduledTriggers.splice(index, 1); },
     newTrigger: (handler) => ({ timeBased: () => ({
       everyMinutes: () => ({ create: () => scheduledTriggers.push({ handler, mode:'recurring', getHandlerFunction() { return handler; } }) }),
+      everyHours: (hours) => ({ create: () => scheduledTriggers.push({ handler, mode:'recurring', hours, getHandlerFunction() { return handler; } }) }),
       after: (delay) => ({ create: () => scheduledTriggers.push({ handler, mode:'once', delay, getHandlerFunction() { return handler; } }) })
     }) })
   }
@@ -54,7 +55,13 @@ test('runs the template as a later one-off stage and clears a legacy template tr
   api.tcSchedulePriceTemplateSync_(60000);
   assert.deepEqual(JSON.parse(JSON.stringify(scheduledTriggers.map((trigger) => [trigger.handler, trigger.mode, trigger.delay]))), [['syncTelegramPriceTemplate', 'once', 60000]]);
   api.tcEnsureTrigger_();
-  assert.deepEqual(JSON.parse(JSON.stringify(scheduledTriggers.map((trigger) => [trigger.handler, trigger.mode]))), [['syncTelegramCatalog', 'recurring']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(scheduledTriggers.map((trigger) => [trigger.handler, trigger.mode, trigger.hours]))), [['syncTelegramCatalog', 'recurring', 6]]);
+});
+
+test('keeps iMac in stage 1 only and rejects an incomplete supplier snapshot before any write', () => {
+  assert.equal(api.TC.sheets.includes('аймаки'), true);
+  assert.equal(Object.hasOwn(api.TC.priceTemplate.sheets, 'аймаки'), false);
+  assert.throws(() => api.tcAssertSupplierSnapshotComplete_([{ category:'телефоны' }]), /Неполный или устаревший snapshot/);
 });
 
 test('routes all standard source product families to client tabs', () => {
