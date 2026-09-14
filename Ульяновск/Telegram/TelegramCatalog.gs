@@ -78,11 +78,11 @@ function saveTelegramCatalogSetup(form) {
   p.setProperty(TC.props.project, project); p.setProperty(TC.props.channel, channel);
   p.setProperty(TC.props.mirrorTwoSim, String(Boolean(form && form.mirrorTwoSim)));
   const result = syncTelegramCatalog_();
-  tcEnsureTrigger_();
+  tcEnsureTrigger_(true);
   return Object.assign(getTelegramCatalogSetup(), { message: tcSummary_(result) });
 }
 
-function runTelegramCatalogNow() { const result = syncTelegramCatalog_(); tcEnsureTrigger_(); return Object.assign(getTelegramCatalogSetup(), { message: tcSummary_(result) + ' Синхронизация шаблона запланирована отдельным этапом.' }); }
+function runTelegramCatalogNow() { const result = syncTelegramCatalog_(); tcEnsureTrigger_(true); return Object.assign(getTelegramCatalogSetup(), { message: tcSummary_(result) + ' Синхронизация шаблона запланирована отдельным этапом.' }); }
 // Reconciliation for the separate customer template without rebuilding stage 1.
 function runPriceTemplateSyncNow() {
   const report = syncTelegramPriceTemplate();
@@ -95,12 +95,12 @@ function syncTelegramCatalog() {
   return syncTelegramCatalog_();
 }
 
-function tcEnsureTrigger_() {
+function tcEnsureTrigger_(preserveStage2) {
   ScriptApp.getProjectTriggers().forEach(function(t) {
     const handler = t.getHandlerFunction();
     // Remove only this product's current trigger and the trigger of the
     // previous Telegram price-updater. Other project automations stay intact.
-    if (handler === 'syncTelegramCatalog' || handler === 'syncTelegramSupplier' || handler === 'syncTelegramPriceTemplate') ScriptApp.deleteTrigger(t);
+    if (handler === 'syncTelegramCatalog' || handler === 'syncTelegramSupplier' || (!preserveStage2 && handler === 'syncTelegramPriceTemplate')) ScriptApp.deleteTrigger(t);
   });
   ScriptApp.newTrigger('syncTelegramCatalog').timeBased().everyHours(TC.everyHours).create();
 }

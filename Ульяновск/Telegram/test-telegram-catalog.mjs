@@ -58,6 +58,16 @@ test('runs the template as a later one-off stage and clears a legacy template tr
   assert.deepEqual(JSON.parse(JSON.stringify(scheduledTriggers.map((trigger) => [trigger.handler, trigger.mode, trigger.hours]))), [['syncTelegramCatalog', 'recurring', 6]]);
 });
 
+test('keeps the newly scheduled stage 2 trigger when stage 1 arms the six-hour trigger', () => {
+  scheduledTriggers.splice(0, scheduledTriggers.length);
+  api.tcSchedulePriceTemplateSync_(60000);
+  api.tcEnsureTrigger_(true);
+  assert.deepEqual(JSON.parse(JSON.stringify(scheduledTriggers.map((trigger) => [trigger.handler, trigger.mode, trigger.hours]))), [
+    ['syncTelegramPriceTemplate', 'once', null],
+    ['syncTelegramCatalog', 'recurring', 6]
+  ]);
+});
+
 test('keeps iMac in stage 1 only and rejects an incomplete supplier snapshot before any write', () => {
   assert.equal(api.TC.sheets.includes('аймаки'), true);
   assert.equal(Object.hasOwn(api.TC.priceTemplate.sheets, 'аймаки'), false);
