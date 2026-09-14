@@ -1,0 +1,35 @@
+--- a/TelegramCatalog.gs
++++ b/TelegramCatalog.gs
+@@
+ function tcRunKrasnodarRegressionTests() {
++  krsCompactIphone128RegressionTests_();
+   return PriceFlowAvitoMatcher.runRegressionTests();
+ }
++function krsCompactIphone128RegressionTests_() {
++  const cases = [
++    { line: '15 128 Black-55490', context: 'iPhone 15', model: 'iPhone 15', color: 'черный', price: 55490 },
++    { line: '16 128 Teal-63490', context: 'iPhone 16', model: 'iPhone 16', color: 'голубой', price: 63490 },
++    { line: '16 Plus 128 White-73990', context: 'iPhone 16 Plus', model: 'iPhone 16 Plus', color: 'белый', price: 73990 }
++  ];
++  cases.forEach(function(test, index) {
++    const row = krsInlineLine_(test.line, test.context, 'compact-iphone-128-' + index);
++    const product = Array.isArray(row) ? row[0] : row;
++    const phone = product && tcPhone_(product.name);
++    if (!product || phone.model !== test.model || phone.memory !== '128 ГБ' ||
++        phone.color !== test.color || product.price !== test.price) {
++      throw new Error('Compact iPhone 128 regression failed: ' + test.line);
++    }
++  });
++}
+ function tcAssertKrasnodarInvariants_() { return tcRunKrasnodarRegressionTests(); }
+@@
+-  return !/^(?:256|512|1024)(?=\s|$)/.test(core) && !/^(?:12|13|14|15|16|17)(?:e)?(?:\s+(?:pro max|pro|plus|air|mini))?\b/i.test(core);
++  return !/^(?:128|256|512|1024)(?=\s|$)/.test(core) && !/^(?:12|13|14|15|16|17)(?:e)?(?:\s+(?:pro max|pro|plus|air|mini))?\b/i.test(core);
+ }
+ function krsNormalizeBareIphoneMemory_(value) {
+-  return String(value || '').replace(/^(iPhone\s+(?:Air|\d+(?:e)?(?:\s+(?:Pro Max|Pro|Plus|Air|Mini))?)\s+)(256|512|1024)(?=\s|$)/i, '$1$2 ГБ');
++  return String(value || '').replace(/^(iPhone\s+(?:Air|\d+(?:e)?(?:\s+(?:Pro Max|Pro|Plus|Air|Mini))?)\s+)(128|256|512|1024)(?=\s|$)/i, '$1$2 ГБ');
+ }
+@@
+-  if (/^iphone\s+(?:air|\d+(?:e)?(?:\s+(?:pro max|pro|plus|air|mini))?)$/i.test(ctx) && /^(?:256|512|1024)(?=\s|$)/.test(core)) return krsNormalizeBareIphoneMemory_(ctx + ' ' + core + suffix);
++  if (/^iphone\s+(?:air|\d+(?:e)?(?:\s+(?:pro max|pro|plus|air|mini))?)$/i.test(ctx) && /^(?:128|256|512|1024)(?=\s|$)/.test(core)) return krsNormalizeBareIphoneMemory_(ctx + ' ' + core + suffix);
