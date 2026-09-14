@@ -1,0 +1,31 @@
+diff --git a/telegram-reader/reader.py b/telegram-reader/reader.py
+--- a/telegram-reader/reader.py
++++ b/telegram-reader/reader.py
+@@
+-    target_title = "Прайс ru:Store новый"
++    target_title = "Прайс для Авито"
+diff --git a/TelegramCatalog.gs b/TelegramCatalog.gs
+--- a/TelegramCatalog.gs
++++ b/TelegramCatalog.gs
+@@
+ function syncTelegramCatalog_() {
+   tcAssertKrasnodarInvariants_();
+   const lock = LockService.getScriptLock();
+   if (!lock.tryLock(1000)) return { rows: 0, written: 0, skippedSheets: [] };
+   try {
+@@
+     return {
+       rows: rows.length, written: written,
+       skippedSheets: skippedSheets, templateSync: { queued: true }
+     };
++  } catch (error) {
++    const p = PropertiesService.getScriptProperties();
++    const failureAt = new Date();
++    const last = p.getProperty(TC.props.last);
++    p.setProperty(TC.props.status,
++      'Ошибка обновления: ' + String(error && error.message || error) +
++      '. Время сбоя: ' + failureAt.toISOString() +
++      '. Последнее успешное обновление: ' + (last ? new Date(Number(last)).toISOString() : 'нет'));
++    throw error;
+   } finally { lock.releaseLock(); }
+ }
