@@ -14,6 +14,7 @@ const api = ctx.API;
 
 test('uses the four-file Ulyanovsk structure with the supplied second-stage workbook', () => {
   assert.equal(api.TC.priceTemplate.spreadsheetId, '1_QdZ0Z4zDKT7vmP-usVXY-yeZ6o6pUZXIALwlU6nSCI');
+  assert.equal(api.TC.everyMinutes, 6 * 60);
   assert.match(catalogue, /PriceFlowTemplateMatcher\.sync/);
   assert.match(catalogue, /tcSchedulePriceTemplateSync_/);
   assert.match(catalogue, /RUS_SNAPSHOT_SECRET/);
@@ -37,6 +38,14 @@ test('parses every country variant as a separate first-stage row', () => {
   const rows = api.krsParsePost_('iPhone 17\n🇯🇵🇪🇺17 128 Black — 70 000', 'countries').rows;
   assert.equal(rows.length, 2);
   assert.deepEqual(Array.from(rows, row => row.name), ['iPhone 17 128 Black 🇯🇵', 'iPhone 17 128 Black 🇪🇺']);
+});
+
+test('parses Markdown-formatted iPhone headings and price rows from the live source', () => {
+  const rows = api.krsParsePost_('📱 **iPhone 17 •••**\n**🇯🇵17 256 Blue (eSIM)-75 000**', 'markdown-iphone').rows;
+  assert.equal(rows.length, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(rows[0])), {
+    name: 'iPhone 17 256 Blue (eSIM) 🇯🇵', price: 75000, category: 'телефоны', post: 'markdown-iphone'
+  });
 });
 
 test('normalizes the real Samsung compact line into separate Android SKU fields', () => {

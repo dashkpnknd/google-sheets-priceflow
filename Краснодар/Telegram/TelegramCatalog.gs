@@ -6,7 +6,8 @@
  */
 const TC = {
   sheets: ['телефоны', 'макбуки', 'айпады', 'часы', 'наушники', 'пс', 'дайсон'],
-  everyMinutes: 15,
+  // Краснодарский каталог должен запускаться четыре раза в сутки.
+  everyMinutes: 6 * 60,
   endpoint: 'https://api.pricemasterapp.ru/krasnodar/snapshot',
   channelTitle: 'Прайс ru:Store новый',
   // Первая переданная книга — новый клиентский шаблон второго этапа.
@@ -832,7 +833,10 @@ function krsParsePost_(text, postId) {
   const rows = [], skipped = [], categories = {}; let context = '';
   const seen = function(value) { const category = krsCategory_(value); if (category !== 'прочее') categories[category] = true; };
   lines.forEach(function(raw) {
-    const line = raw.replace(/^(?:[📍•·▪◦📱🎧🎮💼💻🔘🏠🕹️📸🔌🔥⚠️🔈⌚🤖👱🏽‍♀️\uFE0F]+\s*)+/u, '').trim();
+    // Telegram Markdown is presentation only. Keep it out of the product
+    // context so a heading like **iPhone 17** retains its product family.
+    const plain = raw.replace(/\*\*|__|~~|`/g, '');
+    const line = plain.replace(/^(?:[📍•·▪◦📱🎧🎮💼💻🔘🏠🕹️📸🔌🔥⚠️🔈⌚🤖👱🏽‍♀️\uFE0F]+\s*)+/u, '').trim();
     if (!line || /^(?:цена за объ[её]м|\d+\s*шт\s*[—-]\s*основная|указано по обычной цене|уточняйте|цены могут|конфигурац|если в прайсе|нашли дешевле)/i.test(line)) return;
     // Emoji + skin-tone / ZWJ sequences may precede the only `Dyson` title
     // in the live post.  The product rows below it are bare HS/HD codes, so
