@@ -399,7 +399,7 @@ function tcSupplierProductKey_(row, phone, fallback) {
 // otherwise identical SKU between supplier countries.
 function tcSupplierColorKey_(value, phone) {
   const finish = tcNorm_(value).replace(/[\u{1F1E6}-\u{1F1FF}]{2}/gu, ' ')
-    .replace(/(?:galaxy\s+(?:s|a|m)\d+(?:\s+(?:fe|ultra|plus))?|galaxy\s+z\s+(?:flip|fold)\d+(?:\s+ultra)?|iphone\s+[^\s]+|\d+\s*\/\s*\d+\s*(?:gb|гб|tb|тб)?|\d+\s*(?:gb|гб|tb|тб)|sim\s*\+\s*e\s*-?sim|e\s*-?sim|2\s*sim|dual\s*-?sim|4g|5g|nfc|lte)/giu, ' ')
+    .replace(/(?:galaxy\s+(?:s|a|m)\d+(?:\s+(?:fe|ultra|plus))?|galaxy\s+z\s+(?:flip|fold)\s*\d+(?:\s+ultra)?|iphone\s+[^\s]+|\d+\s*\/\s*\d+\s*(?:gb|гб|tb|тб)?|\d+\s*(?:gb|гб|tb|тб)|sim\s*\+\s*e\s*-?sim|e\s*-?sim|2\s*sim|dual\s*-?sim|4g|5g|nfc|lte)/giu, ' ')
     .replace(/\s+/g, ' ').trim();
   return finish || tcNorm_(phone && phone.color);
 }
@@ -723,17 +723,26 @@ function tcCategory_(value) { const v = tcNorm_(value); if (/iphone|galaxy|pixel
 function tcPhone_(value) {
   const text = String(value || ''), specs = /(\d{1,2})\s*\/\s*(\d{1,4})(?:\s*(гб|gb|тб|tb))?/i.exec(text);
   const memory = specs ? null : /(?:^|\s)(\d{1,4})\s?(гб|gb|тб|tb)(?=\s|$)/i.exec(text);
+  // Current iPhone posts omit the GB suffix (for example, "iPhone 17 256 Blue").
+  // Accept only known storage capacities and only for Apple families, so an
+  // Android model number can never be mistaken for memory.
+  const bareMemory = specs || memory || !/\b(?:iphone|ipad|macbook)\b/i.test(text) ? null : /\b(64|128|256|512|1024|2048)\b/.exec(text);
   const unit = function(amount, suffix) { return /тб|tb/i.test(suffix) ? String(Number(amount) * 1024) + ' ГБ' : amount + ' ГБ'; };
   const sim = /\b(?:2\s*(?:sim|сим)|dual\s*-?\s*sim)\b/i.test(text) ? '2 SIM' : /sim\s*\+\s*e\s*-?sim/i.test(text) ? 'SIM + eSIM' : /e\s*-?sim/i.test(text) ? 'eSIM' : /\bsim\b/i.test(text) ? 'SIM' : '';
-  return { model: tcModel_(text), memory: specs ? unit(specs[2], specs[3] || 'GB') : memory ? unit(memory[1], memory[2]) : '', ram: specs ? unit(specs[1], 'GB') : '', color: tcColor_(text), config: sim, country: tcCountry_(text), technical: tcAndroidTechnicalModifiers_(text) };
+  return { model: tcModel_(text), memory: specs ? unit(specs[2], specs[3] || 'GB') : memory ? unit(memory[1], memory[2]) : bareMemory ? unit(bareMemory[1], 'GB') : '', ram: specs ? unit(specs[1], 'GB') : '', color: tcColor_(text), config: sim, country: tcCountry_(text), technical: tcAndroidTechnicalModifiers_(text) };
 }
 function tcModel_(value) {
   const text = String(value || '').replace(/\(\s*asis\s*\)/gi, ' ').replace(/\s+/g, ' ').trim();
+  // The supplier calls this current model simply iPhone Air; the catalogue
+  // uses its unambiguous full model name.
+  if (/\biphone\s+air\b/i.test(text)) return 'iPhone 17 Air';
   const iphone = /\biphone\s+(\d+(?:e)?(?:\s+(?:air|pro\s*max|pro|plus|mini))?)/i.exec(text);
   if (iphone) return 'iPhone ' + iphone[1].replace(/\s+/g, ' ').trim();
+  const samsungFold = /\bsamsung\s+(?:galaxy\s+)?(z\s+(?:fold|flip)\s*\d+(?:\s+ultra)?)/i.exec(text);
+  if (samsungFold) return 'Galaxy ' + samsungFold[1].replace(/\s+/g, ' ').trim();
   const samsung = /\bsamsung\s+(?:galaxy\s+)?((?:s|a|m)\d+(?:\+|\s+(?:ultra|fe|plus))?)/i.exec(text);
   if (samsung) return 'Galaxy ' + samsung[1].replace(/\s+/g, ' ').trim();
-  const other = /\b(galaxy\s+(?:(?:s|a|m)\d+(?:\+|\s+(?:ultra|fe|plus))?|z\s+(?:flip|fold)\d+(?:\s+ultra)?)|pixel\s+\d+(?:[a-z])?(?:\s+(?:pro(?:\s+fold|\s+xl)?|xl))?|honor\s+[\w-]+(?:\s+(?:pro|lite|x\d+d?))?|huawei\s+(?:nova\s+\d+(?:\s+(?:pro|i|se))?|pura\s+[\w-]+(?:\s+(?:pro(?:\s+max)?|ultra|plus))?)|(?:xiaomi|redmi|poco)\s+(?:note\s+)?[\w-]+(?:\s+(?:pro\+?|plus|ultra|max|t))?|oneplus\s+[\w-]+(?:\s+(?:pro|r|t))?|realme\s+[\w-]+(?:\s+(?:pro|plus))?|nothing\s+phone\s*\(?[\w-]+\)?(?:\s+(?:pro|plus))?)/i.exec(text);
+  const other = /\b(galaxy\s+(?:(?:s|a|m)\d+(?:\+|\s+(?:ultra|fe|plus))?|z\s+(?:flip|fold)\s*\d+(?:\s+ultra)?)|pixel\s+\d+(?:[a-z])?(?:\s+(?:pro(?:\s+fold|\s+xl)?|xl))?|honor\s+[\w-]+(?:\s+(?:pro|lite|x\d+d?))?|huawei\s+(?:nova\s+\d+(?:\s+(?:pro|i|se))?|pura\s+[\w-]+(?:\s+(?:pro(?:\s+max)?|ultra|plus))?)|(?:xiaomi|redmi|poco)\s+(?:note\s+)?[\w-]+(?:\s+(?:pro\+?|plus|ultra|max|t))?|oneplus\s+[\w-]+(?:\s+(?:pro|r|t))?|realme\s+[\w-]+(?:\s+(?:pro|plus))?|nothing\s+phone\s*\(?[\w-]+\)?(?:\s+(?:pro|plus))?)/i.exec(text);
   if (!other) return '';
   // 4G/5G/NFC remain an original technical attribute, not a model suffix.
   // Thus an unspecified template model may match it, while an explicit

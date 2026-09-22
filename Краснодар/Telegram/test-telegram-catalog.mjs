@@ -46,6 +46,15 @@ test('parses Markdown-formatted iPhone headings and price rows from the live sou
   assert.deepEqual(JSON.parse(JSON.stringify(rows[0])), {
     name: 'iPhone 17 256 Blue (eSIM) 🇯🇵', price: 75000, category: 'телефоны', post: 'markdown-iphone'
   });
+  assert.equal(api.tcPhone_(rows[0].name).memory, '256 ГБ');
+});
+
+test('normalizes current bare iPhone capacity, iPhone Air and Samsung Fold models', () => {
+  assert.deepEqual(JSON.parse(JSON.stringify(api.tcPhone_('iPhone 17 256 Blue (eSIM) 🇯🇵'))), {
+    model: 'iPhone 17', memory: '256 ГБ', ram: '', color: 'голубой', config: 'eSIM', country: 'Япония 🇯🇵', technical: ''
+  });
+  assert.equal(api.tcPhone_('iPhone Air 256 Blue (eSIM) 🇯🇵').model, 'iPhone 17 Air');
+  assert.equal(api.tcPhone_('SAMSUNG Z Fold 8 12/256 Cream 🇦🇪').model, 'Galaxy Z Fold 8');
 });
 
 test('normalizes the real Samsung compact line into separate Android SKU fields', () => {
