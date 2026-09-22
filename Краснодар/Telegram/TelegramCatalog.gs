@@ -7,7 +7,7 @@
 const TC = {
   sheets: ['телефоны', 'макбуки', 'айпады', 'часы', 'наушники', 'пс', 'дайсон'],
   // Краснодарский каталог должен запускаться четыре раза в сутки.
-  everyMinutes: 6 * 60,
+  everyHours: 6,
   endpoint: 'https://api.pricemasterapp.ru/krasnodar/snapshot',
   channelTitle: 'Прайс ru:Store новый',
   // Первая переданная книга — новый клиентский шаблон второго этапа.
@@ -71,7 +71,7 @@ function tcEnsureTrigger_() {
     // previous Telegram price-updater. Other project automations stay intact.
     if (handler === 'syncTelegramCatalog' || handler === 'syncTelegramSupplier' || handler === 'syncTelegramPriceTemplate') ScriptApp.deleteTrigger(t);
   });
-  ScriptApp.newTrigger('syncTelegramCatalog').timeBased().everyMinutes(TC.everyMinutes).create();
+  ScriptApp.newTrigger('syncTelegramCatalog').timeBased().everyHours(TC.everyHours).create();
 }
 
 // Stage 2 is deliberately a one-off trigger. This prevents a large supplier

@@ -14,7 +14,7 @@ const api = ctx.API;
 
 test('uses the four-file Ulyanovsk structure with the supplied second-stage workbook', () => {
   assert.equal(api.TC.priceTemplate.spreadsheetId, '1_QdZ0Z4zDKT7vmP-usVXY-yeZ6o6pUZXIALwlU6nSCI');
-  assert.equal(api.TC.everyMinutes, 6 * 60);
+  assert.equal(api.TC.everyHours, 6);
   assert.match(catalogue, /PriceFlowTemplateMatcher\.sync/);
   assert.match(catalogue, /tcSchedulePriceTemplateSync_/);
   assert.match(catalogue, /RUS_SNAPSHOT_SECRET/);
