@@ -32,7 +32,8 @@ _PRICE_LINE = re.compile(
 _FLAGS = re.compile(r"[\U0001F1E6-\U0001F1FF]{2}")
 _MODEL = re.compile(
     r"\b(?:iphone\s+\d+(?:e)?(?:\s+(?:pro\s*max|pro|plus|mini|air))?|"
-    r"ipad\s+(?:air|pro|mini)?\s*\d+|macbook\s+(?:air|pro|neo)?\s*\d+|"
+    r"ipad\s+(?:(?:air|pro)\s+\d+\s+m\d+|(?:air|pro|mini)\s+\d+|\d+)|"
+    r"macbook\s+(?:(?:air|pro)\s+(?:\d+\s+)?m\d+(?:\s+(?:pro|max))?|(?:air|pro)\s+\d+|neo)\b|"
     r"apple\s+watch\s+(?:s\d+|se\s*\d*|ultra\s*\d*)|"
     r"galaxy\s+(?:s|a|z|m)\d+(?:\+|\s+(?:ultra|fe|plus))?|"
     r"(?:samsung\s+)?(?:s|a|z|m)\d+(?:\+|\s+(?:ultra|fe|plus))?|"
@@ -40,11 +41,11 @@ _MODEL = re.compile(
     r"pixel\s+\d+(?:\s+(?:pro|xl|a))?)\b",
     re.IGNORECASE,
 )
-_STORAGE = re.compile(r"\b(64|128|256|512|1024|2048)\s*(гб|gb|тб|tb)\b", re.IGNORECASE)
-_RAM_STORAGE = re.compile(r"\b(\d{1,2})\s*/\s*(64|128|256|512|1024|2048)\s*(гб|gb|тб|tb)?\b", re.IGNORECASE)
+_STORAGE = re.compile(r"\b(1|2|64|128|256|512|1024|2048)\s*(гб|gb|тб|tb)\b", re.IGNORECASE)
+_RAM_STORAGE = re.compile(r"\b(\d{1,2})\s*/\s*(1|2|64|128|256|512|1024|2048)\s*(гб|gb|тб|tb)?\b", re.IGNORECASE)
 _COLORS = (
     "black", "white", "blue", "green", "pink", "purple", "yellow", "silver", "gray", "grey",
-    "gold", "orange", "red", "starlight", "midnight", "natural", "desert", "graphite",
+    "gold", "orange", "red", "starlight", "midnight", "natural", "desert", "graphite", "citrus", "blush", "indigo",
     "черный", "белый", "синий", "голубой", "зеленый", "розовый", "фиолетовый", "желтый",
     "серебристый", "серый", "золотистый", "оранжевый", "красный",
 )
@@ -77,11 +78,14 @@ def sku_key(name: str) -> str:
     elif storage:
         storage_key = memory_gb(storage.group(1), storage.group(2))
     sim = "sim+esim" if "sim+esim" in raw else "esim" if re.search(r"\besim\b", raw) else "2sim" if re.search(r"\b2\s*sim\b", raw) else "sim" if re.search(r"\bsim\b", raw) else ""
+    # iPad cellular and Wi-Fi editions are different commercial SKUs.  The
+    # price aggregator may choose a minimum only inside one connectivity type.
+    connectivity = "cellular" if re.search(r"\b(?:lte|cellular|5g)\b", raw) else "wifi" if "wifi" in raw else ""
     color = next((color for color in _COLORS if re.search(r"(?<!\w)" + re.escape(color) + r"(?!\w)", raw)), "")
     if model and storage_key:
         # Include all recognised material fields.  Absence remains absence;
         # it is never filled from a similar offer.
-        return "|".join((norm(model.group(0)), storage_key, ram_key, sim, color))
+        return "|".join((norm(model.group(0)), storage_key, ram_key, sim, connectivity, color))
     # An unknown/non-device line cannot collide with a device through fuzzy
     # matching. It is only identical when its full normalized title is equal.
     return "raw|" + re.sub(r"[^a-zа-я0-9]+", " ", raw).strip()

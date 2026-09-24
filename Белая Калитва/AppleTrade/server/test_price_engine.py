@@ -1,13 +1,13 @@
 import unittest
 
-from price_engine import Offer, lowest_offers, parse_message, sku_key
+from price_engine import lowest_offers, parse_message, sku_key
 
 
 class PriceEngineTests(unittest.TestCase):
     def test_normalizes_safe_spelling_only(self):
         self.assertEqual(
             sku_key("iPhone 16 128 GB Wi-Fi Blue SIM + eSIM"),
-            sku_key("iPhone 16 128ГБ Wi‑Fi Blue SIM+eSIM 🇯🇵"),
+            sku_key("iPhone 16 128ГБ Wi‑Fi Blue SIM+eSIM ð¯ðµ"),
         )
 
     def test_does_not_mix_memory_or_colour(self):
@@ -25,6 +25,26 @@ class PriceEngineTests(unittest.TestCase):
 
     def test_skips_unconfirmed_price(self):
         self.assertEqual(parse_message("x", "1", "iPhone 16 128 GB Blue — 63 000 ₽?", "now"), [])
+
+    def test_does_not_collapse_ipad_chip_or_connectivity(self):
+        self.assertNotEqual(
+            sku_key("iPad Air 11 M3 128GB Blue Wi-Fi"),
+            sku_key("iPad Air 11 M4 128GB Blue Wi-Fi"),
+        )
+        self.assertNotEqual(
+            sku_key("iPad Air 11 M4 128GB Gray LTE"),
+            sku_key("iPad Air 11 M4 128GB Gray Wi-Fi"),
+        )
+
+    def test_does_not_collapse_mac_chip_or_neo_finish(self):
+        self.assertNotEqual(
+            sku_key("MacBook Air 13 M1 8/256 Silver"),
+            sku_key("MacBook Air 13 M2 8/256 Silver"),
+        )
+        self.assertNotEqual(
+            sku_key("MacBook NEO MHFD4 8/256 Citrus"),
+            sku_key("MacBook NEO MHFH4 8/256 Blush"),
+        )
 
 
 if __name__ == "__main__":
