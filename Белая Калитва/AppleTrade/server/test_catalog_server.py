@@ -69,6 +69,7 @@ class CatalogPriceParserTests(unittest.TestCase):
         self.assertEqual(category("ASUS ROG Phone 16/512 Black"), "телефоны")
         self.assertEqual(category("iMac M4 24 inch Blue"), "аймак")
         self.assertEqual(category("Insta360 X5 camera"), "камеры")
+        self.assertEqual(category("Ray-Ban Meta Wayfarer"), "рей бэн")
         self.assertEqual(category("USB-C Adapter 20W"), "аксессуары")
         self.assertEqual(category("Mac mini M4 16/256"), "макбуки")
         self.assertEqual(category("Xbox Series X"), "пс")

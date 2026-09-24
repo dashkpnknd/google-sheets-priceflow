@@ -34,7 +34,7 @@ PRICE = re.compile(r"^\s*(?P<title>.+?)\s*(?:—|–|-)\s*(?P<price>\d[\d\s.]{2,
 # This fallback is deliberately restricted to the Dyson sections below; using
 # it globally would mistake capacities and model numbers for prices.
 TRAILING_PRICE = re.compile(r"^\s*(?P<title>.+?\D)\s+(?P<price>\d[\d\s.]{2,})\s*(?:₽|р\.?|rub)?\s*$", re.I)
-HEAD = re.compile(r"\b(iphone|ipad|macbook|imac|apple\s*watch|airpods|galaxy|samsung|xiaomi|redmi|asus|dyson|ps\s*[345]|playstation|xbox|dji|gopro|insta360|canon|fujifilm)\b", re.I)
+HEAD = re.compile(r"\b(iphone|ipad|macbook|imac|apple\s*watch|airpods|galaxy|samsung|xiaomi|redmi|asus|dyson|ray[ -]?ban|ps\s*[345]|playstation|xbox|dji|gopro|insta360|canon|fujifilm)\b", re.I)
 MESSAGE_LINK = re.compile(r"(?:https?://)?t\.me/(?:c/\d+/|[A-Za-z0-9_]+/)(\d+)(?:[/?#].*)?$", re.I)
 PRICE_HINT = re.compile(r"(?:—|–|-)\s*\d[\d\s.]{2,}\s*(?:₽|р\.?|rub)?", re.I)
 
@@ -82,6 +82,7 @@ def category(title: str) -> str | None:
     # Source-menu categories.  Accessories must be checked before phones:
     # a Samsung charger must never be catalogued as a Samsung phone.
     if re.search(r"\b(accessor(?:y|ies)|case|bumper|wallet|magsafe|folio|pencil|strap|band|charger|cable|adapter|powerbank|gamepad|controller)\b|чехол|стекло|кабель|заряд|адаптер|держател|ремеш|пауэрбанк", t): return "аксессуары"
+    if re.search(r"\bray[ -]?ban\b|рей[ -]?б[еэ]н", t): return "рей бэн"
     if re.search(r"dji|gopro|insta\s*360|fujifilm|canon|камера", t): return "камеры"
     if "imac" in t: return "аймак"
     if "macbook" in t or re.search(r"\bmac\s*mini\b", t): return "макбуки"
