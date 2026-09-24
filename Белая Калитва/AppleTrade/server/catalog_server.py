@@ -13,6 +13,7 @@ import os
 import re
 import threading
 from collections import defaultdict
+from contextlib import suppress
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -285,20 +286,49 @@ class Handler(BaseHTTPRequestHandler):
         self.send_json(200 if payload else 503, payload if payload else {"error": "catalog unavailable or stale"})
 
 
+async def disconnect_quietly(client: object | None) -> None:
+    """Release a broken MTProto transport before creating a fresh client."""
+    if client is not None:
+        with suppress(Exception):
+            await client.disconnect()
+
+
+async def connect_authorized_client(config: dict[str, object], client_factory: object) -> object:
+    """Make an authorized connection without retaining a failed transport."""
+    client = client_factory(str(DATA / "telegram"), int(config["app_id"]), str(config["app_hash"]))
+    try:
+        await client.connect()
+        if not await client.is_user_authorized():
+            raise RuntimeError("needs_reauth")
+        return client
+    except Exception:
+        await disconnect_quietly(client)
+        raise
+
+
 async def main() -> None:
     from telethon import TelegramClient
     DATA.mkdir(parents=True, exist_ok=True); Handler.secret = os.environ["SNAPSHOT_SECRET"]
     server = ThreadingHTTPServer(("0.0.0.0", int(os.environ.get("PORT", "8091"))), Handler); threading.Thread(target=server.serve_forever, daemon=True).start()
     config = json.loads(Path(os.environ["TG_SESSION_CONFIG_PATH"]).read_text("utf-8"))
-    client = TelegramClient(str(DATA / "telegram"), int(config["app_id"]), config["app_hash"]); await client.connect()
+    client = None
     try:
         while True:
             try:
-                if not await client.is_user_authorized(): raise RuntimeError("needs_reauth")
+                if client is None or not client.is_connected():
+                    await disconnect_quietly(client)
+                    client = await connect_authorized_client(config, TelegramClient)
                 await collect(client)
             except Exception as error: write(STATUS, {"state": "error", "at": now().isoformat(), "error": str(error)})
+            # A Telegram protocol update can stop Telethon's receive loop.
+            # Never keep invoking a disconnected client after that failure.
+            # The next poll deliberately starts a new authorized connection.
+            if client is not None and not client.is_connected():
+                await disconnect_quietly(client); client = None
             await asyncio.sleep(max(900, int(os.environ.get("REFRESH_SECONDS", "1800"))))
-    finally: await client.disconnect(); server.shutdown()
+    finally:
+        await disconnect_quietly(client)
+        server.shutdown()
 
 
 if __name__ == "__main__":

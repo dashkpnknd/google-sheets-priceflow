@@ -1,9 +1,32 @@
+import asyncio
 import unittest
 
-from catalog_server import TOP_RESALE_MENU_POSTS, category, parse_post
+from catalog_server import TOP_RESALE_MENU_POSTS, category, connect_authorized_client, parse_post
 
 
 class CatalogPriceParserTests(unittest.TestCase):
+    def test_reconnect_helper_releases_an_unauthorized_client(self):
+        class Client:
+            disconnected = False
+            async def connect(self): pass
+            async def is_user_authorized(self): return False
+            async def disconnect(self): self.disconnected = True
+        client = Client()
+        with self.assertRaisesRegex(RuntimeError, "needs_reauth"):
+            asyncio.run(connect_authorized_client({"app_id": 1, "app_hash": "x"}, lambda *_: client))
+        self.assertTrue(client.disconnected)
+
+    def test_reconnect_helper_returns_an_authorized_client(self):
+        class Client:
+            connected = False
+            async def connect(self): self.connected = True
+            async def is_user_authorized(self): return True
+            async def disconnect(self): pass
+        client = Client()
+        actual = asyncio.run(connect_authorized_client({"app_id": 1, "app_hash": "x"}, lambda *_: client))
+        self.assertIs(actual, client)
+        self.assertTrue(client.connected)
+
     def test_does_not_import_elektrostal_volume_price_rule(self):
         rows = parse_post(
             "supplier", 1,
