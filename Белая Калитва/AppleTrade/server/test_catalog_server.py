@@ -1,10 +1,16 @@
 import asyncio
 import unittest
 
-from catalog_server import TOP_RESALE_MENU_POSTS, category, connect_authorized_client, parse_post
+from catalog_server import TOP_RESALE_MENU_POSTS, cached_channel_entity, category, connect_authorized_client, parse_post
 
 
 class CatalogPriceParserTests(unittest.TestCase):
+    def test_cached_channel_entity_uses_the_saved_channel_id(self):
+        class Client:
+            async def get_entity(self, peer): return peer
+        entity = asyncio.run(cached_channel_entity(Client(), "1963407298", lambda value: ("channel", value)))
+        self.assertEqual(entity, ("channel", 1963407298))
+
     def test_reconnect_helper_releases_an_unauthorized_client(self):
         class Client:
             disconnected = False

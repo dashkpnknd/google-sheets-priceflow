@@ -177,6 +177,24 @@ async def message_batches(client: object, entity: object, ids: list[int]) -> lis
     return [message for message in result if message]
 
 
+async def cached_channel_entity(client: object, channel_id: str, peer_factory: object) -> object:
+    """Resolve an already-authorized channel from Telethon's local session."""
+    return await client.get_entity(peer_factory(int(channel_id)))
+
+
+async def top_resale_entity(client: object) -> object:
+    """Prefer the cached channel entity; frozen accounts cannot check invites."""
+    cached_id = str(os.environ.get("TOP_RESALE_CHANNEL_ID", "")).strip()
+    if cached_id:
+        from telethon.tl.types import PeerChannel
+        return await cached_channel_entity(client, cached_id, PeerChannel)
+    from telethon.tl.functions.messages import CheckChatInviteRequest
+    invite = await client(CheckChatInviteRequest(os.environ["TG_PRIVATE_INVITE_HASH"]))
+    if type(invite).__name__ != "ChatInviteAlready":
+        raise RuntimeError("reserve account is not joined to Top re:sale")
+    return invite.chat
+
+
 async def top_resale_messages(client: object, entity: object, watched: dict[str, list[int]]) -> list[object]:
     """Poll stable menu posts plus newly published price-post IDs only."""
     ids = set(watched.get("top_resale", [])) | set(TOP_RESALE_MENU_POSTS)
@@ -213,12 +231,8 @@ def parse_post(source: str, message_id: int, text: str, published_at: str, secti
 
 async def collect(client: object) -> dict[str, object]:
     # Import at runtime so parser regression tests have no Telegram dependency.
-    from telethon.tl.functions.messages import CheckChatInviteRequest
     from telethon.tl.functions.channels import GetFullChannelRequest
-    invite = await client(CheckChatInviteRequest(os.environ["TG_PRIVATE_INVITE_HASH"]))
-    if type(invite).__name__ != "ChatInviteAlready":
-        raise RuntimeError("reserve account is not joined to Top re:sale")
-    top_resale, ilublino = invite.chat, await client.get_entity("ilublino")
+    top_resale, ilublino = await top_resale_entity(client), await client.get_entity("ilublino")
     sources = [("top_resale", top_resale), ("ilublino", ilublino)]
     cutoff = now() - timedelta(hours=int(os.environ.get("CATALOG_MAX_AGE_HOURS", "36")))
     offers: list[dict[str, object]] = []
