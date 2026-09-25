@@ -541,7 +541,13 @@ function tcWithStatus_(status, text) { return [String(status || '').trim(), Stri
 function tcExpand_(header, item) {
   const hs = tcStatus_(String(header).replace(/\\/g, ' ').trim()), is = tcStatus_(item), h = hs.text, i = is.text, mark = is.marks || hs.marks;
   let expanded = i;
-  if (/^iphone\s/i.test(h) && !/^iphone\s/i.test(i)) {
+  if (/^apple\s*[·.•]\s*iphone$/i.test(h) && /^\d+(?:e)?(?:\s+(?:air|pro\s*max|pro|plus|mini))?\b/i.test(i)) {
+    // The current public price calls the general phone section “Apple · iPhone”
+    // and places the generation only in the item line. Preserve the family so
+    // iPhones do not land in the Android block with a truncated model.
+    expanded = 'iPhone ' + i;
+  }
+  else if (/^iphone\s/i.test(h) && !/^iphone\s/i.test(i)) {
     const model = h.replace(/^iphone\s+/i, '').trim(), repeated = new RegExp('^' + model.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?:\\s|$)', 'i');
     expanded = h + ' ' + (repeated.test(i) ? i.slice(model.length).trim() : i);
   }

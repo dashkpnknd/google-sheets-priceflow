@@ -99,6 +99,15 @@ test('keeps Active and Уценка as bracketed title marks even before iPhone'
   assert.equal(api.tcPhone_(active[0].name).model, 'iPhone 17');
 });
 
+test('keeps the iPhone family from the Apple dot section header in a one-line price post', () => {
+  const rows = api.tcParsePost_('Apple · iPhone\n12 128 ГБ White — 35 500 ₽\n18 256 ГБ Blue — 81 000 ₽', 'astoredirectprice', 'apple-iphone-header');
+  assert.deepEqual([...rows.map((row) => [row.category, row.name])], [
+    ['телефоны', 'iPhone 12 128 ГБ White'],
+    ['телефоны', 'iPhone 18 256 ГБ Blue']
+  ]);
+  assert.deepEqual([...rows.map((row) => api.tcPhone_(row.name).model)], ['iPhone 12', 'iPhone 18']);
+});
+
 test('reads the current price-channel Active/Уценка section and puts its status first', () => {
   const active = api.tcParsePost_('♻️ Уценка / Актив\nЦена за объём\nApple · iPhone 17\n17 256 ГБ White (1Sim+eSim) Актив\n1 шт 70 300 ₽ · 3+ 70 200 ₽', 'astoredirectprice', '6646');
   const markdown = api.tcParsePost_('♻️ Уценка / Актив\nЦена за объём\nApple · iPad Pro 13\niPad Pro 13 256 ГБ Wi-Fi Space Black Уценка\n1 шт 108 000 ₽ · 3+ 107 900 ₽', 'astoredirectprice', '6646');
