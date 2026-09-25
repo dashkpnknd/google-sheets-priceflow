@@ -71,12 +71,24 @@ def fresh_catalog() -> dict[str, object] | None:
     """Never serve a saved supplier snapshot after the polling loop has failed."""
     if not CATALOG.exists(): return None
     try:
+        # A snapshot is usable only when the most recent polling pass verified
+        # both contracted suppliers.  Otherwise an old one-source minimum
+        # would look fresh and silently overwrite the customer catalogue.
+        status = json.loads(STATUS.read_text("utf-8")) if STATUS.exists() else {}
+        if status.get("state") != "ready": return None
         payload = json.loads(CATALOG.read_text("utf-8"))
         refreshed = datetime.fromisoformat(str(payload.get("refreshedAt", "")).replace("Z", "+00:00"))
         if refreshed.tzinfo is None: return None
         return payload if now() - refreshed.astimezone(timezone.utc) <= MAX_CATALOG_AGE else None
     except (ValueError, TypeError, json.JSONDecodeError):
         return None
+
+
+def require_supplier_coverage(source_rows: dict[str, int], sources: Iterable[str]) -> None:
+    """Reject a minimum calculated from only a subset of suppliers."""
+    missing = [source for source in sources if not source_rows.get(source)]
+    if missing:
+        raise RuntimeError("no confirmed offers from: " + ", ".join(missing))
 def category(title: str) -> str | None:
     t = norm(title)
     # A charging-capable AirPods model is still a headphone, not an accessory.
@@ -239,13 +251,16 @@ async def collect(client: object) -> dict[str, object]:
     sources = [("top_resale", top_resale), ("ilublino", ilublino)]
     cutoff = now() - timedelta(hours=int(os.environ.get("CATALOG_MAX_AGE_HOURS", "36")))
     offers: list[dict[str, object]] = []
+    source_rows: dict[str, int] = {}
     watched = read_watched()
     for source, entity in sources:
         if source == "top_resale":
+            parsed: list[dict[str, object]] = []
             for message in await top_resale_messages(client, entity, watched):
                 if not message.message: continue
                 changed = message.edit_date or message.date
-                offers.extend(parse_post(source, message.id, message.message, changed.astimezone(timezone.utc).isoformat(), TOP_RESALE_SECTION_CONTEXT.get(int(message.id), "")))
+                parsed.extend(parse_post(source, message.id, message.message, changed.astimezone(timezone.utc).isoformat(), TOP_RESALE_SECTION_CONTEXT.get(int(message.id), "")))
+            source_rows[source] = len(parsed); offers.extend(parsed)
             continue
         recent = [message async for message in client.iter_messages(entity, limit=int(os.environ.get("HISTORY_LIMIT", "180")))]
         roots = list(recent)
@@ -270,13 +285,16 @@ async def collect(client: object) -> dict[str, object]:
                 linked = await client.get_messages(entity, ids=list(ids))
                 queue.extend(linked if isinstance(linked, list) else [linked])
         recent_ids = {int(getattr(message, "id", 0) or 0) for message in recent}
+        parsed = []
         for message in chosen:
             if not message.message: continue
             changed = message.edit_date or message.date
             # A category post reached via the live menu is an active supplier
             # section even when its original publication date is old.
             if int(message.id) in recent_ids and changed.astimezone(timezone.utc) < cutoff: continue
-            offers.extend(parse_post(source, message.id, message.message, changed.astimezone(timezone.utc).isoformat()))
+            parsed.extend(parse_post(source, message.id, message.message, changed.astimezone(timezone.utc).isoformat()))
+        source_rows[source] = len(parsed); offers.extend(parsed)
+    require_supplier_coverage(source_rows, [name for name, _ in sources])
     lowest: dict[str, dict[str, object]] = {}
     for offer in offers:
         old = lowest.get(str(offer["sku"]))
@@ -286,7 +304,7 @@ async def collect(client: object) -> dict[str, object]:
     for rows in groups.values(): rows.sort(key=lambda row: (str(row["title"]), int(row["price"])))
     payload = {"refreshedAt": now().isoformat(), "sources": [name for name, _ in sources], "categories": groups, "total": len(lowest)}
     write(CATALOG, payload)
-    write(STATUS, {"state": "ready", "at": now().isoformat(), "total": len(lowest)})
+    write(STATUS, {"state": "ready", "at": now().isoformat(), "total": len(lowest), "sourceRows": source_rows})
     return payload
 
 
