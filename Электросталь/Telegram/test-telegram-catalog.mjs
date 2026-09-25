@@ -117,6 +117,59 @@ test('recognises colours in any part of a Telegram item without inventing a miss
   assert.equal(api.tcColor_('iPhone 17 Pro 256GB eSIM 🇯🇵'), '');
 });
 
+test('parses iPhone 18 SKUs with the approved catalogue colours', () => {
+  const rows = api.tcParsePost_('iPhone 18\n18 128GB Blue — 80 000 ₽\n18 128GB Red — 81 000 ₽\n18 128GB Silver — 82 000 ₽\n18 128GB Black — 83 000 ₽', 'astoredirectprice', 'iphone18');
+  assert.deepEqual([...rows.map((row) => row.name)], ['iPhone 18 128GB Blue', 'iPhone 18 128GB Red', 'iPhone 18 128GB Silver', 'iPhone 18 128GB Black']);
+  assert.deepEqual([...rows.map((row) => api.tcPhone_(row.name).model)], ['iPhone 18', 'iPhone 18', 'iPhone 18', 'iPhone 18']);
+  assert.deepEqual([...rows.map((row) => api.tcPhone_(row.name).color)], ['голубой', 'красный', 'серебристый', 'черный']);
+});
+
+test('keeps the full Apple Watch title when the supplier puts the model in the section header', () => {
+  const rows = api.tcParsePost_('Apple Watch Series 12 (2026)\n42mm Dark Bronze — 39 000 ₽\n46mm Night Blue — 44 000 ₽', 'astoredirectprice', 'watch12');
+  assert.deepEqual([...rows.map((row) => [row.category, row.name])], [
+    ['часы', 'Apple Watch Series 12 (2026) 42mm Dark Bronze'],
+    ['часы', 'Apple Watch Series 12 (2026) 46mm Night Blue']
+  ]);
+});
+
+test('matches the requested AirPods 5 charging variants and 2026 watches exactly', () => {
+  const matcher = api.PriceFlowAvitoMatcher;
+  assert.equal(matcher.titleMatches('наушники', 'Apple Airpods 5', 'Apple Airpods 5'), true);
+  assert.equal(matcher.titleMatches('наушники', 'Apple Airpods 5', 'Apple Airpods 5 с беспроводной зарядкой'), false);
+  assert.equal(matcher.titleMatches('наушники', 'Apple Airpods 5 с беспроводной зарядкой', 'Apple Airpods 5 с беспроводной зарядкой'), true);
+  assert.equal(matcher.titleMatches('часы', 'Apple Watch Series 12 (2026) 42mm Dark Bronze', 'Apple Watch Series 12 (2026) 42mm Dark Bronze'), true);
+  assert.equal(matcher.titleMatches('часы', 'Apple Watch Ultra 4 49mm Natural Ocean Gray', 'Apple Watch Ultra 4 49mm Natural Ocean Black'), false);
+  assert.equal(matcher.titleMatches('часы', 'Apple Watch Ultra 4 49mm Natural Ocean Gray', 'Apple Watch Ultra 4 49mm Natural Ocean Gray'), true);
+});
+
+test('matches every supplied Series 12 and Ultra 4 variant without blending finishes', () => {
+  const matcher = api.PriceFlowAvitoMatcher;
+  const titles = [
+    'Apple Watch Series 12 (2026) 42mm Dark Bronze', 'Apple Watch Series 12 (2026) 42mm Light Gold',
+    'Apple Watch Series 12 (2026) 42mm Space Gray', 'Apple Watch Series 12 (2026) 42mm Black',
+    'Apple Watch Series 12 (2026) 42mm Radiant Gold', 'Apple Watch Series 12 (2026) 42mm Natural',
+    'Apple Watch Series 12 (2026) 42mm Pearl White', 'Apple Watch Series 12 (2026) 42mm Night Blue',
+    'Apple Watch Series 12 (2026) 46mm Dark Bronze', 'Apple Watch Series 12 (2026) 46mm Light Gold',
+    'Apple Watch Series 12 (2026) 46mm Space Gray', 'Apple Watch Series 12 (2026) 46mm Black',
+    'Apple Watch Series 12 (2026) 46mm Radiant Gold', 'Apple Watch Series 12 (2026) 46mm Natural',
+    'Apple Watch Series 12 (2026) 46mm Pearl White', 'Apple Watch Series 12 (2026) 46mm Night Blue',
+    'Apple Watch Ultra 4 49mm Natural Ocean Gray', 'Apple Watch Ultra 4 49mm Natural Ocean Black',
+    'Apple Watch Ultra 4 49mm Natural Ocean Kelp', 'Apple Watch Ultra 4 49mm Natural Alpine Desert',
+    'Apple Watch Ultra 4 49mm Natural Alpine Dark Olive', 'Apple Watch Ultra 4 49mm Natural Alpine Burgundy',
+    'Apple Watch Ultra 4 49mm Natural Trail Sand', 'Apple Watch Ultra 4 49mm Natural Trail Burgundy',
+    'Apple Watch Ultra 4 49mm Natural Trail Dark Umber', 'Apple Watch Ultra 4 49mm Natural Milanese Natural',
+    'Apple Watch Ultra 4 49mm Natural Milanese Black', 'Apple Watch Ultra 4 49mm Black Ocean Gray',
+    'Apple Watch Ultra 4 49mm Black Ocean Black', 'Apple Watch Ultra 4 49mm Black Ocean Kelp',
+    'Apple Watch Ultra 4 49mm Black Alpine Desert', 'Apple Watch Ultra 4 49mm Black Alpine Dark Olive',
+    'Apple Watch Ultra 4 49mm Black Alpine Burgundy', 'Apple Watch Ultra 4 49mm Black Trail Sand',
+    'Apple Watch Ultra 4 49mm Black Trail Burgundy', 'Apple Watch Ultra 4 49mm Black Trail Dark Umber',
+    'Apple Watch Ultra 4 49mm Black Milanese Natural', 'Apple Watch Ultra 4 49mm Black Milanese Black'
+  ];
+  titles.forEach((title) => assert.equal(matcher.titleMatches('часы', title, title), true, title));
+  assert.equal(matcher.titleMatches('часы', titles[0], titles[1]), false);
+  assert.equal(matcher.titleMatches('часы', titles[16], titles[17]), false);
+});
+
 test('applies the Apple scale to Apple and the Android scale to every other Elektrostal product', () => {
   const priced = api.tcApplyElektrostalMarkup_([
     { category: 'телефоны', name: 'iPhone 17 128GB', price: 15700 },

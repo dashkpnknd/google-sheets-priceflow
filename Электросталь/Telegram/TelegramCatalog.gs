@@ -548,8 +548,10 @@ function tcExpand_(header, item) {
   else if (/^macbook\b/i.test(h) && !/^macbook\b/i.test(i)) expanded = h + ' ' + i;
   else if (/^dyson\b/i.test(h) && !/^dyson\b/i.test(i)) expanded = h + ' ' + i;
   else if (/^airpods\b/i.test(h) && !/^airpods\b/i.test(i)) expanded = h + ' ' + i;
+  else if (/^apple\s+airpods\b/i.test(h) && !/^(?:apple\s+)?airpods\b/i.test(i)) expanded = h + ' ' + i;
   else if (/^imac\b/i.test(h) && !/^imac\b/i.test(i)) expanded = h + ' ' + i;
   else if (/^watch\b/i.test(h) && /^watch\b/i.test(i)) expanded = 'Apple ' + i;
+  else if (/^apple\s+watch\b/i.test(h) && !/^apple\s+watch\b/i.test(i)) expanded = h + ' ' + i;
   return tcWithStatus_(mark, expanded);
 }
 function tcCategory_(value) {
@@ -622,7 +624,7 @@ function tcColor_(value) {
 // из списка Avito; для синего учитывается конкретная модель.
 function tcAvitoColor_(source, detected) {
   const v = tcColorKey_(source);
-  if (/iphone\s+(?:14(?:\s+plus)?|15(?!\s+pro\b)(?:\s+plus)?|16(?!\s+pro\b)(?:\s+plus)?|air|17(?!\s+pro\b))/i.test(v) && /\b(?:blue|ultramarine|teal|sky blue|bay)\b/i.test(v)) return 'голубой';
+  if (/iphone\s+(?:14(?:\s+plus)?|15(?!\s+pro\b)(?:\s+plus)?|16(?!\s+pro\b)(?:\s+plus)?|air|17(?!\s+pro\b)|18(?!\s+pro\b)(?:\s+plus)?)/i.test(v) && /\b(?:blue|ultramarine|teal|sky blue|bay)\b/i.test(v)) return 'голубой';
   const pairs = [['натуральный','серый'],['серый космос','серый'],['графитовый','черный'],['угольный','черный'],['обсидиан','черный'],['титан','серый'],['пустынный','золотистый'],['кремовый','бежевый'],['ореховый','бежевый'],['фарфоровый','белый'],['сияющая звезда','белый'],['темно фиолетовый','фиолетовый'],['лавандовый','фиолетовый'],['ультрамарин','голубой'],['бирюзовый','голубой'],['индиго','синий'],['полночный','черный'],['темно зеленый','зеленый'],['зимний зеленый','зеленый'],['шалфейный','зеленый'],['мятный','зеленый'],['алоэ','зеленый'],['розовое золото','розовый'],['коралловый','розовый'],['пионовый','розовый'],['лимонный','желтый']];
   const hit = pairs.find(function(pair) { return tcColorKey_(detected) === pair[0]; });
   return hit ? hit[1] : tcColorKey_(detected);
