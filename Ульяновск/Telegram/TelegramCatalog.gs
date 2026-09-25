@@ -538,10 +538,10 @@ function tcMarkupAmount_(row, rules) {
     return null;
   }
 
-  // The approved Apple range is iPhone 12–17. Do not infer a markup for a
+  // The approved Apple range is iPhone 12–18. Do not infer a markup for a
   // future or older model simply because its name starts with "iPhone".
   const iphoneModel = /^iphone\s+(\d+)(?:e)?\b/i.exec(name);
-  if (!iphoneModel || Number(iphoneModel[1]) < 12 || Number(iphoneModel[1]) > 17) return null;
+  if (!iphoneModel || Number(iphoneModel[1]) < 12 || Number(iphoneModel[1]) > 18) return null;
 
   const memoryMatch = /^(\d+)\s*(ГБ|GB|ТБ|TB)$/i.exec(String(phone.memory || '').trim());
   const memoryGb = memoryMatch ? Number(memoryMatch[1]) * (/тб|tb/i.test(memoryMatch[2]) ? 1024 : 1) : 0;
@@ -791,6 +791,9 @@ function tcColor_(value) {
     ['space gray','серый'],['rose gold','розовое золото'],['cosmic orange','оранжевый'],['product red','красный'],
     ['сияющая звезда','сияющая звезда'],['розовое золото','розовое золото'],['темно фиолетовый','темно-фиолетовый'],['темно зеленый','темно-зеленый'],
     ['ultramarine','ультрамарин'],['graphite','графитовый'],['coral','коралловый'],['teal','бирюзовый'],['lavender','лавандовый'],['lilac','фиолетовый'],['violet','фиолетовый'],['indigo','индиго'],['porcelain','фарфоровый'],['hazel','ореховый'],['aloe','алоэ'],['peony','пионовый'],['wintergreen','зимний зеленый'],['charcoal','угольный'],['sage','шалфейный'],['mint','мятный'],['cream','кремовый'],
+    // iPhone 18 supplier finish aliases, mapped to the four canonical
+    // template colours supplied for this city.
+    ['glacier','голубой'],['burgundy','красный'],
     // Supplier shade names are intentionally grouped into the closest Avito
     // colour rather than blocking a sale over a cosmetic naming difference.
     ['jetblack','черный'],['jet black','черный'],['black','черный'],['graphite','черный'],['charcoal','черный'],['midnight','черный'],['silver shadow','серый'],['silvershadow','серый'],['lightgray','серый'],['light gray','серый'],['graygreen','зеленый'],['gray green','зеленый'],['whitesilver','белый'],['white silver','белый'],['cobalt violet','фиолетовый'],['cobaltviolet','фиолетовый'],['violet shadow','фиолетовый'],['violetshadow','фиолетовый'],['navy','синий'],['cobalt blue','синий'],['cobaltblue','синий'],['sky blue','голубой'],['skyblue','голубой'],['icy blue','голубой'],['icyblue','голубой'],['silver blue','голубой'],['silverblue','голубой'],['titanium','титан'],['lemongrass','лимонный'],['obsidian','черный'],['snow','белый'],['bay','голубой'],['fog','серый'],['olive','оливковый'],['starlight','сияющая звезда'],['natural','натуральный'],['desert','пустынный'],

@@ -813,3 +813,57 @@ test('keeps AirPods 4 ANC separate and prices each AirPods Max 2026 colour indep
   ], 'наушники', layout, [['AirPods Max 2026 Blue', ''], ['AirPods Max 2026 Orange', ''], ['AirPods Max 2026 Purple', '']]);
   assert.deepEqual(JSON.parse(JSON.stringify(max.updates)), [{ row:0, price:40100 }, { row:1, price:38800 }, { row:2, price:39800 }]);
 });
+
+test('parses iPhone 18 supplier colours and applies the existing Apple markup', () => {
+  const rows = api.tcParseSupplierSheetCsv_([
+    'iPhone 18 Pro,',
+    '18 Pro 512GB Black 🇰🇷 (Sim + E-Sim),155 100',
+    '18 Pro 512GB Burgundy 🇰🇷 (Sim + E-Sim),154 100',
+    'iPhone 18 Pro Max,',
+    '18 Pro Max 256GB Silver 🇭🇰 (Sim + E-Sim),148 100',
+    '18 Pro Max 512GB Glacier 🇭🇰 (Sim + E-Sim),164 100'
+  ].join('\n'), 'supplier-id');
+  const parsed = rows.map((row) => api.tcPhone_(row.name + ' ' + row.variant));
+  assert.deepEqual(JSON.parse(JSON.stringify(parsed.map((phone) => [phone.model, phone.memory, phone.color, phone.config]))), [
+    ['iPhone 18 Pro', '512 ГБ', 'черный', 'SIM + eSIM'],
+    ['iPhone 18 Pro', '512 ГБ', 'красный', 'SIM + eSIM'],
+    ['iPhone 18 Pro Max', '256 ГБ', 'серебристый', 'SIM + eSIM'],
+    ['iPhone 18 Pro Max', '512 ГБ', 'голубой', 'SIM + eSIM']
+  ]);
+  const marked = api.tcApplyUlyanovskMarkup_(rows, api.tcParseMarkupCsv_('Модель,Наценка\niPhone 13 - 17 Pro max 256,3000'));
+  assert.deepEqual(JSON.parse(JSON.stringify(marked.rows.map((row) => row.price))), [158100, 157100, 151100, 167100]);
+});
+
+test('keeps AirPods 5 Type-C and MagSafe prices separate', () => {
+  const matcher = api.PriceFlowAvitoMatcher;
+  const plan = matcher.planTitle([
+    { title:'AirPods 5 (Type-C)', price:14300, search:'AirPods 5 (Type-C)' },
+    { title:'AirPods 5 (MagSafe)', price:15300, search:'AirPods 5 (MagSafe)' }
+  ], 'наушники', matcher.titleLayout(['Title', 'Price']), [
+    ['Apple Airpods 5', ''],
+    ['Apple Airpods 5 с беспроводной зарядкой', '']
+  ]);
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [{ row:0, price:14300 }, { row:1, price:15300 }]);
+});
+
+test('matches Series 12 and Ultra 4 only on their stated finish and strap', () => {
+  const matcher = api.PriceFlowAvitoMatcher;
+  const layout = matcher.titleLayout(['Title', 'Price']);
+  const plan = matcher.planTitle([
+    { title:'Watch S12 (2026) 42mm Dark Bronze (S/M)', price:41800, search:'Watch S12 (2026) 42mm Dark Bronze (S/M)' },
+    { title:'Watch S12 (2026) 46mm Space Gray (S/M)', price:46800, search:'Watch S12 (2026) 46mm Space Gray (S/M)' },
+    { title:'Watch Ultra 4 (2026) 49mm Natural case Gray Ocean Band (One Size)', price:95300, search:'Watch Ultra 4 (2026) 49mm Natural case Gray Ocean Band (One Size)' },
+    { title:'Watch Ultra 4 (2026) 49mm Black case Kelp Alpine Loop (M)', price:95400, search:'Watch Ultra 4 (2026) 49mm Black case Kelp Alpine Loop (M)' }
+  ], 'часы', layout, [
+    ['Apple Watch Series 12 (2026) 42mm Dark Bronze', ''],
+    ['Apple Watch Series 12 (2026) 46mm Space Gray', ''],
+    ['Apple Watch Ultra 4 49mm Natural Ocean Gray', ''],
+    ['Apple Watch Ultra 4 49mm Black Alpine Kelp', ''],
+    ['Apple Watch Ultra 4 49mm Natural Milanese Natural', '']
+  ], { strictUlyanovskWatchFinish:true });
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.updates)), [
+    { row:0, price:41800 }, { row:1, price:46800 }, { row:2, price:95300 }, { row:3, price:95400 }
+  ]);
+  assert.equal(plan.matched, 4);
+  assert.equal(plan.reasons[4], 'Нет точного SKU у поставщика');
+});
