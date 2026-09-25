@@ -1,9 +1,14 @@
-/** Белая Калитва / AppleTrade — raw supplier catalog, no margin rules here. */
+/** Белая Калитва / AppleTrade — supplier catalogue and local sale-price views. */
 const BK = {
   endpoint: 'https://api.pricemasterapp.ru/belaya-kalitva/catalog',
-  secret: '3e58984d71cf9847b67abd21d559126b38167a4e6c993d9ab4e710507a412e90',
+  secretProperty: 'BELAYA_ILUBLINO_SNAPSHOT_SECRET',
   maxCatalogAgeMinutes: 30,
-  tabs: ['телефоны', 'аксессуары', 'макбуки', 'аймак', 'айпады', 'камеры', 'часы', 'наушники', 'пс', 'дайсон'],
+  tabs: ['телефоны', 'аксессуары', 'макбуки', 'аймак', 'айпады', 'камеры', 'часы', 'наушники', 'пс', 'дайсон', 'рей бэн'],
+};
+
+const BK_MARKUP = {
+  'телефоны': {cash: 0.10, cashless: 0.22}, 'макбуки': {cash: 0.10, cashless: 0.22}, 'айпады': {cash: 0.10, cashless: 0.22}, 'аймак': {cash: 0.10, cashless: 0.22}, 'пс': {cash: 0.10, cashless: 0.22},
+  'дайсон': {cash: 0.15, cashless: 0.25}, 'рей бэн': {cash: 0.15, cashless: 0.25}, 'часы': {cash: 0.15, cashless: 0.25}, 'наушники': {cash: 0.15, cashless: 0.25}, 'камеры': {cash: 0.15, cashless: 0.25},
 };
 
 function onOpen() {
@@ -16,7 +21,9 @@ function onOpen() {
 function bkShowSidebar() { SpreadsheetApp.getUi().showSidebar(HtmlService.createHtmlOutputFromFile('AppleTradeCatalogSidebar').setTitle('Каталог AppleTrade')); }
 
 function bkRefreshCatalog() {
-  const response = UrlFetchApp.fetch(BK.endpoint, {headers: {'X-PriceFlow-Secret': BK.secret}, muteHttpExceptions: true});
+  const secret = PropertiesService.getScriptProperties().getProperty(BK.secretProperty);
+  if (!secret) throw new Error('Не задан Script Property «' + BK.secretProperty + '»; старые цены сохранены.');
+  const response = UrlFetchApp.fetch(BK.endpoint, {headers: {'X-PriceFlow-Secret': secret}, muteHttpExceptions: true});
   if (response.getResponseCode() !== 200) throw new Error('Каталог поставщиков недоступен: HTTP ' + response.getResponseCode());
   const payload = JSON.parse(response.getContentText());
   if (!payload || !payload.categories || !payload.refreshedAt) throw new Error('Неверный формат каталога.');
@@ -51,33 +58,55 @@ function bkInstallAndRefresh() {
 }
 
 function bkValidateSheet_(sheet, name) {
-  const headers = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), name === 'телефоны' ? 12 : 2)).getValues()[0]
+  bkEnsureSaleColumns_(sheet, name);
+  const headers = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), name === 'телефоны' ? 18 : 5)).getValues()[0]
     .map(value => String(value || '').trim().toLowerCase().replace(/\s+/g, ''));
   const expected = name === 'телефоны'
-    ? ['model', 'simconfig', 'memorysize', 'color', 'price', '', 'model', 'simconfig', 'memorysize', 'color', 'ramsize', 'price']
-    : ['title', 'price'];
+    ? ['model', 'simconfig', 'memorysize', 'color', 'price', 'нал', 'безнал', 'поставщик', '', 'model', 'simconfig', 'memorysize', 'color', 'ramsize', 'price', 'нал', 'безнал', 'поставщик']
+    : ['title', 'price', 'нал', 'безнал', 'поставщик'];
   if (expected.some((value, index) => headers[index] !== value)) {
     throw new Error('Неверная шапка вкладки «' + name + '». Каталог не очищен.');
   }
 }
 
+function bkEnsureSaleColumns_(sheet, name) {
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(value => String(value || '').trim().toLowerCase().replace(/\s+/g, ''));
+  if (name !== 'телефоны') {
+    if (headers.slice(0, 5).join('|') === 'title|price|нал|безнал|поставщик') return;
+    if (headers.slice(0, 2).join('|') !== 'title|price') throw new Error('Неверная шапка вкладки «' + name + '».');
+    sheet.insertColumnsAfter(2, 3); sheet.getRange(1, 3, 1, 3).setValues([['Нал', 'Безнал', 'Поставщик']]); return;
+  }
+  const legacy = ['model', 'simconfig', 'memorysize', 'color', 'price', '', 'model', 'simconfig', 'memorysize', 'color', 'ramsize', 'price'];
+  const ready = ['model', 'simconfig', 'memorysize', 'color', 'price', 'нал', 'безнал', 'поставщик', '', 'model', 'simconfig', 'memorysize', 'color', 'ramsize', 'price', 'нал', 'безнал', 'поставщик'];
+  if (headers.slice(0, ready.length).join('|') === ready.join('|')) return;
+  if (headers.slice(0, legacy.length).join('|') !== legacy.join('|')) throw new Error('Неверная шапка вкладки «телефоны».');
+  sheet.insertColumnsAfter(5, 3); sheet.getRange(1, 6, 1, 3).setValues([['Нал', 'Безнал', 'Поставщик']]);
+  sheet.insertColumnsAfter(15, 3); sheet.getRange(1, 16, 1, 3).setValues([['Нал', 'Безнал', 'Поставщик']]);
+}
+
+function bkPrices_(category, price) {
+  const raw = Number(price), markup = BK_MARKUP[category];
+  return {raw: raw, cash: markup ? Math.round(raw * (1 + markup.cash)) : '', cashless: markup ? Math.round(raw * (1 + markup.cashless)) : ''};
+}
+
 function bkWriteTitlePrice_(sheet, rows) {
-  const last = Math.max(sheet.getLastRow(), 2); sheet.getRange(2, 1, last - 1, Math.max(sheet.getLastColumn(), 2)).clearContent();
-  if (rows.length) sheet.getRange(2, 1, rows.length, 2).setValues(rows.map(r => [r.title, Number(r.price)]));
+  const last = Math.max(sheet.getLastRow(), 2); sheet.getRange(2, 1, last - 1, Math.max(sheet.getLastColumn(), 5)).clearContent();
+  if (rows.length) sheet.getRange(2, 1, rows.length, 5).setValues(rows.map(r => { const prices = bkPrices_(sheet.getName(), r.price); return [r.title, prices.raw, prices.cash, prices.cashless, r.source || '']; }));
 }
 
 function bkWritePhones_(sheet, rows) {
-  const last = Math.max(sheet.getLastRow(), 2); sheet.getRange(2, 1, last - 1, Math.max(sheet.getLastColumn(), 12)).clearContent();
+  const last = Math.max(sheet.getLastRow(), 2); sheet.getRange(2, 1, last - 1, Math.max(sheet.getLastColumn(), 18)).clearContent();
   const apple = [], android = [];
-  rows.forEach(r => (/\biphone\b/i.test(r.title) ? apple : android).push(bkPhoneRow_(r.title, Number(r.price))));
-  if (apple.length) sheet.getRange(2, 1, apple.length, 5).setValues(apple);
-  if (android.length) sheet.getRange(2, 7, android.length, 6).setValues(android);
+  rows.forEach(r => { const parsed = bkPhone_(r.title); if (parsed.apple && parsed.sim === 'Не знаю') return; (parsed.apple ? apple : android).push(bkPhoneValues_(parsed, Number(r.price), r.source || '')); });
+  if (apple.length) sheet.getRange(2, 1, apple.length, 8).setValues(apple);
+  if (android.length) sheet.getRange(2, 10, android.length, 9).setValues(android);
 }
 
-function bkPhoneRow_(title, price) {
+function bkPhoneRow_(title, price, source) {
   const parsed = bkPhone_(title);
-  return parsed.apple ? [parsed.model, parsed.sim, parsed.memory, parsed.color, price] : [parsed.model, parsed.sim, parsed.memory, parsed.color, parsed.ram, price];
+  return bkPhoneValues_(parsed, price, source || '');
 }
+function bkPhoneValues_(parsed, price, source) { const prices = bkPrices_('телефоны', price); return parsed.apple ? [parsed.model, parsed.sim, parsed.memory, parsed.color, prices.raw, prices.cash, prices.cashless, source] : [parsed.model, parsed.sim, parsed.memory, parsed.color, parsed.ram, prices.raw, prices.cash, prices.cashless, source]; }
 
 /**
  * Supplier-catalog parser only. It preserves a status such as `(Asis+)` or
@@ -95,8 +124,7 @@ function bkPhone_(value) {
   const memory = specs ? unit(specs[2], specs[3]) : memoryMatch ? unit(memoryMatch[1], memoryMatch[2]) : '';
   const ram = specs ? unit(specs[1], 'GB') : '';
   const sim = /\b(?:2\s*(?:sim|сим)|dual\s*-?\s*sim)\b/i.test(text) ? '2 SIM' : /(?:1\s*)?sim\s*\+\s*e\s*-?sim/i.test(text) ? 'SIM + eSIM' : /e\s*-?sim/i.test(text) ? 'eSIM' : /\bsim\b/i.test(text) ? 'SIM' : 'Не знаю';
-  const colors = /\b(black|white|blue|green|pink|purple|yellow|silver|gray|grey|gold|orange|red|sage|teal|ultramarine|natural|desert|lavander|lavender|cloud\s+white|sky\s+blue|черный|белый|синий|голубой|зеленый|розовый|фиолетовый|желтый|серебристый|серый|золотистый)\b/i;
-  const color = (text.match(colors) || [''])[0];
+  const color = bkPhoneColor_(text);
   const apple = /\biphone\b/i.test(text);
   const appleModel = text.match(/\biPhone\s+(?:Air|\d+(?:e)?(?:\s+(?:Pro\s+Max|Pro|Plus|Mini|Air))?)\b/i);
   const androidModel = text.match(/\b(?:(?:Samsung\s+)?Galaxy\s+(?:S|A|Z|M)\d+(?:\s+(?:Ultra|FE|Plus))?|(?:Samsung|Xiaomi|Redmi|Poco|Honor|Huawei|OnePlus|Realme|Oppo|Vivo|Asus)\s+[A-Za-z0-9][A-Za-z0-9+\-]*(?:\s+(?:Pro|Ultra|Plus|FE|Lite|Max|Note))?)/i);
@@ -104,6 +132,13 @@ function bkPhone_(value) {
   // rather than drop the actual supplier item.
   const model = condition + (apple ? (appleModel ? appleModel[0] : text) : (androidModel ? androidModel[0] : text));
   return { apple:apple, model:model.replace(/\s+/g, ' ').trim(), sim:sim, memory:memory, color:color, ram:ram };
+}
+
+function bkPhoneColor_(text) {
+  const aliases = [[/\b(?:blue|голубой)\b/i, 'голубой'], [/\b(?:red|красный)\b/i, 'красный'], [/\b(?:silver|серебристый)\b/i, 'серебристый'], [/\b(?:black|черный|чёрный)\b/i, 'черный']];
+  const match = aliases.find(pair => pair[0].test(text)); if (match) return match[1];
+  const colors = /\b(white|green|pink|purple|yellow|gray|grey|gold|orange|sage|teal|ultramarine|natural|desert|lavander|lavender|cloud\s+white|sky\s+blue|белый|синий|зеленый|розовый|фиолетовый|желтый|серый|золотистый)\b/i;
+  return (text.match(colors) || [''])[0];
 }
 
 function bkInstallTrigger() {

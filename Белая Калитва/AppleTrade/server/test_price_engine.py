@@ -14,6 +14,20 @@ class PriceEngineTests(unittest.TestCase):
         self.assertNotEqual(sku_key("iPhone 16 128 GB Blue"), sku_key("iPhone 16 256 GB Blue"))
         self.assertNotEqual(sku_key("iPhone 16 128 GB Blue"), sku_key("iPhone 16 128 GB Pink"))
 
+    def test_iphone_18_uses_the_same_safe_sku_rules_and_colour_aliases(self):
+        self.assertEqual(
+            sku_key("iPhone 18 256 GB Blue SIM + eSIM"),
+            sku_key("iPhone 18 256ГБ голубой SIM+eSIM"),
+        )
+        self.assertEqual(
+            sku_key("iPhone 18 256 GB Black SIM + eSIM"),
+            sku_key("iPhone 18 256ГБ черный SIM+eSIM"),
+        )
+        self.assertNotEqual(
+            sku_key("iPhone 18 256 GB Blue SIM + eSIM"),
+            sku_key("iPhone 18 256 GB Red SIM + eSIM"),
+        )
+
     def test_keeps_android_ram_material(self):
         self.assertNotEqual(sku_key("Galaxy S25 8/256 GB Black"), sku_key("Galaxy S25 12/256 GB Black"))
 

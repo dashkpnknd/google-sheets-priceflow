@@ -79,6 +79,9 @@ def fresh_catalog() -> dict[str, object] | None:
         return None
 def category(title: str) -> str | None:
     t = norm(title)
+    # A charging-capable AirPods model is still a headphone, not an accessory.
+    # This must precede the generic charger rule below.
+    if "airpods" in t or "buds" in t or any(x in t for x in ("marshall", "jbl", "harman")): return "наушники"
     # Source-menu categories.  Accessories must be checked before phones:
     # a Samsung charger must never be catalogued as a Samsung phone.
     if re.search(r"\b(accessor(?:y|ies)|case|bumper|wallet|magsafe|folio|pencil|strap|band|charger|cable|adapter|powerbank|gamepad|controller)\b|чехол|стекло|кабель|заряд|адаптер|держател|ремеш|пауэрбанк", t): return "аксессуары"
@@ -88,7 +91,6 @@ def category(title: str) -> str | None:
     if "macbook" in t or re.search(r"\bmac\s*mini\b", t): return "макбуки"
     if re.search(r"ipad|galaxy\s*tab|(?:xiaomi|redmi|huawei|honor)\s*pad|\btablet\b", t): return "айпады"
     if re.search(r"watch|galaxy\s*(?:fit|ring)|\bwhoop\b", t): return "часы"
-    if "airpods" in t or "buds" in t or any(x in t for x in ("marshall", "jbl", "harman")): return "наушники"
     if "dyson" in t: return "дайсон"
     if re.search(r"\bps[345]\b|playstation|dualsense|\bxbox\b|nintendo|oculus|steam\s*deck", t): return "пс"
     if any(x in t for x in ("iphone", "galaxy", "samsung", "pixel", "xiaomi", "redmi", "honor", "huawei", "realme", "oneplus", "oppo", "vivo", "asus")): return "телефоны"

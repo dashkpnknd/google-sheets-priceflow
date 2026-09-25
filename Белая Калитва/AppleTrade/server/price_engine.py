@@ -67,6 +67,12 @@ def sku_key(name: str) -> str:
     raw = re.sub(r"\bsim\s*\+\s*esim\b", "sim+esim", raw)
     raw = re.sub(r"\bspace\s+black\b", "black", raw)
     raw = re.sub(r"\bspace\s+gray\b", "gray", raw)
+    # Белая Калитва stores the current iPhone palette in Russian.  These are
+    # display aliases, not a relaxation: every colour still has its own key.
+    raw = re.sub(r"\bголуб(?:ой|ая)?\b", "blue", raw)
+    raw = re.sub(r"\bкрасн(?:ый|ая)?\b", "red", raw)
+    raw = re.sub(r"\bсеребрист(?:ый|ая)?\b", "silver", raw)
+    raw = re.sub(r"\bчерн(?:ый|ая)?\b", "black", raw)
     model = _MODEL.search(raw)
     ram_storage = _RAM_STORAGE.search(raw)
     storage = _STORAGE.search(raw)

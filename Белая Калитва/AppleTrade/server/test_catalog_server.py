@@ -52,6 +52,28 @@ class CatalogPriceParserTests(unittest.TestCase):
         rows = parse_post("supplier", 3, "iPhone 17 Pro 2TB Blue — 159 990 ₽", "2026-08-26T00:00:00+00:00")
         self.assertEqual(rows[0]["title"], "iPhone 17 Pro 2TB Blue")
 
+    def test_current_iphone_18_heading_keeps_its_exact_sku(self):
+        rows = parse_post(
+            "supplier", 31, "iPhone 18\nSIM + eSIM 18 256GB Blue — 99 990 ₽",
+            "2026-09-25T00:00:00+00:00",
+        )
+        self.assertEqual(rows[0]["category"], "телефоны")
+        self.assertEqual(rows[0]["title"], "iPhone 18 SIM + eSIM 256GB Blue")
+
+    def test_new_airpods_and_watches_keep_their_variants_separate(self):
+        rows = parse_post(
+            "supplier", 32,
+            "Apple Airpods 5 — 18 990 ₽\n"
+            "Apple Airpods 5 с беспроводной зарядкой — 20 990 ₽\n"
+            "Apple Watch Series 12 (2026) 42mm Dark Bronze — 39 990 ₽\n"
+            "Apple Watch Ultra 4 49mm Natural Ocean Gray — 74 990 ₽",
+            "2026-09-25T00:00:00+00:00",
+        )
+        self.assertEqual([row["category"] for row in rows], ["наушники", "наушники", "часы", "часы"])
+        self.assertNotEqual(rows[0]["sku"], rows[1]["sku"])
+        self.assertIn("Series 12", rows[2]["title"])
+        self.assertIn("Ultra 4", rows[3]["title"])
+
     def test_asis_is_preserved_at_the_start_and_not_mixed_with_regular_stock(self):
         rows = parse_post("supplier", 4, "iPhone 16 512Gb Black (Asis+) — 63 100 ₽", "2026-08-26T00:00:00+00:00")
         self.assertEqual(rows[0]["title"], "(Asis+) iPhone 16 512Gb Black")
