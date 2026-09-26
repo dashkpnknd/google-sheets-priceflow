@@ -131,6 +131,7 @@ test('parses iPhone 18 SKUs with the approved catalogue colours', () => {
   assert.deepEqual([...rows.map((row) => row.name)], ['iPhone 18 128GB Blue', 'iPhone 18 128GB Red', 'iPhone 18 128GB Silver', 'iPhone 18 128GB Black']);
   assert.deepEqual([...rows.map((row) => api.tcPhone_(row.name).model)], ['iPhone 18', 'iPhone 18', 'iPhone 18', 'iPhone 18']);
   assert.deepEqual([...rows.map((row) => api.tcPhone_(row.name).color)], ['голубой', 'красный', 'серебристый', 'черный']);
+  assert.deepEqual(['iPhone 18 Pro 256GB Blue', 'iPhone 18 Pro Max 1TB Blue', 'iPhone 18 Pro 256GB Red', 'iPhone 18 Pro Max 1TB Silver', 'iPhone 18 Pro 512GB Black'].map((name) => api.tcPhone_(name).color), ['голубой', 'голубой', 'красный', 'серебристый', 'черный']);
 });
 
 test('keeps the full Apple Watch title when the supplier puts the model in the section header', () => {
