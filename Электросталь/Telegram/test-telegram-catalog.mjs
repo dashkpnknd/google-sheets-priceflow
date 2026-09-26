@@ -153,6 +153,9 @@ test('matches the requested AirPods 5 charging variants and 2026 watches exactly
   assert.equal(matcher.titleMatches('наушники', 'Apple Airpods 5', 'Apple Airpods 5 с беспроводной зарядкой'), false);
   assert.equal(matcher.titleMatches('наушники', 'Apple Airpods 5 с беспроводной зарядкой', 'Apple Airpods 5 с беспроводной зарядкой'), true);
   assert.equal(matcher.titleMatches('часы', 'Apple Watch Series 12 (2026) 42mm Dark Bronze', 'Apple Watch Series 12 (2026) 42mm Dark Bronze'), true);
+  assert.equal(matcher.titleMatches('часы', 'Apple Watch Series 12 (2026) 42mm Space Gray', 'Apple Watch Series 12 42mm GPS Space Gray M/L'), true);
+  assert.equal(matcher.titleMatches('часы', 'Apple Watch SE 3 (2025) 40mm Midnight', 'Apple Watch SE 3 40mm GPS Midnight Sport Band S/M'), true);
+  assert.equal(matcher.titleMatches('часы', 'Apple Watch Series 12 (2026) 42mm Space Gray', 'Apple Watch Series 12 (2025) 42mm Space Gray'), false);
   assert.equal(matcher.titleMatches('часы', 'Apple Watch Ultra 4 49mm Natural Ocean Gray', 'Apple Watch Ultra 4 49mm Natural Ocean Black'), false);
   assert.equal(matcher.titleMatches('часы', 'Apple Watch Ultra 4 49mm Natural Ocean Gray', 'Apple Watch Ultra 4 49mm Natural Ocean Gray'), true);
 });
