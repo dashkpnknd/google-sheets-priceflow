@@ -206,22 +206,22 @@ test('applies the Apple scale to Apple and the Android scale to every other Elek
   assert.equal(priced.withoutRule, 1);
 });
 
-test('keeps every supplied iPhone generation before Elektrostal markup', () => {
+test('removes every iPhone 13 and 14 variant before the Elektrostal catalogue and markup', () => {
   const priced = api.tcApplyElektrostalMarkup_([
     { category: 'телефоны', name: 'iPhone 13 mini 128GB Black', price: 40000 },
     { category: 'телефоны', name: 'iPhone 14 Pro Max 256GB Purple', price: 70000 },
     { category: 'телефоны', name: 'iPhone 15 128GB Black', price: 60000 }
   ]);
-  assert.equal(priced.excluded, 0);
-  assert.deepEqual(priced.rows.map((row) => row.name), ['iPhone 13 mini 128GB Black', 'iPhone 14 Pro Max 256GB Purple', 'iPhone 15 128GB Black']);
-  assert.deepEqual(priced.rows.map((row) => row.price), [45000, 76000, 65000]);
+  assert.equal(priced.excluded, 2);
+  assert.deepEqual(priced.rows.map((row) => row.name), ['iPhone 15 128GB Black']);
+  assert.equal(priced.rows[0].price, 65000);
 });
 
-test('keeps iPhone 13 and 14 while parsing the Elektrostal supplier channel', () => {
+test('drops iPhone 13 and 14 while parsing the Elektrostal supplier channel', () => {
   const rows = api.tcParsePost_('📱 iPhone\n• iPhone 13 128GB Black — 40000 ₽\n• iPhone 14 Pro 256GB Blue — 70000 ₽\n• iPhone 15 128GB Black — 60000 ₽', 'astoredirect', '1');
-  assert.equal(rows.map((row) => row.name).join("|"), "iPhone 13 128GB Black|iPhone 14 Pro 256GB Blue|iPhone 15 128GB Black");
+  assert.equal(rows.map((row) => row.name).join("|"), "iPhone 15 128GB Black");
   const volume = api.tcParsePost_('📱 iPhone\n💼 Цена за объём\niPhone 13 128GB Black\n1 шт 40000 ₽\niPhone 15 128GB Black\n1 шт 60000 ₽', 'astoredirect', '2');
-  assert.equal(volume.map((row) => row.name).join("|"), "iPhone 13 128GB Black|iPhone 15 128GB Black");
+  assert.equal(volume.map((row) => row.name).join("|"), "iPhone 15 128GB Black");
 });
 
 test('parses the supplier price-channel bullet format and keeps a country flag', () => {

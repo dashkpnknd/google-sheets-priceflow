@@ -312,8 +312,8 @@ function tcSummary_(result) {
 function tcNorm_(value) { return String(value || '').trim().toLocaleLowerCase('ru-RU'); }
 function tcDisplay_(product) { return [product.name, product.variant].filter(Boolean).join(' ').replace(/[\u{1F1E6}-\u{1F1FF}]{2}/gu, '').replace(/\s+/g, ' ').trim(); }
 
-/** Every supplied iPhone generation is kept in the prepared catalogue. */
-function tcIncludeParsedElektrostalRow_(row) { return Boolean(row); }
+/** iPhone 13 and 14 are not offered in the prepared Elektrtostal catalogue. */
+function tcIncludeParsedElektrostalRow_(row) { return Boolean(row) && !tcExcludedElektrostalSku_(row); }
 
 function tcApplyElektrostalMarkup_(rows) {
   let applied = 0, withoutRule = 0, excluded = 0;
@@ -333,7 +333,10 @@ function tcApplyElektrostalMarkup_(rows) {
   return { rows: priced, applied: applied, withoutRule: withoutRule, excluded: excluded };
 }
 
-function tcExcludedElektrostalSku_() { return false; }
+function tcExcludedElektrostalSku_(row) {
+  if (!row || row.category !== 'телефоны') return false;
+  return /^iphone\s+(?:13|14)(?:\s|$)/i.test(tcDisplay_(row));
+}
 
 function tcElektrostalMarkupAmount_(row) {
   if (!row) return null;
