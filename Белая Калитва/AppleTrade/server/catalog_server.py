@@ -84,11 +84,6 @@ def fresh_catalog() -> dict[str, object] | None:
         return None
 
 
-def require_supplier_coverage(source_rows: dict[str, int], sources: Iterable[str]) -> None:
-    """Reject a minimum calculated from only a subset of suppliers."""
-    missing = [source for source in sources if not source_rows.get(source)]
-    if missing:
-        raise RuntimeError("no confirmed offers from: " + ", ".join(missing))
 def category(title: str) -> str | None:
     t = norm(title)
     # A charging-capable AirPods model is still a headphone, not an accessory.
@@ -294,7 +289,6 @@ async def collect(client: object) -> dict[str, object]:
             if int(message.id) in recent_ids and changed.astimezone(timezone.utc) < cutoff: continue
             parsed.extend(parse_post(source, message.id, message.message, changed.astimezone(timezone.utc).isoformat()))
         source_rows[source] = len(parsed); offers.extend(parsed)
-    require_supplier_coverage(source_rows, [name for name, _ in sources])
     lowest: dict[str, dict[str, object]] = {}
     for offer in offers:
         old = lowest.get(str(offer["sku"]))

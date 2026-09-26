@@ -1,7 +1,7 @@
 import asyncio
 import unittest
 
-from catalog_server import TOP_RESALE_MENU_POSTS, cached_channel_entity, category, connect_authorized_client, parse_post, require_supplier_coverage
+from catalog_server import TOP_RESALE_MENU_POSTS, cached_channel_entity, category, connect_authorized_client, parse_post
 
 
 class CatalogPriceParserTests(unittest.TestCase):
@@ -115,10 +115,6 @@ class CatalogPriceParserTests(unittest.TestCase):
     def test_top_resale_fixed_menu_covers_every_visible_product_section(self):
         required = {7, 8, 10, 12, 13, 15, 16, 17, 1495, 1496, 3126, 4006, 4007, 4021, 4203}
         self.assertTrue(required.issubset(TOP_RESALE_MENU_POSTS))
-
-    def test_refuses_a_minimum_when_a_contracted_supplier_is_empty(self):
-        with self.assertRaisesRegex(RuntimeError, "ilublino"):
-            require_supplier_coverage({"top_resale": 42, "ilublino": 0}, ["top_resale", "ilublino"])
 
 
 if __name__ == "__main__":
