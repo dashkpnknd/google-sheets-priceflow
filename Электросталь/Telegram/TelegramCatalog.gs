@@ -312,8 +312,8 @@ function tcSummary_(result) {
 function tcNorm_(value) { return String(value || '').trim().toLocaleLowerCase('ru-RU'); }
 function tcDisplay_(product) { return [product.name, product.variant].filter(Boolean).join(' ').replace(/[\u{1F1E6}-\u{1F1FF}]{2}/gu, '').replace(/\s+/g, ' ').trim(); }
 
-/** Local parser rule: iPhone 13 and 14 never enter the prepared catalogue. */
-function tcIncludeParsedElektrostalRow_(row) { return Boolean(row) && !tcExcludedElektrostalSku_(row); }
+/** Every supplied iPhone generation is kept in the prepared catalogue. */
+function tcIncludeParsedElektrostalRow_(row) { return Boolean(row); }
 
 function tcApplyElektrostalMarkup_(rows) {
   let applied = 0, withoutRule = 0, excluded = 0;
@@ -333,11 +333,7 @@ function tcApplyElektrostalMarkup_(rows) {
   return { rows: priced, applied: applied, withoutRule: withoutRule, excluded: excluded };
 }
 
-/** Project rule: no iPhone 13/14, including Mini/Plus/Pro/Pro Max, anywhere. */
-function tcExcludedElektrostalSku_(row) {
-  if (!row || row.category !== 'телефоны') return false;
-  return /^iphone\s+(?:13|14)(?:\s|$)/i.test(tcDisplay_(row));
-}
+function tcExcludedElektrostalSku_() { return false; }
 
 function tcElektrostalMarkupAmount_(row) {
   if (!row) return null;
@@ -355,21 +351,24 @@ function tcElektrostalMarkupAmount_(row) {
 }
 
 function tcFetchRows_(channel) {
-  // The supplier maintains the full, editable catalogue in permanent posts
-  // linked from its current navigation message.  Do not walk `?before=`
-  // history: Telegram intermittently rejects that endpoint from Apps Script.
+  // Every product post in the public channel is part of the supplier feed.
+  // Scan the whole channel; its pinned navigation is only a convenience link
+  // and must never limit the catalogue to one current iPhone section.
   const initialUrl = 'https://t.me/s/' + channel;
-  const response = UrlFetchApp.fetch(initialUrl, { muteHttpExceptions:true });
-  if (response.getResponseCode() !== 200) throw new Error('Telegram не открыл страницу прайса: HTTP ' + response.getResponseCode());
-  const ids = tcNavigationPostIds_(response.getContentText(), channel);
-  if (!ids.length) throw new Error('В Telegram не найдена актуальная «Навигация по прайсу». Каталог не изменён.');
-  const rows = [];
-  // Smaller batches avoid Telegram connection failures in UrlFetchApp while
-  // keeping the run well inside the Apps Script execution time limit.
-  for (let start = 0; start < ids.length; start += 10) {
-    tcTelegramDirectPosts_(ids.slice(start, start + 10), channel).forEach(function(part) {
-      rows.push.apply(rows, part);
-    });
+  const initial = tcTelegramPage_(initialUrl, channel), rows = initial.rows;
+  const firstCursor = tcTelegramBefore_(initial.previous);
+  if (firstCursor) {
+    const requests = [];
+    for (let before = firstCursor; before > 0; before -= 20) {
+      requests.push('https://t.me/s/' + channel + '?before=' + before);
+    }
+    // Small batches avoid Telegram rejecting a large parallel UrlFetchApp
+    // request; every history window is still read.
+    for (let start = 0; start < requests.length; start += 5) {
+      tcTelegramPages_(requests.slice(start, start + 5), channel).forEach(function(page) {
+        rows.push.apply(rows, page.rows);
+      });
+    }
   }
   if (!rows.length) throw new Error('В актуальном прайсе Telegram не найдено ни одной подтверждённой цены. Каталог не изменён.');
   return tcUniqueRows_(rows).filter(tcIncludeParsedElektrostalRow_);
@@ -383,31 +382,18 @@ function tcTelegramPage_(url, channel) {
 
 function tcTelegramPages_(urls, channel) {
   const requests = urls.map(function(url) { return { url:url, muteHttpExceptions:true }; });
-  const responses = UrlFetchApp.fetchAll ? UrlFetchApp.fetchAll(requests) : requests.map(function(request) { return UrlFetchApp.fetch(request.url, request); });
-  return responses.map(function(response) {
-    if (response.getResponseCode() !== 200) throw new Error('Telegram не открыл страницу прайса: HTTP ' + response.getResponseCode());
-    return tcParsePreview_(response.getContentText(), channel);
-  });
-}
-
-/** Downloads the exact, permanent product posts listed in navigation. */
-function tcTelegramDirectPosts_(postIds, channel) {
-  // `/s/<channel>/<post>` returns the complete post markup. The shorter
-  // `/channel/<post>` OpenGraph page truncates long product catalogues.
-  const requests = postIds.map(function(post) { return { url:'https://t.me/s/' + channel + '/' + post, muteHttpExceptions:true }; });
   let responses;
   try {
     responses = UrlFetchApp.fetchAll ? UrlFetchApp.fetchAll(requests) : requests.map(function(request) { return UrlFetchApp.fetch(request.url, request); });
   } catch (error) {
-    // Telegram can reject one connection in a parallel batch with
-    // "Address unavailable". Retry the same direct URLs one at a time before
-    // declaring the source unavailable.
+    // A single unavailable Telegram address must not stop the complete scan:
+    // retry the same five history URLs one by one.
     responses = requests.map(tcTelegramRetryFetch_);
   }
   return responses.map(function(response, index) {
     if (response.getResponseCode() !== 200) response = tcTelegramRetryFetch_(requests[index]);
-    if (response.getResponseCode() !== 200) throw new Error('Telegram не открыл раздел прайса #' + postIds[index] + ': HTTP ' + response.getResponseCode());
-    return tcParseDirectPost_(response.getContentText(), channel, postIds[index]);
+    if (response.getResponseCode() !== 200) throw new Error('Telegram не открыл страницу прайса: HTTP ' + response.getResponseCode());
+    return tcParsePreview_(response.getContentText(), channel);
   });
 }
 

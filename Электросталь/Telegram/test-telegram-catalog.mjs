@@ -134,6 +134,11 @@ test('parses iPhone 18 SKUs with the approved catalogue colours', () => {
   assert.deepEqual(['iPhone 18 Pro 256GB Blue', 'iPhone 18 Pro Max 1TB Blue', 'iPhone 18 Pro 256GB Red', 'iPhone 18 Pro Max 256GB Burgundy', 'iPhone 18 Pro Max 1TB Silver', 'iPhone 18 Pro 512GB Black'].map((name) => api.tcPhone_(name).color), ['голубой', 'голубой', 'красный', 'красный', 'серебристый', 'черный']);
 });
 
+test('applies the existing Apple markup to iPhone 18', () => {
+  const result = api.tcApplyElektrostalMarkup_([{ category:'телефоны', name:'iPhone 18 Pro 256GB Burgundy', price:140100 }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.rows.map((row) => [row.price, row.markup]))), [[149500, 9000]]);
+});
+
 test('keeps the full Apple Watch title when the supplier puts the model in the section header', () => {
   const rows = api.tcParsePost_('Apple Watch Series 12 (2026)\n42mm Dark Bronze — 39 000 ₽\n46mm Night Blue — 44 000 ₽', 'astoredirectprice', 'watch12');
   assert.deepEqual([...rows.map((row) => [row.category, row.name])], [
@@ -201,22 +206,22 @@ test('applies the Apple scale to Apple and the Android scale to every other Elek
   assert.equal(priced.withoutRule, 1);
 });
 
-test('removes every iPhone 13 and 14 variant before the Elektrostal catalogue and markup', () => {
+test('keeps every supplied iPhone generation before Elektrostal markup', () => {
   const priced = api.tcApplyElektrostalMarkup_([
     { category: 'телефоны', name: 'iPhone 13 mini 128GB Black', price: 40000 },
     { category: 'телефоны', name: 'iPhone 14 Pro Max 256GB Purple', price: 70000 },
     { category: 'телефоны', name: 'iPhone 15 128GB Black', price: 60000 }
   ]);
-  assert.equal(priced.excluded, 2);
-  assert.deepEqual(priced.rows.map((row) => row.name), ['iPhone 15 128GB Black']);
-  assert.equal(priced.rows[0].price, 65000);
+  assert.equal(priced.excluded, 0);
+  assert.deepEqual(priced.rows.map((row) => row.name), ['iPhone 13 mini 128GB Black', 'iPhone 14 Pro Max 256GB Purple', 'iPhone 15 128GB Black']);
+  assert.deepEqual(priced.rows.map((row) => row.price), [45000, 76000, 65000]);
 });
 
-test('drops iPhone 13 and 14 while parsing the Elektrtostal supplier channel', () => {
+test('keeps iPhone 13 and 14 while parsing the Elektrostal supplier channel', () => {
   const rows = api.tcParsePost_('📱 iPhone\n• iPhone 13 128GB Black — 40000 ₽\n• iPhone 14 Pro 256GB Blue — 70000 ₽\n• iPhone 15 128GB Black — 60000 ₽', 'astoredirect', '1');
-  assert.equal(rows.map((row) => row.name).join("|"), "iPhone 15 128GB Black");
+  assert.equal(rows.map((row) => row.name).join("|"), "iPhone 13 128GB Black|iPhone 14 Pro 256GB Blue|iPhone 15 128GB Black");
   const volume = api.tcParsePost_('📱 iPhone\n💼 Цена за объём\niPhone 13 128GB Black\n1 шт 40000 ₽\niPhone 15 128GB Black\n1 шт 60000 ₽', 'astoredirect', '2');
-  assert.equal(volume.map((row) => row.name).join("|"), "iPhone 15 128GB Black");
+  assert.equal(volume.map((row) => row.name).join("|"), "iPhone 13 128GB Black|iPhone 15 128GB Black");
 });
 
 test('parses the supplier price-channel bullet format and keeps a country flag', () => {
@@ -247,13 +252,12 @@ test('recognises declared continuation labels in a price section', () => {
   assert.equal(api.tcContinuationInfo_('📱 iPhone (часть 3/3)\n17 128GB Black — 70 000 ₽').part, 3);
 });
 
-test('reads complete permanent product posts from the current Telegram navigation without ?before history', () => {
-  const navigation = '<div class="tgme_widget_message_wrap"><div data-post="astoredirectprice/102"></div><div class="tgme_widget_message_text">Навигация по прайсу</div><a href="https://t.me/astoredirectprice/101">iPhone</a><a href="https://t.me/astoredirectprice/100">iPad</a></div>';
-  const direct = (id, text) => '<div class="tgme_widget_message_wrap"><div data-post="astoredirectprice/' + id + '"></div><div class="tgme_widget_message_text">' + text.replace(/\n/g, '<br>') + '</div></div>';
+test('reads every Telegram history page and retries an unavailable parallel request', () => {
+  const message = (id, text) => '<div class="tgme_widget_message_wrap"><div data-post="astoredirectprice/' + id + '"></div><div class="tgme_widget_message_text">' + text.replace(/\n/g, '<br>') + '</div></div>';
   const pages = {
-    'https://t.me/s/astoredirectprice': navigation,
-    'https://t.me/s/astoredirectprice/101': direct(101, 'iPhone\niPhone 17 256GB Black (eSim) — 70 000 ₽'),
-    'https://t.me/s/astoredirectprice/100': direct(100, 'iPhone\niPhone 16 128GB Blue (eSim) — 61 000 ₽')
+    'https://t.me/s/astoredirectprice': message(102, 'Навигация по прайсу') + message(101, 'iPhone\niPhone 17 256GB Black (eSim) — 70 000 ₽') + '<a href="/s/astoredirectprice?before=100" class="tme_messages_more">more</a>',
+    'https://t.me/s/astoredirectprice?before=100': message(100, 'iPhone\niPhone 16 128GB Blue (eSim) — 61 000 ₽'),
+    'https://t.me/s/astoredirectprice?before=80': ''
   };
   const requested = [];
   context.UrlFetchApp = {
@@ -261,15 +265,17 @@ test('reads complete permanent product posts from the current Telegram navigatio
     fetchAll() { throw new Error('Address unavailable'); }
   };
   const rows = api.tcFetchRows_('astoredirectprice');
-  assert.deepEqual(Array.from(rows, row => [row.post, row.price]), [[100, 61000], [101, 70000]]);
-  assert.deepEqual(requested, ['https://t.me/s/astoredirectprice', 'https://t.me/s/astoredirectprice/100', 'https://t.me/s/astoredirectprice/101']);
+  assert.deepEqual(Array.from(rows, row => [row.post, row.price]), [['101', 70000], ['100', 61000]]);
+  assert.ok(requested.includes('https://t.me/s/astoredirectprice?before=100'));
+  assert.ok(requested.includes('https://t.me/s/astoredirectprice?before=80'));
 });
 
-test('does not duplicate an item linked twice in Telegram navigation', () => {
-  const navigation = '<div class="tgme_widget_message_wrap"><div data-post="astoredirectprice/102"></div><div class="tgme_widget_message_text">Навигация по прайсу</div><a href="https://t.me/astoredirectprice/101">iPhone</a><a href="https://t.me/astoredirectprice/101">duplicate</a></div>';
+test('does not duplicate a Telegram post repeated at a page boundary', () => {
+  const message = (id) => '<div class="tgme_widget_message_wrap"><div data-post="astoredirectprice/' + id + '"></div><div class="tgme_widget_message_text">iPhone\niPhone 17 256GB Black (eSim) — 70 000 ₽</div></div>';
   const pages = {
-    'https://t.me/s/astoredirectprice': navigation,
-    'https://t.me/s/astoredirectprice/101': '<div class="tgme_widget_message_wrap"><div data-post="astoredirectprice/101"></div><div class="tgme_widget_message_text">iPhone<br>iPhone 17 256GB Black (eSim) — 70 000 ₽</div></div>'
+    'https://t.me/s/astoredirectprice': message(101) + '<a href="/s/astoredirectprice?before=100" class="tme_messages_more">more</a>',
+    'https://t.me/s/astoredirectprice?before=100': message(101),
+    'https://t.me/s/astoredirectprice?before=80': ''
   };
   context.UrlFetchApp = { fetch(url) { return { getResponseCode: () => 200, getContentText: () => pages[url] || '' }; } };
   assert.equal(api.tcFetchRows_('astoredirectprice').length, 1);
