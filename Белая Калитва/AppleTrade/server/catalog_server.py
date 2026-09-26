@@ -226,8 +226,11 @@ def parse_post(source: str, message_id: int, text: str, published_at: str, secti
         line = clean_title(raw)
         if not line: continue
         match = PRICE.match(line)
-        # Only Dyson's confirmed layout permits a no-dash trailing price.
-        if not match and norm(section_context).startswith("dyson"):
+        # The fixed supplier menus for Dyson and Apple Watch publish the
+        # product and its price without a dash.  Keep this fallback strictly
+        # scoped to those known sections so capacities elsewhere never become
+        # accidental prices.
+        if not match and re.match(r"^(dyson|apple\s*watch)", norm(section_context)):
             match = TRAILING_PRICE.match(line)
         if not match:
             if HEAD.search(line) and len(line) < 100: context = line.rstrip(":")

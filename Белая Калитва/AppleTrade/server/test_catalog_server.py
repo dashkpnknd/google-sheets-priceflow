@@ -112,6 +112,16 @@ class CatalogPriceParserTests(unittest.TestCase):
         self.assertEqual(rows[0]["title"], "Dyson HS05 Long Nickel Copper")
         self.assertEqual(rows[0]["price"], 40500)
 
+    def test_watch_fixed_section_accepts_its_confirmed_no_dash_price_layout(self):
+        rows = parse_post(
+            "top_resale", 13,
+            "Apple Watch Series 12 (2026) 42mm Dark Bronze 39 990",
+            "2026-09-26T00:00:00+00:00", "Apple Watch",
+        )
+        self.assertEqual(rows[0]["category"], "часы")
+        self.assertEqual(rows[0]["title"], "Apple Watch Series 12 (2026) 42mm Dark Bronze")
+        self.assertEqual(rows[0]["price"], 39990)
+
     def test_top_resale_fixed_menu_covers_every_visible_product_section(self):
         required = {7, 8, 10, 12, 13, 15, 16, 17, 1495, 1496, 3126, 4006, 4007, 4021, 4203}
         self.assertTrue(required.issubset(TOP_RESALE_MENU_POSTS))
