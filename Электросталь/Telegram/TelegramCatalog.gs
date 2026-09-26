@@ -541,11 +541,17 @@ function tcWithStatus_(status, text) { return [String(status || '').trim(), Stri
 function tcExpand_(header, item) {
   const hs = tcStatus_(String(header).replace(/\\/g, ' ').trim()), is = tcStatus_(item), h = hs.text, i = is.text, mark = is.marks || hs.marks;
   let expanded = i;
-  if (/^apple\s*[·.•]\s*iphone$/i.test(h) && /^\d+(?:e)?(?:\s+(?:air|pro\s*max|pro|plus|mini))?\b/i.test(i)) {
-    // The current public price calls the general phone section “Apple · iPhone”
-    // and places the generation only in the item line. Preserve the family so
-    // iPhones do not land in the Android block with a truncated model.
-    expanded = 'iPhone ' + i;
+  const bareIphoneSku = /^\d+(?:e)?(?:\s+(?:air|pro\s*max|pro|plus|mini))?\b/i.test(i);
+  if (/\biphone\b/i.test(h) && bareIphoneSku) {
+    // The public price uses headers such as “📱 Apple · iPhone”. The leading
+    // icon is not stable, so find the family anywhere in the header rather
+    // than requiring it to be its first character.
+    const known = /\biphone\s+(\d+(?:e)?(?:\s+(?:air|pro\s*max|pro|plus|mini))?)/i.exec(h);
+    if (!known) expanded = 'iPhone ' + i;
+    else {
+      const model = known[1].replace(/\s+/g, ' ').trim(), repeated = new RegExp('^' + model.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?:\\s|$)', 'i');
+      expanded = 'iPhone ' + model + ' ' + (repeated.test(i) ? i.slice(model.length).trim() : i);
+    }
   }
   else if (/^iphone\s/i.test(h) && !/^iphone\s/i.test(i)) {
     const model = h.replace(/^iphone\s+/i, '').trim(), repeated = new RegExp('^' + model.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?:\\s|$)', 'i');

@@ -100,7 +100,7 @@ test('keeps Active and Уценка as bracketed title marks even before iPhone'
 });
 
 test('keeps the iPhone family from the Apple dot section header in a one-line price post', () => {
-  const rows = api.tcParsePost_('Apple · iPhone\n12 128 ГБ White — 35 500 ₽\n18 256 ГБ Blue — 81 000 ₽', 'astoredirectprice', 'apple-iphone-header');
+  const rows = api.tcParsePost_('📱 Apple · iPhone\n12 128 ГБ White — 35 500 ₽\n18 256 ГБ Blue — 81 000 ₽', 'astoredirectprice', 'apple-iphone-header');
   assert.deepEqual([...rows.map((row) => [row.category, row.name])], [
     ['телефоны', 'iPhone 12 128 ГБ White'],
     ['телефоны', 'iPhone 18 256 ГБ Blue']
