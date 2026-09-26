@@ -131,7 +131,7 @@ test('parses iPhone 18 SKUs with the approved catalogue colours', () => {
   assert.deepEqual([...rows.map((row) => row.name)], ['iPhone 18 128GB Blue', 'iPhone 18 128GB Red', 'iPhone 18 128GB Silver', 'iPhone 18 128GB Black']);
   assert.deepEqual([...rows.map((row) => api.tcPhone_(row.name).model)], ['iPhone 18', 'iPhone 18', 'iPhone 18', 'iPhone 18']);
   assert.deepEqual([...rows.map((row) => api.tcPhone_(row.name).color)], ['голубой', 'красный', 'серебристый', 'черный']);
-  assert.deepEqual(['iPhone 18 Pro 256GB Blue', 'iPhone 18 Pro Max 1TB Blue', 'iPhone 18 Pro 256GB Red', 'iPhone 18 Pro Max 1TB Silver', 'iPhone 18 Pro 512GB Black'].map((name) => api.tcPhone_(name).color), ['голубой', 'голубой', 'красный', 'серебристый', 'черный']);
+  assert.deepEqual(['iPhone 18 Pro 256GB Blue', 'iPhone 18 Pro Max 1TB Blue', 'iPhone 18 Pro 256GB Red', 'iPhone 18 Pro Max 256GB Burgundy', 'iPhone 18 Pro Max 1TB Silver', 'iPhone 18 Pro 512GB Black'].map((name) => api.tcPhone_(name).color), ['голубой', 'голубой', 'красный', 'красный', 'серебристый', 'черный']);
 });
 
 test('keeps the full Apple Watch title when the supplier puts the model in the section header', () => {
@@ -247,13 +247,13 @@ test('recognises declared continuation labels in a price section', () => {
   assert.equal(api.tcContinuationInfo_('📱 iPhone (часть 3/3)\n17 128GB Black — 70 000 ₽').part, 3);
 });
 
-test('reads permanent product posts from the current Telegram navigation without ?before history', () => {
+test('reads complete permanent product posts from the current Telegram navigation without ?before history', () => {
   const navigation = '<div class="tgme_widget_message_wrap"><div data-post="astoredirectprice/102"></div><div class="tgme_widget_message_text">Навигация по прайсу</div><a href="https://t.me/astoredirectprice/101">iPhone</a><a href="https://t.me/astoredirectprice/100">iPad</a></div>';
-  const direct = (text) => '<meta property="og:description" content="' + text.replace(/\n/g, '&#10;') + '">';
+  const direct = (id, text) => '<div class="tgme_widget_message_wrap"><div data-post="astoredirectprice/' + id + '"></div><div class="tgme_widget_message_text">' + text.replace(/\n/g, '<br>') + '</div></div>';
   const pages = {
     'https://t.me/s/astoredirectprice': navigation,
-    'https://t.me/astoredirectprice/101': direct('iPhone\niPhone 17 256GB Black (eSim) — 70 000 ₽'),
-    'https://t.me/astoredirectprice/100': direct('iPhone\niPhone 16 128GB Blue (eSim) — 61 000 ₽')
+    'https://t.me/s/astoredirectprice/101': direct(101, 'iPhone\niPhone 17 256GB Black (eSim) — 70 000 ₽'),
+    'https://t.me/s/astoredirectprice/100': direct(100, 'iPhone\niPhone 16 128GB Blue (eSim) — 61 000 ₽')
   };
   const requested = [];
   context.UrlFetchApp = {
@@ -262,14 +262,14 @@ test('reads permanent product posts from the current Telegram navigation without
   };
   const rows = api.tcFetchRows_('astoredirectprice');
   assert.deepEqual(Array.from(rows, row => [row.post, row.price]), [[100, 61000], [101, 70000]]);
-  assert.deepEqual(requested, ['https://t.me/s/astoredirectprice', 'https://t.me/astoredirectprice/100', 'https://t.me/astoredirectprice/101']);
+  assert.deepEqual(requested, ['https://t.me/s/astoredirectprice', 'https://t.me/s/astoredirectprice/100', 'https://t.me/s/astoredirectprice/101']);
 });
 
 test('does not duplicate an item linked twice in Telegram navigation', () => {
   const navigation = '<div class="tgme_widget_message_wrap"><div data-post="astoredirectprice/102"></div><div class="tgme_widget_message_text">Навигация по прайсу</div><a href="https://t.me/astoredirectprice/101">iPhone</a><a href="https://t.me/astoredirectprice/101">duplicate</a></div>';
   const pages = {
     'https://t.me/s/astoredirectprice': navigation,
-    'https://t.me/astoredirectprice/101': '<meta property="og:description" content="iPhone&#10;iPhone 17 256GB Black (eSim) — 70 000 ₽">'
+    'https://t.me/s/astoredirectprice/101': '<div class="tgme_widget_message_wrap"><div data-post="astoredirectprice/101"></div><div class="tgme_widget_message_text">iPhone<br>iPhone 17 256GB Black (eSim) — 70 000 ₽</div></div>'
   };
   context.UrlFetchApp = { fetch(url) { return { getResponseCode: () => 200, getContentText: () => pages[url] || '' }; } };
   assert.equal(api.tcFetchRows_('astoredirectprice').length, 1);

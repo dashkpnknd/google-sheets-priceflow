@@ -392,7 +392,9 @@ function tcTelegramPages_(urls, channel) {
 
 /** Downloads the exact, permanent product posts listed in navigation. */
 function tcTelegramDirectPosts_(postIds, channel) {
-  const requests = postIds.map(function(post) { return { url:'https://t.me/' + channel + '/' + post, muteHttpExceptions:true }; });
+  // `/s/<channel>/<post>` returns the complete post markup. The shorter
+  // `/channel/<post>` OpenGraph page truncates long product catalogues.
+  const requests = postIds.map(function(post) { return { url:'https://t.me/s/' + channel + '/' + post, muteHttpExceptions:true }; });
   let responses;
   try {
     responses = UrlFetchApp.fetchAll ? UrlFetchApp.fetchAll(requests) : requests.map(function(request) { return UrlFetchApp.fetch(request.url, request); });
@@ -462,8 +464,9 @@ function tcDirectPostText_(html, targetPost) {
     const post = /data-post="[^/]+\/(\d+)"/i.exec(chunks[index]), body = /<div class="tgme_widget_message_text[^>]*>([\s\S]*?)<\/div>/i.exec(chunks[index]);
     if (post && body && String(post[1]) === String(targetPost)) return tcHtml_(body[1]);
   }
-  // `https://t.me/<channel>/<post>` serves an OpenGraph document rather than
-  // preview-message markup. Its description is the complete post text.
+  // Fallback for a direct OpenGraph page when preview-message markup is not
+  // available. The normal `/s/<channel>/<post>` request above is preferred,
+  // because OpenGraph descriptions can truncate long catalogues.
   const description = /<meta\s+(?:property|name)="(?:og:description|twitter:description)"\s+content="([\s\S]*?)"\s*\/?>/i.exec(String(html || ''));
   return description ? tcHtml_(description[1]) : '';
 }
@@ -656,7 +659,7 @@ function tcColor_(value) {
     ['ultramarine','ультрамарин'],['graphite','графитовый'],['coral','коралловый'],['teal','бирюзовый'],['lavender','лавандовый'],['violet','фиолетовый'],['indigo','индиго'],['titanium','титан'],['porcelain','фарфоровый'],['hazel','ореховый'],['aloe','алоэ'],['peony','пионовый'],['wintergreen','зимний зеленый'],['charcoal','угольный'],['sage','шалфейный'],['mint','мятный'],['cream','кремовый'],
     ['lemongrass','лимонный'],['obsidian','обсидиан'],['snow','белый'],['bay','голубой'],['fog','серый'],['midnight','полночный'],['starlight','сияющая звезда'],['natural','натуральный'],['desert','пустынный'],
     ['черный','черный'],['белый','белый'],['синий','синий'],['голубой','голубой'],['зеленый','зеленый'],['розовый','розовый'],['желтый','желтый'],['серебристый','серебристый'],['серебряный','серебристый'],['серый','серый'],['оранжевый','оранжевый'],['фиолетовый','фиолетовый'],['лавандовый','лавандовый'],['бирюзовый','бирюзовый'],['графитовый','графитовый'],['коралловый','коралловый'],['красный','красный'],['золотистый','золотистый'],
-    ['black','черный'],['white','белый'],['blue','синий'],['green','зеленый'],['pink','розовый'],['yellow','желтый'],['silver','серебристый'],['gray','серый'],['grey','серый'],['orange','оранжевый'],['purple','фиолетовый'],['violet','фиолетовый'],['red','красный'],['gold','золотистый']
+    ['black','черный'],['white','белый'],['blue','синий'],['green','зеленый'],['pink','розовый'],['yellow','желтый'],['silver','серебристый'],['gray','серый'],['grey','серый'],['orange','оранжевый'],['purple','фиолетовый'],['violet','фиолетовый'],['red','красный'],['burgundy','красный'],['gold','золотистый']
   ];
   const padded = ' ' + v + ' ';
   const hit = colors.find(function(pair) { return padded.indexOf(' ' + pair[0] + ' ') >= 0; });
