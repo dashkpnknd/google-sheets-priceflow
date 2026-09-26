@@ -115,12 +115,13 @@ class CatalogPriceParserTests(unittest.TestCase):
     def test_watch_fixed_section_accepts_its_confirmed_no_dash_price_layout(self):
         rows = parse_post(
             "top_resale", 13,
-            "Apple Watch Series 12 (2026) 42mm Dark Bronze 39 990",
+            "Apple Watch S12 46 Space Gray AC Navy Blue Sport Band S/M MJEH4 48000",
             "2026-09-26T00:00:00+00:00", "Apple Watch",
         )
         self.assertEqual(rows[0]["category"], "часы")
-        self.assertEqual(rows[0]["title"], "Apple Watch Series 12 (2026) 42mm Dark Bronze")
-        self.assertEqual(rows[0]["price"], 39990)
+        self.assertEqual(rows[0]["title"], "Apple Watch S12 46 Space Gray AC Navy Blue Sport Band S/M MJEH4")
+        self.assertEqual(rows[0]["price"], 48000)
+        self.assertEqual(category("Apple Watch Sport Band Black"), "аксессуары")
 
     def test_top_resale_fixed_menu_covers_every_visible_product_section(self):
         required = {7, 8, 10, 12, 13, 15, 16, 17, 1495, 1496, 3126, 4006, 4007, 4021, 4203}

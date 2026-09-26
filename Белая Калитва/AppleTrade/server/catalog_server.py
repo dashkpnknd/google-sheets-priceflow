@@ -34,6 +34,11 @@ PRICE = re.compile(r"^\s*(?P<title>.+?)\s*(?:—|–|-)\s*(?P<price>\d[\d\s.]{2,
 # This fallback is deliberately restricted to the Dyson sections below; using
 # it globally would mistake capacities and model numbers for prices.
 TRAILING_PRICE = re.compile(r"^\s*(?P<title>.+?\D)\s+(?P<price>\d[\d\s.]{2,})\s*(?:₽|р\.?|rub)?\s*$", re.I)
+# Apple Watch rows can end in an alphanumeric Apple part number (`MJEH4`),
+# followed by a plain rouble price.  The generic trailing-price parser keeps
+# a non-digit title ending to protect capacities; this one is used only for
+# the confirmed Watch section.
+WATCH_TRAILING_PRICE = re.compile(r"^\s*(?P<title>.+?)\s+(?P<price>\d{4,6})\s*(?:₽|р\.?|rub)?\s*$", re.I)
 HEAD = re.compile(r"\b(iphone|ipad|macbook|imac|apple\s*watch|airpods|galaxy|samsung|xiaomi|redmi|asus|dyson|ray[ -]?ban|ps\s*[345]|playstation|xbox|dji|gopro|insta360|canon|fujifilm)\b", re.I)
 MESSAGE_LINK = re.compile(r"(?:https?://)?t\.me/(?:c/\d+/|[A-Za-z0-9_]+/)(\d+)(?:[/?#].*)?$", re.I)
 PRICE_HINT = re.compile(r"(?:—|–|-)\s*\d[\d\s.]{2,}\s*(?:₽|р\.?|rub)?", re.I)
@@ -89,6 +94,9 @@ def category(title: str) -> str | None:
     # A charging-capable AirPods model is still a headphone, not an accessory.
     # This must precede the generic charger rule below.
     if "airpods" in t or "buds" in t or any(x in t for x in ("marshall", "jbl", "harman")): return "наушники"
+    # A watch SKU can include the band name.  The actual watch model and case
+    # size take priority over that accessory word; a standalone band does not.
+    if re.search(r"\b(?:apple\s*)?watch\s+(?:(?:s|series|se)\s*\d+|ultra\s*\d+)|\b(?:s|series|se)\s*\d+\s+\d{2}mm\b|\bultra\s*\d+\s+49mm\b", t): return "часы"
     # Source-menu categories.  Accessories must be checked before phones:
     # a Samsung charger must never be catalogued as a Samsung phone.
     if re.search(r"\b(accessor(?:y|ies)|case|bumper|wallet|magsafe|folio|pencil|strap|band|charger|cable|adapter|powerbank|gamepad|controller)\b|чехол|стекло|кабель|заряд|адаптер|держател|ремеш|пауэрбанк", t): return "аксессуары"
@@ -230,8 +238,10 @@ def parse_post(source: str, message_id: int, text: str, published_at: str, secti
         # product and its price without a dash.  Keep this fallback strictly
         # scoped to those known sections so capacities elsewhere never become
         # accidental prices.
-        if not match and re.match(r"^(dyson|apple\s*watch)", norm(section_context)):
+        if not match and norm(section_context).startswith("dyson"):
             match = TRAILING_PRICE.match(line)
+        if not match and re.match(r"^apple\s*watch", norm(section_context)):
+            match = WATCH_TRAILING_PRICE.match(line)
         if not match:
             if HEAD.search(line) and len(line) < 100: context = line.rstrip(":")
             continue
