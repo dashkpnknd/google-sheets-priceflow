@@ -247,25 +247,29 @@ test('recognises declared continuation labels in a price section', () => {
   assert.equal(api.tcContinuationInfo_('📱 iPhone (часть 3/3)\n17 128GB Black — 70 000 ₽').part, 3);
 });
 
-test('reads every Telegram history page, including product posts absent from navigation', () => {
-  const message = (id, text) => '<div class="tgme_widget_message_wrap"><div data-post="astoredirectprice/' + id + '"></div><div class="tgme_widget_message_text">' + text.replace(/\n/g, '<br>') + '</div></div>';
+test('reads permanent product posts from the current Telegram navigation without ?before history', () => {
+  const navigation = '<div class="tgme_widget_message_wrap"><div data-post="astoredirectprice/102"></div><div class="tgme_widget_message_text">Навигация по прайсу</div><a href="https://t.me/astoredirectprice/101">iPhone</a><a href="https://t.me/astoredirectprice/100">iPad</a></div>';
+  const direct = (text) => '<meta property="og:description" content="' + text.replace(/\n/g, '&#10;') + '">';
   const pages = {
-    'https://t.me/s/astoredirectprice': message(102, 'Навигация по прайсу') + message(101, 'iPhone\niPhone 17 256GB Black (eSim) — 70 000 ₽') + '<a href="/s/astoredirectprice?before=100" class="tme_messages_more">more</a>',
-    'https://t.me/s/astoredirectprice?before=100': message(100, 'iPhone\niPhone 16 128GB Blue (eSim) — 61 000 ₽'),
-    'https://t.me/s/astoredirectprice?before=80': ''
+    'https://t.me/s/astoredirectprice': navigation,
+    'https://t.me/astoredirectprice/101': direct('iPhone\niPhone 17 256GB Black (eSim) — 70 000 ₽'),
+    'https://t.me/astoredirectprice/100': direct('iPhone\niPhone 16 128GB Blue (eSim) — 61 000 ₽')
   };
-  context.UrlFetchApp = { fetch(url) { return { getResponseCode: () => 200, getContentText: () => pages[url] || '' }; } };
+  const requested = [];
+  context.UrlFetchApp = {
+    fetch(url) { requested.push(url); return { getResponseCode: () => 200, getContentText: () => pages[url] || '' }; },
+    fetchAll() { throw new Error('Address unavailable'); }
+  };
   const rows = api.tcFetchRows_('astoredirectprice');
-  assert.deepEqual(Array.from(rows, row => [row.post, row.price]), [['101', 70000], ['100', 61000]]);
-  assert.match(source, /every post in the public channel is an active price/);
+  assert.deepEqual(Array.from(rows, row => [row.post, row.price]), [[100, 61000], [101, 70000]]);
+  assert.deepEqual(requested, ['https://t.me/s/astoredirectprice', 'https://t.me/astoredirectprice/100', 'https://t.me/astoredirectprice/101']);
 });
 
-test('does not duplicate a Telegram post repeated at a page boundary', () => {
-  const message = (id) => '<div class="tgme_widget_message_wrap"><div data-post="astoredirectprice/' + id + '"></div><div class="tgme_widget_message_text">iPhone\niPhone 17 256GB Black (eSim) — 70 000 ₽</div></div>';
+test('does not duplicate an item linked twice in Telegram navigation', () => {
+  const navigation = '<div class="tgme_widget_message_wrap"><div data-post="astoredirectprice/102"></div><div class="tgme_widget_message_text">Навигация по прайсу</div><a href="https://t.me/astoredirectprice/101">iPhone</a><a href="https://t.me/astoredirectprice/101">duplicate</a></div>';
   const pages = {
-    'https://t.me/s/astoredirectprice': message(101) + '<a href="/s/astoredirectprice?before=100" class="tme_messages_more">more</a>',
-    'https://t.me/s/astoredirectprice?before=100': message(101),
-    'https://t.me/s/astoredirectprice?before=80': ''
+    'https://t.me/s/astoredirectprice': navigation,
+    'https://t.me/astoredirectprice/101': '<meta property="og:description" content="iPhone&#10;iPhone 17 256GB Black (eSim) — 70 000 ₽">'
   };
   context.UrlFetchApp = { fetch(url) { return { getResponseCode: () => 200, getContentText: () => pages[url] || '' }; } };
   assert.equal(api.tcFetchRows_('astoredirectprice').length, 1);
