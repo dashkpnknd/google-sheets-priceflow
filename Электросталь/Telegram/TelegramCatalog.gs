@@ -843,7 +843,18 @@ function tcPhone_(value) {
   const memory = specs ? null : /(?:^|\s)(\d{1,4})\s?(гб|gb|тб|tb)(?=\s|$)/i.exec(text);
   const unit = function(amount, suffix) { return amount + ' ' + suffix.toUpperCase().replace('GB', 'ГБ').replace('TB', 'ТБ'); };
   const sim = /\b(?:2\s*(?:sim|сим)|dual\s*-?\s*sim)\b/i.test(text) ? '2 SIM' : /sim\s*\+\s*e\s*-?sim/i.test(text) ? 'SIM + eSIM' : /e\s*-?sim/i.test(text) ? 'eSIM' : /\bsim\b/i.test(text) ? 'SIM' : '';
-  return { model: tcModel_(text), memory: specs ? unit(specs[2], specs[3] || 'GB') : memory ? unit(memory[1], memory[2]) : '', ram: specs ? unit(specs[1], 'GB') : '', color: tcColor_(text), config: sim, country: tcCountry_(text), technical: tcAndroidTechnicalModifiers_(text) };
+  const modelName = tcModel_(text), memorySize = specs ? unit(specs[2], specs[3] || 'GB') : memory ? unit(memory[1], memory[2]) : '';
+  return { model: modelName, memory: memorySize, ram: specs ? unit(specs[1], 'GB') : tcKnownPixelRam_(modelName, memorySize), color: tcColor_(text), config: sim, country: tcCountry_(text), technical: tcAndroidTechnicalModifiers_(text) };
+}
+/** The supplier omits RAM in these exact Pixel 11 SKUs. Their RAM is
+ * confirmed by the 06.11.2026 supplier spreadsheet; other Pixel SKUs stay
+ * unknown rather than borrowing a configuration from another variant. */
+function tcKnownPixelRam_(model, memory) {
+  const key = tcNorm_(model), storage = tcNorm_(memory);
+  if (key === 'pixel 11 pro' && storage === '1 тб') return '16 ГБ';
+  if (key === 'pixel 11 pro xl' && /^(?:512 гб|1 тб)$/.test(storage)) return '16 ГБ';
+  if (key === 'pixel 11 pro fold' && /^(?:256 гб|512 гб|1 тб)$/.test(storage)) return '16 ГБ';
+  return '';
 }
 function tcModel_(value) {
   const text = String(value || '').replace(/\(\s*asis\s*\)/gi, ' ').replace(/\s+/g, ' ').trim();
@@ -877,6 +888,19 @@ function tcCountry_(value) { const flag = /(🇺🇸|🇯🇵|🇭🇰|🇰🇷|
 function tcColorKey_(value) { return tcNorm_(value).replace(/ё/g, 'е').replace(/[^a-zа-я0-9]+/gi, ' ').replace(/\s+/g, ' ').trim(); }
 function tcColor_(value) {
   const v = tcColorKey_(value);
+  // Supplier finish names confirmed against the existing Android target rows.
+  if (/galaxy\s+s25\s+ultra\b/.test(v) && /\bwhitesilver\b/.test(v)) return 'белый';
+  if (/galaxy\s+s25\s+ultra\b/.test(v) && /\btitanium\s+silverblue\b/.test(v)) return 'синий';
+  if (/galaxy\s+s25\b/.test(v) && /\bsilver\s+shadow\b/.test(v)) return 'серый';
+  if (/galaxy\s+z\s*(?:fold|flip)\s*8\b/.test(v) && /\bgraphite\b/.test(v)) return 'серый';
+  if (/\bpixel\s+11\b/.test(v)) {
+    if (/\bcanyon\b/.test(v)) return 'оранжевый';
+    if (/\bolive\b/.test(v)) return 'зеленый';
+    if (/\bfog\b/.test(v)) return 'серый';
+  }
+  if (/\bhonor\s+400(?:\s+pro)?\b/.test(v)) {
+    if (/\btidal\s+blue\b/.test(v) || /\bhonor\s+400\s+12\s+512\s+гб\s+blue\b/.test(v)) return 'голубой';
+  }
   if (/\biphone\s+duo\b/i.test(v)) {
     if (/\bstar\s+white\b/i.test(v)) return 'белый';
     if (/\bnight\s+sky\b/i.test(v)) return 'синий';

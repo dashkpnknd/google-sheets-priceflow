@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
-const source = fs.readFileSync(new URL('./PriceFlowAvitoMatcher.gs', import.meta.url), 'utf8') + '\n' + fs.readFileSync(new URL('./PriceFlowTemplateMatcher.gs', import.meta.url), 'utf8') + '\n' + fs.readFileSync(new URL('./TelegramCatalog.gs', import.meta.url), 'utf8') + `
+const source = fs.readFileSync(new URL('../../PriceFlowAvitoMatcher.gs', import.meta.url), 'utf8') + '\n' + fs.readFileSync(new URL('../../PriceFlowTemplateMatcher.gs', import.meta.url), 'utf8') + '\n' + fs.readFileSync(new URL('./TelegramCatalog.gs', import.meta.url), 'utf8') + `
 globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcModel_,tcColor_,tcAndroidTechnicalModifiers_,tcLayouts_,tcLayoutFor_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcApplyElektrostalMarkup_,tcElektrostalMarkupAmount_,tcExpand_,tcFetchRows_,tcNavigationPostIds_,tcTelegramNavigationRows_,tcParsePreview_,tcContinuationInfo_,tcEligibleForCatalogue_,tcEnsureTrigger_,tcSchedulePriceTemplateSync_,PriceFlowAvitoMatcher,PriceFlowTemplateMatcher};`;
 const parseCsv = (value) => String(value).trim().split(/\r?\n/).map((line) => {
   const cells = []; let current = ''; let quoted = false;
@@ -368,4 +368,35 @@ test('reads continuation posts next to a current navigation link', () => {
   const rows = api.tcTelegramNavigationRows_('astoredirectprice', [100]);
   assert.deepEqual([...rows.map(row => row.post)], ['100','101']);
   assert.deepEqual([...rows.map(row => api.tcPhone_(row.name).model)], ['Honor magic 8 pro','Honor 600 pro']);
+});
+
+test('maps confirmed Android supplier finishes to the existing target colours', () => {
+  const finishes = [
+    ['Galaxy S25 12/256 ГБ Silver Shadow', 'серый'],
+    ['Galaxy S25 Ultra 12/256 ГБ Whitesilver', 'белый'],
+    ['Galaxy S25 Ultra 12/512 ГБ Titanium Silverblue', 'синий'],
+    ['Galaxy Z Fold 8 Ultra 12/256 ГБ Graphite', 'серый'],
+    ['Galaxy Z Flip 8 12/512 ГБ Graphite', 'серый'],
+    ['Pixel 11 Pro 12/256 ГБ Canyon', 'оранжевый'],
+    ['Pixel 11 Pro XL 512 ГБ Olive', 'зеленый'],
+    ['Pixel 11 Pro XL 512 ГБ Fog', 'серый'],
+    ['Honor 400 12/512 ГБ Blue', 'голубой'],
+    ['Honor 400 Pro 12/512 ГБ Tidal Blue', 'голубой']
+  ];
+  finishes.forEach(([title, expected]) => assert.equal(api.tcPhone_(title).color, expected, title));
+  assert.equal(api.tcPhone_('Galaxy S26 Ultra 12/256 ГБ Graphite').color, 'черный');
+});
+
+test('fills RAM only for Pixel 11 variants confirmed by the supplier spreadsheet', () => {
+  const known = [
+    'Pixel 11 Pro 1 ТБ Obsidian',
+    'Pixel 11 Pro XL 512 ГБ Olive',
+    'Pixel 11 Pro XL 1 ТБ Obsidian',
+    'Pixel 11 Pro Fold 256 ГБ Obsidian',
+    'Pixel 11 Pro Fold 512 ГБ Obsidian',
+    'Pixel 11 Pro Fold 1 ТБ Obsidian'
+  ];
+  known.forEach(title => assert.equal(api.tcPhone_(title).ram, '16 ГБ', title));
+  assert.equal(api.tcPhone_('Pixel 11 Pro XL 256 ГБ Obsidian').ram, '');
+  assert.equal(api.tcPhone_('Pixel 10 Pro Fold 512 ГБ Obsidian').ram, '');
 });
