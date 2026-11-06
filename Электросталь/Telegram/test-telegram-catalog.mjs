@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
-const source = fs.readFileSync(new URL('../../PriceFlowAvitoMatcher.gs', import.meta.url), 'utf8') + '\n' + fs.readFileSync(new URL('../../PriceFlowTemplateMatcher.gs', import.meta.url), 'utf8') + '\n' + fs.readFileSync(new URL('./TelegramCatalog.gs', import.meta.url), 'utf8') + `
-globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcModel_,tcColor_,tcAndroidTechnicalModifiers_,tcLayouts_,tcLayoutFor_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcApplyElektrostalMarkup_,tcElektrostalMarkupAmount_,tcExpand_,tcFetchRows_,tcNavigationPostIds_,tcParsePreview_,tcContinuationInfo_,tcEligibleForCatalogue_,tcEnsureTrigger_,tcSchedulePriceTemplateSync_,PriceFlowAvitoMatcher,PriceFlowTemplateMatcher};`;
+const source = fs.readFileSync(new URL('./PriceFlowAvitoMatcher.gs', import.meta.url), 'utf8') + '\n' + fs.readFileSync(new URL('./PriceFlowTemplateMatcher.gs', import.meta.url), 'utf8') + '\n' + fs.readFileSync(new URL('./TelegramCatalog.gs', import.meta.url), 'utf8') + `
+globalThis.API={tcChannel_,tcCategory_,tcPhone_,tcModel_,tcColor_,tcAndroidTechnicalModifiers_,tcLayouts_,tcLayoutFor_,tcTargetRow_,tcParsePost_,tcLine_,tcSummary_,tcProductSort_,tcApplyElektrostalMarkup_,tcElektrostalMarkupAmount_,tcExpand_,tcFetchRows_,tcNavigationPostIds_,tcTelegramNavigationRows_,tcParsePreview_,tcContinuationInfo_,tcEligibleForCatalogue_,tcEnsureTrigger_,tcSchedulePriceTemplateSync_,PriceFlowAvitoMatcher,PriceFlowTemplateMatcher};`;
 const parseCsv = (value) => String(value).trim().split(/\r?\n/).map((line) => {
   const cells = []; let current = ''; let quoted = false;
   for (let index = 0; index < line.length; index++) {
@@ -21,10 +21,16 @@ const context = {
   ScriptApp: {
     getProjectTriggers: () => scheduledTriggers.slice(),
     deleteTrigger: (trigger) => { const index = scheduledTriggers.indexOf(trigger); if (index >= 0) scheduledTriggers.splice(index, 1); },
-    newTrigger: (handler) => ({ timeBased: () => ({
-      everyHours: () => ({ create: () => scheduledTriggers.push({ handler, mode:'recurring', getHandlerFunction() { return handler; } }) }),
-      after: (delay) => ({ create: () => scheduledTriggers.push({ handler, mode:'once', delay, getHandlerFunction() { return handler; } }) })
-    }) })
+    newTrigger: (handler) => ({ timeBased: () => {
+      let hour = null;
+      const builder = {
+        atHour(value) { hour = value; return this; },
+        everyDays() { return this; },
+        create() { scheduledTriggers.push({ handler, mode:'recurring', hour, getHandlerFunction() { return handler; } }); },
+        after(delay) { return { create: () => scheduledTriggers.push({ handler, mode:'once', delay, getHandlerFunction() { return handler; } }) }; }
+      };
+      return builder;
+    } })
   }
 };
 vm.createContext(context); vm.runInContext(source, context);
@@ -52,7 +58,7 @@ test('runs client-template reconciliation as a later one-off stage', () => {
   api.tcSchedulePriceTemplateSync_(60000);
   assert.deepEqual(JSON.parse(JSON.stringify(scheduledTriggers.map((trigger) => [trigger.handler, trigger.mode, trigger.delay]))), [['syncTelegramPriceTemplate', 'once', 60000]]);
   api.tcEnsureTrigger_();
-  assert.deepEqual(JSON.parse(JSON.stringify(scheduledTriggers.map((trigger) => [trigger.handler, trigger.mode]))), [['syncTelegramCatalog', 'recurring']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(scheduledTriggers.map((trigger) => [trigger.handler, trigger.mode, trigger.hour]))), [[0,5,10,15,20].map(hour => ['syncTelegramCatalog', 'recurring', hour])].flat());
 });
 
 test('uses the shared template matcher and the agreed pair of Elektrostal books', () => {
@@ -185,27 +191,26 @@ test('recognises declared continuation labels in a price section', () => {
 });
 
 test('reads every Telegram history page, including product posts absent from navigation', () => {
-  const message = (id, text) => '<div class="tgme_widget_message_wrap"><div data-post="astoredirectprice/' + id + '"></div><div class="tgme_widget_message_text">' + text.replace(/\n/g, '<br>') + '</div></div>';
+  const message = (id, text) => '<div class="tgme_widget_message_wrap"><div data-post="testchannel/' + id + '"></div><div class="tgme_widget_message_text">' + text.replace(/\n/g, '<br>') + '</div></div>';
   const pages = {
-    'https://t.me/s/astoredirectprice': message(102, 'Навигация по прайсу') + message(101, 'iPhone\niPhone 17 256GB Black (eSim) — 70 000 ₽') + '<a href="/s/astoredirectprice?before=100" class="tme_messages_more">more</a>',
-    'https://t.me/s/astoredirectprice?before=100': message(100, 'iPhone\niPhone 16 128GB Blue (eSim) — 61 000 ₽'),
-    'https://t.me/s/astoredirectprice?before=80': ''
+    'https://t.me/s/testchannel': message(102, 'Навигация по прайсу') + message(101, 'iPhone\niPhone 17 256GB Black (eSim) — 70 000 ₽') + '<a href="/s/testchannel?before=100" class="tme_messages_more">more</a>',
+    'https://t.me/s/testchannel?before=100': message(100, 'iPhone\niPhone 16 128GB Blue (eSim) — 61 000 ₽'),
+    'https://t.me/s/testchannel?before=80': ''
   };
   context.UrlFetchApp = { fetch(url) { return { getResponseCode: () => 200, getContentText: () => pages[url] || '' }; } };
-  const rows = api.tcFetchRows_('astoredirectprice');
+  const rows = api.tcFetchRows_('testchannel');
   assert.deepEqual(Array.from(rows, row => [row.post, row.price]), [['101', 70000], ['100', 61000]]);
-  assert.match(source, /every post in the public channel is an active price/);
 });
 
 test('does not duplicate a Telegram post repeated at a page boundary', () => {
-  const message = (id) => '<div class="tgme_widget_message_wrap"><div data-post="astoredirectprice/' + id + '"></div><div class="tgme_widget_message_text">iPhone\niPhone 17 256GB Black (eSim) — 70 000 ₽</div></div>';
+  const message = (id) => '<div class="tgme_widget_message_wrap"><div data-post="testchannel/' + id + '"></div><div class="tgme_widget_message_text">iPhone\niPhone 17 256GB Black (eSim) — 70 000 ₽</div></div>';
   const pages = {
-    'https://t.me/s/astoredirectprice': message(101) + '<a href="/s/astoredirectprice?before=100" class="tme_messages_more">more</a>',
-    'https://t.me/s/astoredirectprice?before=100': message(101),
-    'https://t.me/s/astoredirectprice?before=80': ''
+    'https://t.me/s/testchannel': message(101) + '<a href="/s/testchannel?before=100" class="tme_messages_more">more</a>',
+    'https://t.me/s/testchannel?before=100': message(101),
+    'https://t.me/s/testchannel?before=80': ''
   };
   context.UrlFetchApp = { fetch(url) { return { getResponseCode: () => 200, getContentText: () => pages[url] || '' }; } };
-  assert.equal(api.tcFetchRows_('astoredirectprice').length, 1);
+  assert.equal(api.tcFetchRows_('testchannel').length, 1);
 });
 
 test('parses a history page and exposes the previous page cursor for full-channel reading', () => {
@@ -332,4 +337,35 @@ test('keeps Android radio attributes out of the model while preserving explicit 
   assert.equal(poco.technical, '5G NFC');
   assert.equal(api.tcModel_('Pixel 10 Pro Fold 16/512GB'), 'Pixel 10 pro fold');
   assert.notEqual(api.tcModel_('Pixel 10 Pro 16/512GB'), api.tcModel_('Pixel 10 Pro Fold 16/512GB'));
+});
+
+test('keeps Android models separate from RAM and storage, including reused ready rows', () => {
+  const cases = [
+    ['Galaxy S26+ 12/256 ГБ White', 'Galaxy s26+'],
+    ['Galaxy Z Fold 8 Ultra 16/1 ТБ Black', 'Galaxy z fold 8 ultra'],
+    ['Xiaomi 17T Pro 12/512 ГБ Black', 'Xiaomi 17t pro'],
+    ['Redmi Note 15 Pro+ 8/256 ГБ Blue', 'Redmi note 15 pro+'],
+    ['POCO X8 Pro Max 12/512 ГБ Green', 'Poco x8 pro max'],
+    ['Pixel 11 Pro Fold 16/512 ГБ Obsidian', 'Pixel 11 pro fold'],
+    ['Honor 600 Pro 12/512 ГБ Black', 'Honor 600 pro']
+  ];
+  cases.forEach(([title, expected]) => assert.equal(api.tcPhone_(title).model, expected, title));
+  assert.equal(api.tcPhone_('Honor 600 Pro 12/512 Blue').ram, '12 ГБ');
+  assert.equal(api.tcPhone_('Honor 600 Pro 12/512 Blue').memory, '512 ГБ');
+  assert.equal(api.tcModel_('Honor 600 256 256 256 256 256 ГБ черный'), 'Honor 600');
+  const layout = { start:0, model:0, sim:1, memory:2, color:3, ram:4, priceColumn:5, title:-1 };
+  const row = api.tcTargetRow_(['Model','SimConfig','MemorySize','Color','RamSize','Price'], layout,
+    { name:'Honor 600 Pro 512 ГБ черный 12 ГБ', price:45000,
+      phone:{model:'Honor 600 Pro', config:'Не знаю', memory:'512 ГБ', color:'черный', ram:'12 ГБ', technical:''} });
+  assert.deepEqual([...row], ['Honor 600 Pro','Не знаю','512 ГБ','черный','12 ГБ',45000]);
+});
+
+test('reads continuation posts next to a current navigation link', () => {
+  const message = (id, text) => '<div class="tgme_widget_message_wrap"><div data-post="astoredirectprice/' + id + '"></div><div class="tgme_widget_message_text">' + text.replace(/\n/g, '<br>') + '</div></div>';
+  const html = message(100, 'Honor Magic 8 Pro\nHonor Magic 8 Pro 12/512 ГБ Black — 77 300 ₽') +
+    message(101, 'Honor 600 Pro\nHonor 600 Pro 12/512 ГБ White — 47 000 ₽');
+  context.UrlFetchApp = { fetchAll: () => [{ getResponseCode:() => 200, getContentText:() => html }] };
+  const rows = api.tcTelegramNavigationRows_('astoredirectprice', [100]);
+  assert.deepEqual([...rows.map(row => row.post)], ['100','101']);
+  assert.deepEqual([...rows.map(row => api.tcPhone_(row.name).model)], ['Honor magic 8 pro','Honor 600 pro']);
 });
